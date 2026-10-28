@@ -16,11 +16,13 @@ public final class HomeActivity extends TvActivity {
     private boolean canDiscover;
     private HorizontalScrollView menu;
     private ScrollView homeScroll;
+    private View heroSpacer;
     private View previousFocus;
     private FocusBackdrop homeBackdrop;
     private View resumeFirst,libraryFirst;
-    private boolean resumeReady,libraryReady,initialFocusChosen;
+    private boolean resumeReady,libraryReady,initialFocusChosen,resumeLowered;
     private final List<View> homeCards=new java.util.ArrayList<>();
+    private final List<View> resumeCards=new java.util.ArrayList<>();
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);homeBackdrop=new FocusBackdrop(this);stage.addView(homeBackdrop,new FrameLayout.LayoutParams(-1,-1));
@@ -38,6 +40,10 @@ public final class HomeActivity extends TvActivity {
     private void hideMenu(){menu.setVisibility(View.GONE);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         if(event.getAction()==KeyEvent.ACTION_DOWN){
+            if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP){
+                View focused=getCurrentFocus();View next=focused==null?null:focused.focusSearch(View.FOCUS_UP);
+                if(next!=null&&resumeCards.contains(next)){lowerResumeRow(next);return true;}
+            }
             if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()!=View.VISIBLE){View focused=getCurrentFocus();if(focused==null||focused.focusSearch(View.FOCUS_UP)==null){showMenu();return true;}}
             if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&menu.getVisibility()==View.VISIBLE){hideMenu();return true;}
         }
@@ -54,8 +60,9 @@ public final class HomeActivity extends TvActivity {
     private void loadHome(){
         mode="home";int request=++revision;content.removeAllViews();content.setPadding(0,0,0,dp(24));homeScroll.scrollTo(0,0);status.setText("");
         homeBackdrop.clear();resumeFirst=null;libraryFirst=null;resumeReady=false;libraryReady=false;initialFocusChosen=false;homeCards.clear();
+        resumeLowered=false;resumeCards.clear();
         int heroHeight=dp(getResources().getConfiguration().screenHeightDp*0.55f);
-        content.addView(new View(this),new LinearLayout.LayoutParams(-1,heroHeight));
+        heroSpacer=new View(this);content.addView(heroSpacer,new LinearLayout.LayoutParams(-1,heroHeight));
         LinearLayout resume=section("继续观看"),libraries=section("我的媒体库"),latest=column();
         LinearLayout.LayoutParams resumeLayout=(LinearLayout.LayoutParams)resume.getLayoutParams();resumeLayout.topMargin=-dp(20);resume.setLayoutParams(resumeLayout);resume.setPadding(dp(28),dp(8),dp(22),dp(2));
         latest.setPadding(0,dp(4),0,dp(8));content.addView(latest);
@@ -82,7 +89,7 @@ public final class HomeActivity extends TvActivity {
             for(JSONObject section:sections){
                 LinearLayout area=section("最新"+section.optString("Name"),target);while(area.getChildCount()>1)area.removeViewAt(1);
                 HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);GridLayout shelf=new GridLayout(this);shelf.setRowCount(1);shelf.setColumnCount(section.optJSONArray("Items").length());scroll.addView(shelf);area.addView(scroll);
-                for(JSONObject item:EtknApi.rows(section)){View card=mediaCard(shelf,item,()->detail(item),false,false,view->homeBackdrop.show(item,false));registerHomeCard(card);}
+                for(JSONObject item:EtknApi.rows(section)){View card=mediaCard(shelf,item,()->detail(item),false,false,view->onHomeCardFocused(view,item,false,false));registerHomeCard(card);}
             }
         });
     }
@@ -108,11 +115,19 @@ public final class HomeActivity extends TvActivity {
             if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);return;}
             HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);GridLayout shelf=new GridLayout(this);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
-            for(JSONObject item:items){View card=mediaCard(shelf,item,()->{if(libraries){parent=item.optString("Id");mode="items";offset=0;loadItems();}else detail(item);},landscape,resumeShelf,view->homeBackdrop.show(item,libraries));registerHomeCard(card);if(first==null)first=card;}
+            for(JSONObject item:items){View card=mediaCard(shelf,item,()->{if(libraries){parent=item.optString("Id");mode="items";offset=0;loadItems();}else detail(item);},landscape,resumeShelf,view->onHomeCardFocused(view,item,libraries,resumeShelf));registerHomeCard(card);if(resumeShelf)resumeCards.add(card);if(first==null)first=card;}
             onHomeShelfLoaded(resumeShelf,first);
         });
     }
     private void registerHomeCard(View card){if(card==null)return;if(!initialFocusChosen)card.setFocusable(false);homeCards.add(card);}
+    private void lowerResumeRow(View target){
+        if(!resumeLowered){resumeLowered=true;heroSpacer.getLayoutParams().height=dp(getResources().getConfiguration().screenHeightDp*0.68f);heroSpacer.requestLayout();}
+        homeScroll.post(()->{homeScroll.scrollTo(0,0);target.requestFocus();});
+    }
+    private void onHomeCardFocused(View card,JSONObject item,boolean library,boolean resumeShelf){
+        if(!resumeShelf&&resumeLowered){resumeLowered=false;heroSpacer.getLayoutParams().height=dp(getResources().getConfiguration().screenHeightDp*0.55f);heroSpacer.requestLayout();}
+        homeBackdrop.show(item,library);
+    }
     private void onHomeShelfLoaded(boolean resumeShelf,View first){
         if(resumeShelf){resumeFirst=first;resumeReady=true;}else{libraryFirst=first;libraryReady=true;}
         if(initialFocusChosen||!resumeReady||!libraryReady)return;
