@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-feature android:name="android.software.leanback" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <application android:allowBackup="false" android:label="ETKN TV" android:icon="@drawable/app_icon" android:banner="@drawable/tv_banner" android:theme="@style/AppTheme" android:usesCleartextTraffic="true" android:supportsRtl="true">
+        <activity android:name=".SetupActivity" android:exported="true" android:screenOrientation="landscape">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity>
+        <activity android:name=".HomeActivity" android:exported="false" android:screenOrientation="landscape" />
+        <activity android:name=".DetailActivity" android:exported="false" android:screenOrientation="landscape" />
+        <activity android:name=".DiscoveryActivity" android:exported="false" android:screenOrientation="landscape" />
+        <activity android:name=".PlayerActivity" android:exported="false" android:screenOrientation="landscape" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize" />
+        <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="landscape" />
+        <service android:name=".IngestJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" /></provider>
+    </application>
+</manifest>

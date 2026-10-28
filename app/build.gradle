@@ -1,0 +1,46 @@
+plugins { id 'com.android.application' }
+
+def signingFile = providers.environmentVariable('ETKN_TV_SIGNING_PROPERTIES').orNull
+android {
+    namespace 'xyz.etkn.tv'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'xyz.etkn.tv'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+        buildConfigField 'String', 'UPDATE_MANIFEST_URL', '"https://github.com/hbq0405/etkn-tv/releases/latest/download/update.json"'
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        if (signingFile) {
+            release {
+                def props = new Properties()
+                file(signingFile).withInputStream { props.load(it) }
+                storeFile file(props.storeFile)
+                storePassword props.storePassword
+                keyAlias props.keyAlias
+                keyPassword props.keyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signingFile) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    lint { abortOnError true }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.media3:media3-exoplayer:1.8.0'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.8.0'
+    implementation 'androidx.media3:media3-exoplayer-dash:1.8.0'
+    implementation 'androidx.media3:media3-ui:1.8.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
