@@ -10,6 +10,8 @@ import android.graphics.Rect;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.GridLayout;
+import android.widget.ScrollView;
 import androidx.test.platform.app.InstrumentationRegistry;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -53,10 +55,69 @@ public class HomeFocusTest {
         }
     }
 
+    @Test public void libraryPosterWallSortsAndLoadsMoreFromTheTop() throws Exception {
+        try(Fixture server=new Fixture()) {
+            evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"poster-wall-regression");
+            assertTrue(evidence.isDirectory()||evidence.mkdirs());
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"poster-fixture","海报墙测试","synthetic-test-session");
+            Intent intent=new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            home=(HomeActivity)instrumentation.startActivitySync(intent);
+            long deadline=System.currentTimeMillis()+20000;
+            while(System.currentTimeMillis()<deadline&&cards().size()<90)Thread.sleep(100);
+            assertEquals(90,cards().size());
+            View library=null;
+            for(View card:cards())if(((android.widget.TextView)((ViewGroup)card).getChildAt(1)).getText().toString().startsWith("媒体库 ")){library=card;break;}
+            assertNotNull("首页应提供媒体库卡片",library);
+            View selected=library;
+            ScrollView scroll=(ScrollView)field(HomeActivity.class,"homeScroll");
+            instrumentation.runOnMainSync(()->{scroll.scrollTo(0,360);selected.performClick();});
+            long itemsDeadline=System.currentTimeMillis()+20000;
+            while(System.currentTimeMillis()<itemsDeadline&&posterGrid().getChildCount()<60)Thread.sleep(100);
+            assertEquals("首批海报应懒加载 60 项",60,posterGrid().getChildCount());
+            assertEquals("进入海报墙应回到顶部",0,scroll.getScrollY());
+            String meta=((android.widget.TextView)field(HomeActivity.class,"libraryMeta")).getText().toString();
+            assertTrue(meta.contains("120 项")&&meta.contains("混合")&&meta.contains("实体库"));
+            Rect header=new Rect();assertTrue(((View)field(HomeActivity.class,"libraryMeta")).getGlobalVisibleRect(header));
+            saveScreenshot("poster-wall-entry.png");
+            View sortButton=findSort((View)field(TvActivity.class,"content"));assertNotNull(sortButton);
+            instrumentation.runOnMainSync(sortButton::performClick);settle();
+            for(int i=0;i<14;i++)key(KeyEvent.KEYCODE_DPAD_DOWN);
+            key(KeyEvent.KEYCODE_DPAD_CENTER);key(KeyEvent.KEYCODE_DPAD_UP);key(KeyEvent.KEYCODE_DPAD_CENTER);
+            long sortDeadline=System.currentTimeMillis()+20000;
+            while(System.currentTimeMillis()<sortDeadline&&!server.lastListingPath.contains("SortBy=DoubanRating"))Thread.sleep(100);
+            assertTrue("豆瓣评分排序须走 TV 专属参数",server.lastListingPath.contains("SortBy=DoubanRating"));
+            for(int i=0;i<5&&posterGrid().getChildCount()<120;i++){
+                instrumentation.runOnMainSync(()->scroll.fullScroll(View.FOCUS_DOWN));Thread.sleep(500);
+            }
+            long moreDeadline=System.currentTimeMillis()+10000;
+            while(System.currentTimeMillis()<moreDeadline&&posterGrid().getChildCount()<120)Thread.sleep(100);
+            assertEquals("滚动到底部应追加下一批而不移除首批",120,posterGrid().getChildCount());
+            int completedCalls=server.listingCalls;
+            instrumentation.runOnMainSync(()->scroll.fullScroll(View.FOCUS_UP));settle();
+            instrumentation.runOnMainSync(()->scroll.fullScroll(View.FOCUS_DOWN));settle();
+            assertEquals("全部加载后滚动不能重复请求",completedCalls,server.listingCalls);
+            View first=posterGrid().getChildAt(0);instrumentation.runOnMainSync(()->{first.requestFocus();scroll.scrollTo(0,0);});settle();
+            Rect visible=new Rect();((ViewGroup)first).getChildAt(0).getGlobalVisibleRect(visible);
+            assertFalse("海报焦点图应完整显示",visible.isEmpty());
+            Bitmap screenshot=instrumentation.getUiAutomation().takeScreenshot();
+            try(FileOutputStream file=new FileOutputStream(new File(evidence,"poster-wall.png"))){screenshot.compress(Bitmap.CompressFormat.PNG,100,file);}screenshot.recycle();
+        } finally {
+            if(home!=null)instrumentation.runOnMainSync(()->home.finish());
+            new SessionStore(instrumentation.getTargetContext()).clear();
+        }
+    }
+
+    private void saveScreenshot(String name)throws Exception{
+        Bitmap screenshot=instrumentation.getUiAutomation().takeScreenshot();
+        try(FileOutputStream file=new FileOutputStream(new File(evidence,name))){screenshot.compress(Bitmap.CompressFormat.PNG,100,file);}screenshot.recycle();
+    }
     @SuppressWarnings("unchecked") private List<View> cards(){
         try{java.lang.reflect.Field field=HomeActivity.class.getDeclaredField("homeCards");field.setAccessible(true);return (List<View>)field.get(home);}
         catch(Exception error){throw new AssertionError(error);}
     }
+    private Object field(Class<?> owner,String name){try{java.lang.reflect.Field field=owner.getDeclaredField(name);field.setAccessible(true);return field.get(home);}catch(Exception error){throw new AssertionError(error);}}
+    private GridLayout posterGrid(){return (GridLayout)field(HomeActivity.class,"posterGrid");}
+    private View findSort(View view){if(view instanceof android.widget.Button&&((android.widget.Button)view).getText().toString().startsWith("排序 ·"))return view;if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){View found=findSort(((ViewGroup)view).getChildAt(i));if(found!=null)return found;}return null;}
     private void key(int key){instrumentation.sendKeyDownUpSync(key);settle();}
     private void settle(){instrumentation.waitForIdleSync();android.os.SystemClock.sleep(400);instrumentation.waitForIdleSync();}
     private void check(String step)throws Exception{
@@ -93,6 +154,8 @@ public class HomeFocusTest {
         final byte[] image;
         volatile boolean closed;
         volatile String unexpectedPath;
+        volatile String lastListingPath="";
+        volatile int listingCalls;
         Fixture()throws Exception{
             Bitmap bitmap=Bitmap.createBitmap(640,360,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);canvas.drawColor(Color.rgb(45,80,110));
             Paint paint=new Paint();paint.setColor(Color.rgb(225,150,70));canvas.drawRect(0,0,640,18,paint);canvas.drawRect(0,342,640,360,paint);
@@ -105,7 +168,7 @@ public class HomeFocusTest {
             try(client){
                 BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));
                 String request=reader.readLine();if(request==null)return;String path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
-                if(!path.startsWith("/api/tv/"))unexpectedPath=path;
+                if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&path.contains("/Items?")){lastListingPath=path;listingCalls++;}
                 boolean picture=path.contains("/Images/");
                 byte[] body=picture?image:response(path).toString().getBytes(StandardCharsets.UTF_8);
                 OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
@@ -114,8 +177,13 @@ public class HomeFocusTest {
         JSONObject response(String path)throws Exception{
             if(path.contains("check_status"))return new JSONObject().put("user",new JSONObject().put("can_access_discovery",false));
             if(path.contains("/Users/Me"))return new JSONObject();
+            if(path.contains("/Users/")&&path.contains("/Items?")){
+                int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
+                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+60,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name","海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
+                return new JSONObject().put("Items",page).put("TotalRecordCount",120).put("EpisodeCountMode","unplayed");
+            }
             boolean libraries=path.endsWith("/Views");JSONArray items=new JSONArray();
-            for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
+            for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
             return new JSONObject().put("Items",items);
         }
         @Override public void close()throws IOException{closed=true;socket.close();}

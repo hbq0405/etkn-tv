@@ -40,3 +40,5 @@
 - 每个新的 `exec_command` 都会启动独立 PowerShell，不保证继承其它会话设置的 `ANDROID_HOME`、`JAVA_HOME` 或 `PATH`。aapt2 与 apksigner 检查曾因这些变量缺失而未能完成；确认 APK/manifest/checksum 已生成后，必须在同一命令中从 `work/android-toolchain/paths.json` 读取 SDK/JDK 路径、设置环境并运行工具。捕获 apksigner 输出时先检查 `$LASTEXITCODE`，再筛选证书摘要；不要把 Select-String 无匹配误判为签名失败，也不要因环境缺失重建或替换发行资产。
 - PowerShell 不要把长输出的原生工具直接管道到 `Select-Object -First`；提前关闭 stdout 可能使工具返回非零，即使已打印有效头部。先完整捕获输出，检查 `$LASTEXITCODE`，再从变量截取显示内容。
 - PowerShell 调用 Gradle 时，将带点号的完整 `-P` 属性作为单个引号参数，例如 `'-Pandroid.testInstrumentationRunnerArguments.class=xyz.etkn.tv.HomeFocusTest'`。未引用时曾被拆为任务名，构建在测试前失败、未改发行资产；确认状态后用完整引用参数重跑，模拟器仪器测试通过。
+
+- 仪器测试截图需在 APK 仍安装时提取；Gradle connected 测试可能在完成后卸载被测应用，外部文件目录随之消失。已验证 installDebug/installDebugAndroidTest 后直接 adb shell am instrument -w 可保留截图并 adb pull；先核对 pm list packages 与路径状态，不反复尝试同一失效目录。
