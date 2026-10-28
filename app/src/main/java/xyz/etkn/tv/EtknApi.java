@@ -75,9 +75,24 @@ final class EtknApi {
     }
     String userPath() { return "/emby/Users/" + encode(session.userId()); }
     String artwork(JSONObject media, String type, int width) {
-        JSONObject tags=media.optJSONObject("ImageTags");
-        String tag=type.equals("Backdrop")?media.optString("BackdropImageTag"):tags==null?"":tags.optString(type);
-        return server+"/emby/Items/"+encode(media.optString("Id"))+"/Images/"+type+"?maxWidth="+width+"&quality=90&tag="+encode(tag);
+        String id=media.optString("Id"),tag="";
+        if(type.equals("Backdrop")&&!media.optString("ParentBackdropItemId").isEmpty()){
+            id=media.optString("ParentBackdropItemId");org.json.JSONArray tags=media.optJSONArray("ParentBackdropImageTags");tag=tags==null?"":tags.optString(0);
+        }else if(type.equals("Logo")&&!media.optString("ParentLogoItemId").isEmpty()){
+            id=media.optString("ParentLogoItemId");tag=media.optString("ParentLogoImageTag");
+        }else{
+            JSONObject tags=media.optJSONObject("ImageTags");
+            tag=type.equals("Backdrop")?media.optString("BackdropImageTag"):tags==null?"":tags.optString(type);
+        }
+        return server+"/emby/Items/"+encode(id)+"/Images/"+type+"?maxWidth="+width+"&quality=90&tag="+encode(tag);
+    }
+    static String resumeTitle(JSONObject item) {
+        if(!"Episode".equals(item.optString("Type")))return title(item);
+        String series=item.optString("SeriesName");
+        int season=item.optInt("ParentIndexNumber",-1),episode=item.optInt("IndexNumber",-1);
+        String number=season<0||episode<0?"":"S"+season+"E"+episode+" - ";
+        String episodeTitle=number+title(item);
+        return series.isEmpty()?episodeTitle:series+"\n"+episodeTitle;
     }
     String image(JSONObject media) {
         if (!media.optString("poster_path").isEmpty()) return "https://image.tmdb.org/t/p/w342" + media.optString("poster_path");

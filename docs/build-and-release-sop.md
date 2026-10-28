@@ -33,6 +33,6 @@
 - 首次访问账号列表时迁移原有单账号 token；退出/令牌失效只移除当前账号，保留同服务器的其它保存账号。登录新账号时清除任务栈并重新创建首页，使各 API/通知使用新活动账号。
 - 只在所有创建的 ImageView 上设置圆角背景轮廓并开启 clipToOutline，覆盖媒体卡片、轮播背景和 Logo、设置页头像、菜单头像；头像使用圆形裁切。新增 ImageView 时也要补该处理。
 - ETKN 的 `/emby/Users/{id}/Items/Latest` 已支持按 `ParentId=library-*` 查询，且后端已根据媒体库 `definition_json.show_in_latest` 对关闭的库返回空列表，并继续做用户媒体库权限过滤。客户端逐库请求该路由，非空分区标题为“最新+媒体库名称”，不新增后台开关映射或绕过服务器过滤。
-- 轮播背景底部用垂直渐变过渡至首页 `INK` 底色，使下一区域继承同一底色；确保文字/焦点框仍清晰并保持渐变高度不遮挡主要内容。
-- 新开的终端/执行会话不保证继承其它会话设置的 `ANDROID_HOME` 或 `JAVA_HOME`。aapt2 与 apksigner 检查分别因变量为空而未能完成；确认 APK/manifest/checksum 已生成后，必须在同一命令中从 `work/android-toolchain/paths.json` 同时读取 SDK/JDK 路径并设置，再运行工具；不要根据此类环境缺失重建或替换发行资产。
+- 首页焦点背景底部用垂直渐变过渡至首页 `INK` 底色，使下一区域继承同一底色；确保文字/焦点框仍清晰并保持渐变高度不遮挡主要内容。
+- 每个新的 `exec_command` 都会启动独立 PowerShell，不保证继承其它会话设置的 `ANDROID_HOME`、`JAVA_HOME` 或 `PATH`。aapt2 与 apksigner 检查曾因这些变量缺失而未能完成；确认 APK/manifest/checksum 已生成后，必须在同一命令中从 `work/android-toolchain/paths.json` 读取 SDK/JDK 路径、设置环境并运行工具。捕获 apksigner 输出时先检查 `$LASTEXITCODE`，再筛选证书摘要；不要把 Select-String 无匹配误判为签名失败，也不要因环境缺失重建或替换发行资产。
 - PowerShell 不要把长输出的原生工具直接管道到 `Select-Object -First`；提前关闭 stdout 可能使工具返回非零，即使已打印有效头部。先完整捕获输出，检查 `$LASTEXITCODE`，再从变量截取显示内容。

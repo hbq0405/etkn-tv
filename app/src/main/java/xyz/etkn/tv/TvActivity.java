@@ -54,21 +54,28 @@ abstract class TvActivity extends Activity {
             catch(Exception error) { runOnUiThread(() -> { if(!isFinishing()&&!isDestroyed()) { status.setText(error.getMessage()==null?"连接失败，请重试":error.getMessage()); if(error instanceof EtknApi.AuthException) { api.session.clear(); startActivity(new Intent(this,SetupActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)); finish(); } } }); } });
     }
     void open(Class<?> activity) { startActivity(new Intent(this,activity)); }
-    void mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click) {
-        mediaCard(grid,media,click,"CollectionFolder".equals(media.optString("Type")));
+    View mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click) {
+        return mediaCard(grid,media,click,"CollectionFolder".equals(media.optString("Type")),false,null);
     }
-    void mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click, boolean landscape) {
-        LinearLayout card=column(); card.setPadding(dp(8),dp(8),dp(8),dp(8)); card.setFocusable(true); card.setClickable(true); card.setBackground(focusBackground()); card.setOnClickListener(v -> click.run());
-        ImageView poster = new ImageView(this); poster.setScaleType(ImageView.ScaleType.CENTER_CROP); Images.rounded(poster,dp(9)); card.addView(poster,new LinearLayout.LayoutParams(-1,dp(landscape?139:152)));
-        TextView title=text(EtknApi.title(media),14,Color.WHITE); title.setMaxLines(2); card.addView(title,new LinearLayout.LayoutParams(-1,dp(46)));
-        GridLayout.LayoutParams layout=new GridLayout.LayoutParams(); layout.width=dp(landscape?264:132); layout.height=dp(landscape?216:220); layout.setMargins(dp(4),dp(5),dp(4),dp(5)); grid.addView(card,layout);
+    View mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click, boolean landscape) {
+        return mediaCard(grid,media,click,landscape,false,null);
+    }
+    View mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click, boolean landscape, boolean resume, java.util.function.Consumer<View> focused) {
+        LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());
+        FrameLayout artwork=new FrameLayout(this);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        int imageHeight=landscape?139:152;card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(imageHeight)));
+        TextView title=text(resume?EtknApi.resumeTitle(media):EtknApi.title(media),14,Color.WHITE);title.setMaxLines(resume?3:2);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,dp(resume?66:46)));
+        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(landscape?264:132);layout.height=dp(landscape?215:202);layout.setMargins(dp(4),dp(5),dp(4),dp(5));grid.addView(card,layout);
         String image=landscape&&!"CollectionFolder".equals(media.optString("Type"))?api.artwork(media,"Backdrop",640):api.image(media);
         Images.load(api,image,poster,success->{if(!success&&!image.equals(api.image(media)))Images.load(api,api.image(media),poster);});
+        card.setOnFocusChangeListener((view,hasFocus)->{poster.setScaleX(hasFocus?1.025f:1f);poster.setScaleY(hasFocus?1.025f:1f);poster.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
         org.json.JSONObject data=media.optJSONObject("UserData");
         if(landscape&&data!=null&&data.optLong("PlaybackPositionTicks")>0&&media.optLong("RunTimeTicks")>0){
-            ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setProgress((int)Math.min(1000,1000.0*data.optLong("PlaybackPositionTicks")/media.optLong("RunTimeTicks")));card.addView(progress,new LinearLayout.LayoutParams(-1,dp(4)));
+            ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setProgress((int)Math.min(1000,1000.0*data.optLong("PlaybackPositionTicks")/media.optLong("RunTimeTicks")));progress.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.argb(180,0,0,0)));FrameLayout.LayoutParams bar=new FrameLayout.LayoutParams(-1,dp(4),android.view.Gravity.BOTTOM);artwork.addView(progress,bar);
         }
+        return card;
     }
+    private android.graphics.drawable.Drawable focusOutline(){android.graphics.drawable.GradientDrawable outline=new android.graphics.drawable.GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setCornerRadius(dp(9));outline.setStroke(dp(2),ACCENT);return outline;}
     GridLayout grid() { return grid(content); }
     GridLayout grid(LinearLayout target) { GridLayout grid=new GridLayout(this); int width=getResources().getConfiguration().screenWidthDp; grid.setColumnCount(Math.max(3,(width-72)/140)); target.addView(grid); return grid; }
     void loadAvatar(ImageView view) {
