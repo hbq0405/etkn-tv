@@ -31,12 +31,17 @@ final class RecommendationHero extends FrameLayout {
         super(activity); this.activity = activity; this.items = items;
         setFocusable(true); setClickable(true); setContentDescription("为你推荐，左右切换，确定查看详情");
         setBackground(activity.focusBackground()); setPadding(activity.dp(3),activity.dp(3),activity.dp(3),activity.dp(3));
-        backdrop = new ImageView(activity); backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        setClipToOutline(true);
+        backdrop = new ImageView(activity); backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,activity.dp(10));
         addView(backdrop, new LayoutParams(-1,-1));
         View shade = new View(activity);
         shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{Color.rgb(9,17,25),Color.argb(190,9,17,25),Color.argb(20,9,17,25)}));
         addView(shade,new LayoutParams(-1,-1));
+        View bottomFade=new View(activity);
+        bottomFade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{Color.TRANSPARENT,Color.argb(150,Color.red(TvActivity.INK),Color.green(TvActivity.INK),Color.blue(TvActivity.INK)),TvActivity.INK}));
+        addView(bottomFade,new LayoutParams(-1,activity.dp(210),Gravity.BOTTOM));
         LinearLayout copy = activity.column(); copy.setGravity(Gravity.CENTER_VERTICAL);
         copy.setPadding(activity.dp(28),activity.dp(15),activity.dp(24),activity.dp(15));
         addView(copy,new LayoutParams(activity.dp(510),-1,Gravity.START));
@@ -45,7 +50,7 @@ final class RecommendationHero extends FrameLayout {
         copy.addView(identity,new LinearLayout.LayoutParams(-1,activity.dp(86)));
         title = activity.text("",32,Color.WHITE); title.setTypeface(null,Typeface.BOLD); title.setMaxLines(2);
         identity.addView(title,new LayoutParams(-1,-1));
-        logo = new ImageView(activity); logo.setScaleType(ImageView.ScaleType.FIT_START); logo.setVisibility(GONE);
+        logo = new ImageView(activity); logo.setScaleType(ImageView.ScaleType.FIT_START); Images.rounded(logo,activity.dp(7));logo.setVisibility(GONE);
         identity.addView(logo,new LayoutParams(activity.dp(330),activity.dp(80),Gravity.CENTER_VERTICAL));
         metadata=activity.text("",13,TvActivity.ACCENT); copy.addView(metadata);
         overview=activity.text("",14,Color.rgb(216,226,236));overview.setMaxLines(3);copy.addView(overview);

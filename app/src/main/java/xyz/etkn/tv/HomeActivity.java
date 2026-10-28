@@ -5,6 +5,7 @@ import android.view.View;
 import android.view.KeyEvent;
 import android.view.Gravity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.widget.*;
 import org.json.JSONObject;
 import java.util.List;
@@ -29,7 +30,7 @@ public final class HomeActivity extends TvActivity {
         setContentView(stage);refreshNavigation();loadHome();
     }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
-    private void showMenu(){previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>1)nav.getChildAt(1).requestFocus();}
+    private void showMenu(){previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
     private void hideMenu(){menu.setVisibility(View.GONE);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         if(event.getAction()==KeyEvent.ACTION_DOWN){
@@ -40,8 +41,10 @@ public final class HomeActivity extends TvActivity {
     }
     @Override protected void onResume(){super.onResume();async(()->api.get("/api/auth/check_status"),result->{JSONObject user=result.optJSONObject("user");boolean allowed=user!=null&&user.optBoolean("can_access_discovery");if(canDiscover!=allowed){canDiscover=allowed;refreshNavigation();}});}
     private void refreshNavigation(){
-        nav.removeAllViews();ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);avatar.setContentDescription("当前用户头像");
-        LinearLayout.LayoutParams face=new LinearLayout.LayoutParams(dp(38),dp(38));face.setMargins(0,dp(8),dp(12),0);nav.addView(avatar,face);loadAvatar(avatar);
+        nav.removeAllViews();FrameLayout account=new FrameLayout(this);account.setBackground(focusBackground());account.setFocusable(true);account.setClickable(true);account.setContentDescription("当前用户头像，按确定切换账号或登录新用户");
+        ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(19));
+        FrameLayout.LayoutParams image=new FrameLayout.LayoutParams(dp(38),dp(38),Gravity.CENTER);account.addView(avatar,image);
+        LinearLayout.LayoutParams face=new LinearLayout.LayoutParams(dp(52),dp(54));face.setMargins(0,dp(4),dp(8),0);nav.addView(account,face);account.setOnClickListener(view->{hideMenu();showAccounts();});loadAvatar(avatar);
         nav("首页",this::loadHome);nav("媒体库",this::loadLibraries);nav("继续观看",()->{mode="resume";parent="";offset=0;loadItems();});nav("搜索",this::search);if(canDiscover)nav("影视探索",()->open(DiscoveryActivity.class));nav("设置",()->open(SettingsActivity.class));
     }
     private void loadHome(){
@@ -49,7 +52,9 @@ public final class HomeActivity extends TvActivity {
         int heroHeight=dp(getResources().getConfiguration().screenHeightDp*0.60f);
         LinearLayout heroArea=column();heroArea.setGravity(Gravity.CENTER);heroArea.setFocusable(true);
         content.addView(heroArea,new LinearLayout.LayoutParams(-1,heroHeight));heroArea.addView(text("正在读取你的观影推荐…",17,MUTED));heroArea.requestFocus();
-        LinearLayout resume=section("继续观看"),libraries=section("我的媒体库"),latest=section("最新入库");
+        LinearLayout resume=section("继续观看"),libraries=section("我的媒体库"),latest=column();
+        LinearLayout.LayoutParams resumeLayout=(LinearLayout.LayoutParams)resume.getLayoutParams();resumeLayout.topMargin=-dp(20);resume.setLayoutParams(resumeLayout);resume.setPadding(dp(28),dp(8),dp(22),dp(2));
+        latest.setPadding(0,dp(4),0,dp(8));content.addView(latest);
         async(()->{try{return api.get(api.userPath()+"/Items/PersonalRecommendations?Limit=12&Fields=Overview");}catch(EtknApi.AuthException e){throw e;}catch(Exception e){return new JSONObject().put("unavailable",true);}},result->{
             if(request!=revision)return;boolean focused=heroArea.hasFocus();heroArea.removeAllViews();List<JSONObject> items=EtknApi.rows(result);
             if(items.isEmpty())heroArea.addView(text(result.optBoolean("unavailable")?"个人推荐暂不可用，请确认 ETKN 已更新。":"多看几部、收藏喜欢的影片，首页会逐渐懂你的口味。",16,MUTED));
@@ -57,10 +62,46 @@ public final class HomeActivity extends TvActivity {
         });
         loadShelf(resume,api.userPath()+"/Items/Resume?Limit=12&Fields=Overview,PrimaryImageAspectRatio",request,true,false,"暂无继续观看记录");
         loadShelf(libraries,api.userPath()+"/Views",request,true,true,"暂无可访问媒体库");
-        loadShelf(latest,api.userPath()+"/Items/Latest?Limit=24&IncludeItemTypes=Movie,Series&Fields=Overview",request,false,false,"暂无新入库影片");
+        loadLatestByLibrary(latest,request);
     }
-    private LinearLayout section(String title){
-        LinearLayout area=column();area.setPadding(dp(28),dp(14),dp(22),dp(2));area.addView(text(title,20,android.graphics.Color.WHITE));area.addView(text("正在加载…",13,MUTED));content.addView(area);return area;
+    private void loadLatestByLibrary(LinearLayout target,int request){
+        async(()->{
+            List<JSONObject> sections=new java.util.ArrayList<>();
+            JSONObject views=api.get(api.userPath()+"/Views");
+            for(JSONObject library:EtknApi.rows(views)){
+                try{
+                    JSONObject latest=api.get(api.userPath()+"/Items/Latest?ParentId="+EtknApi.encode(library.optString("Id"))+"&Limit=12&IncludeItemTypes=Movie,Series&Fields=Overview");
+                    List<JSONObject> items=EtknApi.rows(latest);
+                    if(!items.isEmpty())sections.add(new JSONObject().put("Name",EtknApi.title(library)).put("Items",new org.json.JSONArray(items)));
+                }catch(EtknApi.AuthException error){throw error;}catch(Exception ignored){}
+            }
+            return sections;
+        },sections->{
+            if(request!=revision)return;
+            target.removeAllViews();
+            if(sections.isEmpty()){target.addView(text("暂无已启用“显示在最新媒体库”的片库内容",14,MUTED));return;}
+            for(JSONObject section:sections){
+                LinearLayout area=section("最新"+section.optString("Name"),target);while(area.getChildCount()>1)area.removeViewAt(1);
+                HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);GridLayout shelf=new GridLayout(this);shelf.setRowCount(1);shelf.setColumnCount(section.optJSONArray("Items").length());scroll.addView(shelf);area.addView(scroll);
+                for(JSONObject item:EtknApi.rows(section))mediaCard(shelf,item,()->detail(item),false);
+            }
+        });
+    }
+    private void showAccounts(){
+        List<SavedAccounts.Account> accounts=api.session.accounts();
+        if(accounts.isEmpty())return;
+        String[] labels=new String[accounts.size()];
+        for(int index=0;index<accounts.size();index++){
+            SavedAccounts.Account account=accounts.get(index);labels[index]=account.name+(account.userId.equals(api.session.userId())?"（当前）":"");
+        }
+        new AlertDialog.Builder(this).setTitle("切换用户").setItems(labels,(dialog,index)->{
+            SavedAccounts.Account account=accounts.get(index);if(account.userId.equals(api.session.userId()))return;
+            try{api.session.activate(account.userId);recreate();}catch(Exception error){status.setText(error.getMessage());}
+        }).setNeutralButton("登录新用户",(dialog,index)->startActivity(new Intent(this,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true))).setNegativeButton("取消",null).show();
+    }
+    private LinearLayout section(String title){return section(title,content);}
+    private LinearLayout section(String title,LinearLayout parent){
+        LinearLayout area=column();area.setPadding(dp(28),dp(14),dp(22),dp(2));area.addView(text(title,20,android.graphics.Color.WHITE));area.addView(text("正在加载…",13,MUTED));parent.addView(area);return area;
     }
     private void loadShelf(LinearLayout area,String path,int request,boolean landscape,boolean libraries,String empty){
         async(()->{try{return api.get(path);}catch(EtknApi.AuthException e){throw e;}catch(Exception e){return new JSONObject().put("unavailable",true);}},result->{

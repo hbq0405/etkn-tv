@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.List;
 import java.util.UUID;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -20,6 +21,24 @@ final class SessionStore {
     String server() { return prefs.getString("server", ""); }
     String userId() { return prefs.getString("userId", ""); }
     String name() { return prefs.getString("name", ""); }
+    List<SavedAccounts.Account> accounts(){
+        String currentId=userId(),currentToken=prefs.getString("token","");
+        if(prefs.getBoolean("mediaEntryVerified",false)&&!currentId.isEmpty()&&!currentToken.isEmpty()){
+            String stored=prefs.getString("accounts","[]"),updated=SavedAccounts.upsert(stored,currentId,name(),currentToken);
+            if(!updated.equals(stored))prefs.edit().putString("accounts",updated).apply();
+        }
+        return SavedAccounts.list(prefs.getString("accounts","[]"));
+    }
+    void ensureServer(String address)throws Exception{
+        if(!accounts().isEmpty()&&!server().equals(address))throw new Exception("账号切换仅支持当前 ETKN 媒体服务器");
+    }
+    void activate(String targetUserId)throws Exception{
+        accounts();
+        org.json.JSONObject account=SavedAccounts.find(prefs.getString("accounts","[]"),targetUserId);
+        if(account==null)throw new Exception("该用户的登录信息不可用，请重新登录");
+        prefs.edit().putString("userId",targetUserId).putString("name",account.optString("name"))
+                .putString("token",account.getString("token")).putBoolean("mediaEntryVerified",true).apply();
+    }
     String deviceId() {
         String value = prefs.getString("deviceId", "");
         if (value.isEmpty()) { value = UUID.randomUUID().toString(); prefs.edit().putString("deviceId", value).apply(); }
@@ -46,9 +65,14 @@ final class SessionStore {
         } catch (Exception error) { clear(); return ""; }
     }
     void save(String server, String userId, String name, String token) throws Exception {
+        ensureServer(server);
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key());
         String encrypted = Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP) + ":" + Base64.encodeToString(cipher.doFinal(token.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP);
-        prefs.edit().putString("server", server).putString("userId", userId).putString("name", name).putString("token", encrypted).putBoolean("mediaEntryVerified",true).apply();
+        String registry=SavedAccounts.upsert(prefs.getString("accounts","[]"),userId,name,encrypted);
+        prefs.edit().putString("accounts",registry).putString("server", server).putString("userId", userId).putString("name", name).putString("token", encrypted).putBoolean("mediaEntryVerified",true).apply();
     }
-    void clear() { prefs.edit().remove("token").remove("userId").remove("name").remove("mediaEntryVerified").apply(); }
+    void clear() {
+        String currentId=userId(),registry=currentId.isEmpty()?prefs.getString("accounts","[]"):SavedAccounts.remove(prefs.getString("accounts","[]"),currentId);
+        prefs.edit().putString("accounts",registry).remove("token").remove("userId").remove("name").remove("mediaEntryVerified").apply();
+    }
 }

@@ -59,7 +59,7 @@ abstract class TvActivity extends Activity {
     }
     void mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click, boolean landscape) {
         LinearLayout card=column(); card.setPadding(dp(8),dp(8),dp(8),dp(8)); card.setFocusable(true); card.setClickable(true); card.setBackground(focusBackground()); card.setOnClickListener(v -> click.run());
-        ImageView poster = new ImageView(this); poster.setScaleType(ImageView.ScaleType.CENTER_CROP); poster.setBackgroundColor(PANEL); card.addView(poster,new LinearLayout.LayoutParams(-1,dp(landscape?139:152)));
+        ImageView poster = new ImageView(this); poster.setScaleType(ImageView.ScaleType.CENTER_CROP); Images.rounded(poster,dp(9)); card.addView(poster,new LinearLayout.LayoutParams(-1,dp(landscape?139:152)));
         TextView title=text(EtknApi.title(media),14,Color.WHITE); title.setMaxLines(2); card.addView(title,new LinearLayout.LayoutParams(-1,dp(46)));
         GridLayout.LayoutParams layout=new GridLayout.LayoutParams(); layout.width=dp(landscape?264:132); layout.height=dp(landscape?216:220); layout.setMargins(dp(4),dp(5),dp(4),dp(5)); grid.addView(card,layout);
         String image=landscape&&!"CollectionFolder".equals(media.optString("Type"))?api.artwork(media,"Backdrop",640):api.image(media);

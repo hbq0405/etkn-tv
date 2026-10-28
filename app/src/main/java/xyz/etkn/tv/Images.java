@@ -2,6 +2,8 @@ package xyz.etkn.tv;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.widget.ImageView;
 import android.util.LruCache;
 import java.net.HttpURLConnection;
@@ -13,6 +15,10 @@ import java.util.concurrent.ExecutorService;
 final class Images {
     private static final ExecutorService IO=Executors.newFixedThreadPool(4);
     private static final LruCache<String,Bitmap> CACHE=new LruCache<>(20*1024*1024) { @Override protected int sizeOf(String key,Bitmap image) { return image.getAllocationByteCount(); } };
+    static void rounded(ImageView view,int radiusPx) {
+        GradientDrawable outline=new GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setCornerRadius(radiusPx);
+        view.setBackground(outline);view.setClipToOutline(true);
+    }
     static void load(EtknApi api,String url,ImageView view) {
         load(api,url,view,success->{});
     }

@@ -68,6 +68,7 @@ final class EtknApi {
     }
     void login(String address, String username, String password) throws Exception {
         address = LanDiscovery.resolve(address,7000).getString("url");
+        session.ensureServer(address);
         JSONObject result = request(address, "", "POST", "/emby/Users/AuthenticateByName", new JSONObject().put("Username", username).put("Pw", password));
         String access = result.getString("AccessToken"); JSONObject user = result.getJSONObject("User");
         session.save(address, user.getString("Id"), user.optString("Name"), access);
