@@ -39,3 +39,11 @@
 
 - 生产探针第一次仅发送网页 Cookie，媒体接口返回401；finally 已确认临时数据为零。核对媒体鉴权后按客户端实际方式同时发送 X-Emby-Token 与 Cookie，重跑全部业务验证通过，未改服务鉴权。
 - 独立 Python import/探针退出时出现 urllib3_future 解释器清理告警；HTTP 验证和清理断言通过，运行容器保持健康。该告警未当作 TV 业务失败或据此修改无关模块。
+
+## 发布核验
+
+- 功能提交 0c3be8caecdf27208f95663564095c6a91af78bc 已推送 main；v0.1.11 标签解析到同一提交。GitHub 正式 Release 已发布并设为 latest，draft=false、prerelease=false。
+- 匿名下载 APK、update.json、SHA256SUMS.txt 和 89,194,346 字节第三方源码包，全部与本地 SHA-256 一致；GitHub 资产 digest 同样一致。latest/download/update.json 与固定版本清单逐字节一致，版本0.1.11、code12、包名、大小、下载地址和 APK 哈希匹配。
+- update.json SHA-256：27ad96af0d5eba17acbbba18ea6c63b09969ce4db2d49981eec46b0bf46dc42c；第三方源码包 SHA-256：86770a73d88e6cb50f2da4ff272e5f076450fe3d737012a69e4a647ffef7f3a4。
+- 已删除本轮宿主上传目录和容器临时探针，保留 ETKN 回滚备份；收尾再次核对运行文件哈希一致、容器 healthy。ETKvNext 私有仓库未推送。
+- 本地 ETKvNext 专属 pytest 临时目录的递归清理被执行策略在进程启动前拒绝；已只读确认目录保留，未绕过。此限制不影响生产临时文件清理或发行资产。
