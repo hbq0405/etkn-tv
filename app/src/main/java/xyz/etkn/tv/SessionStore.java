@@ -36,6 +36,7 @@ final class SessionStore {
         return (SecretKey) store.getKey(KEY, null);
     }
     String token() {
+        if (!prefs.getBoolean("mediaEntryVerified",false)) return "";
         String value = prefs.getString("token", "");
         if (value.isEmpty()) return "";
         try {
@@ -47,7 +48,7 @@ final class SessionStore {
     void save(String server, String userId, String name, String token) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key());
         String encrypted = Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP) + ":" + Base64.encodeToString(cipher.doFinal(token.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP);
-        prefs.edit().putString("server", server).putString("userId", userId).putString("name", name).putString("token", encrypted).apply();
+        prefs.edit().putString("server", server).putString("userId", userId).putString("name", name).putString("token", encrypted).putBoolean("mediaEntryVerified",true).apply();
     }
-    void clear() { prefs.edit().remove("token").remove("userId").remove("name").apply(); }
+    void clear() { prefs.edit().remove("token").remove("userId").remove("name").remove("mediaEntryVerified").apply(); }
 }

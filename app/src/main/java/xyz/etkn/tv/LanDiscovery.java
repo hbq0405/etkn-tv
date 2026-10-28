@@ -9,6 +9,7 @@ import org.json.JSONObject;
 import java.net.HttpURLConnection;
 import java.net.Inet4Address;
 import java.net.URL;
+import java.net.URI;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -37,22 +38,41 @@ final class LanDiscovery {
                 CountDownLatch latch=new CountDownLatch(candidates.size());
                 for(String host:candidates) {
                     if(stopped)break;
-                    pool.execute(() -> { try { if(!stopped) { JSONObject server=probe("http://"+host+":5257"); if(server!=null&&!stopped)found.accept(server); } } finally {latch.countDown();} });
+                    pool.execute(() -> { try { if(!stopped) { for(int port:new int[]{8097,8096,5257}) { if(stopped)break; try { JSONObject server=resolve("http://"+host+":"+port,650); if(!stopped)found.accept(server); } catch(Exception ignored){} } } } finally {latch.countDown();} });
                 }
                 if(!stopped)latch.await(25,TimeUnit.SECONDS);
             }catch(Exception ignored){}finally{boolean completed=!stopped;stopped=true;pool.shutdownNow();if(completed)complete.run();}
         });
     }
-    private JSONObject probe(String address) {
-        try {
-            JSONObject health=read(address+"/api/health"); if(!"ok".equals(health.optString("status")))return null;
-            JSONObject auth=read(address+"/api/auth/check_status"); if(!auth.has("status"))return null;
-            JSONObject info=read(address+"/emby/System/Info/Public");
-            return new JSONObject().put("url",address).put("name",info.optString("ServerName","ETKN")).put("id",info.optString("Id",address));
-        }catch(Exception ignored){return null;}
+    static JSONObject resolve(String address,int timeout)throws Exception {
+        JSONObject original=identify(address,timeout);
+        JSONObject connection=read(address+"/api/system/tv-discovery",timeout);
+        if(!"ETKN".equals(connection.optString("ProductName")))throw new Exception("请先更新 ETKN 服务端");
+        URI entered=new URI(address);
+        String candidate=connection.optString("MediaServerAddress");
+        URI advertised=candidate.isEmpty()?null:new URI(EtknApi.normalizeServer(candidate));
+        if(advertised==null || !entered.getHost().equalsIgnoreCase(advertised.getHost())) {
+            if(entered.getPort()!=connection.optInt("ApiPort",5257))return original;
+            candidate=new URI(entered.getScheme(),null,entered.getHost(),connection.getInt("MediaServerPort"),entered.getPath(),null,null).toString();
+        }
+        candidate=EtknApi.normalizeServer(candidate);
+        if(candidate.equals(address))return original;
+        JSONObject media;
+        try { media=identify(candidate,timeout); }
+        catch(Exception error){throw new Exception("无法连接媒体服务器，请填写 ETKN 媒体服务器地址",error);}
+        if(original.optString("id").isEmpty() || !original.getString("id").equals(media.optString("id")))throw new Exception("媒体服务器身份不一致，请核对地址");
+        return media;
     }
-    private JSONObject read(String address)throws Exception {
-        HttpURLConnection conn=(HttpURLConnection)new URL(address).openConnection();conn.setConnectTimeout(650);conn.setReadTimeout(1000);conn.setInstanceFollowRedirects(false);
-        try {if(conn.getResponseCode()!=200)throw new Exception();return new JSONObject(EtknApi.readText(conn.getInputStream()));}finally{conn.disconnect();}
+    private static JSONObject identify(String address,int timeout)throws Exception {
+        JSONObject health=read(address+"/api/health",timeout);
+        if(!"ok".equals(health.optString("status")))throw new Exception("该地址不是可用的 ETKN");
+        JSONObject auth=read(address+"/api/auth/check_status",timeout);
+        if(!auth.has("status"))throw new Exception("该地址不是 ETKN");
+        JSONObject info=read(address+"/emby/System/Info/Public",timeout);
+        return new JSONObject().put("url",address).put("name",info.optString("ServerName","ETKN")).put("id",info.optString("Id"));
+    }
+    private static JSONObject read(String address,int timeout)throws Exception {
+        HttpURLConnection conn=(HttpURLConnection)new URL(address).openConnection();conn.setConnectTimeout(timeout);conn.setReadTimeout(Math.max(timeout,1000));conn.setInstanceFollowRedirects(false);
+        try {if(conn.getResponseCode()!=200)throw new Exception("请检查媒体地址及 ETKN 服务端版本");return new JSONObject(EtknApi.readText(conn.getInputStream()));}finally{conn.disconnect();}
     }
 }
