@@ -88,7 +88,7 @@ public final class HomeActivity extends TvActivity {
             if(sections.isEmpty()){target.addView(text("暂无已启用“显示在最新媒体库”的片库内容",14,MUTED));return;}
             for(JSONObject section:sections){
                 LinearLayout area=section("最新"+section.optString("Name"),target);while(area.getChildCount()>1)area.removeViewAt(1);
-                HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);GridLayout shelf=new GridLayout(this);shelf.setRowCount(1);shelf.setColumnCount(section.optJSONArray("Items").length());scroll.addView(shelf);area.addView(scroll);
+                HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(0,dp(12),0,dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(section.optJSONArray("Items").length());scroll.addView(shelf);area.addView(scroll);
                 for(JSONObject item:EtknApi.rows(section)){View card=mediaCard(shelf,item,()->detail(item),false,false,view->onHomeCardFocused(view,item,false,false));registerHomeCard(card);}
             }
         });
@@ -113,7 +113,7 @@ public final class HomeActivity extends TvActivity {
         async(()->{try{return api.get(path);}catch(EtknApi.AuthException e){throw e;}catch(Exception e){return new JSONObject().put("unavailable",true);}},result->{
             if(request!=revision)return;while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
             if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);return;}
-            HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);GridLayout shelf=new GridLayout(this);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
+            HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(0,dp(12),0,dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
             for(JSONObject item:items){View card=mediaCard(shelf,item,()->{if(libraries){parent=item.optString("Id");mode="items";offset=0;loadItems();}else detail(item);},landscape,resumeShelf,view->onHomeCardFocused(view,item,libraries,resumeShelf));registerHomeCard(card);if(resumeShelf)resumeCards.add(card);if(first==null)first=card;}
             onHomeShelfLoaded(resumeShelf,first);
@@ -126,7 +126,7 @@ public final class HomeActivity extends TvActivity {
     }
     private void onHomeCardFocused(View card,JSONObject item,boolean library,boolean resumeShelf){
         if(!resumeShelf&&resumeLowered){resumeLowered=false;heroSpacer.getLayoutParams().height=dp(getResources().getConfiguration().screenHeightDp*0.55f);heroSpacer.requestLayout();}
-        homeBackdrop.show(item,library);
+        homeBackdrop.show(item,library,resumeShelf);
     }
     private void onHomeShelfLoaded(boolean resumeShelf,View first){
         if(resumeShelf){resumeFirst=first;resumeReady=true;}else{libraryFirst=first;libraryReady=true;}
