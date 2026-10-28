@@ -2,7 +2,6 @@ package xyz.etkn.tv;
 
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -20,8 +19,6 @@ final class FocusBackdrop extends FrameLayout {
     FocusBackdrop(TvActivity activity){
         super(activity);this.activity=activity;setBackgroundColor(TvActivity.INK);
         backdrop=new ImageView(activity);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,activity.dp(10));addView(backdrop,new LayoutParams(-1,-1));
-        View shade=new View(activity);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{Color.rgb(9,17,25),Color.argb(190,9,17,25),Color.argb(18,9,17,25)}));addView(shade,new LayoutParams(-1,-1));
-        View fade=new View(activity);fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(185,Color.red(TvActivity.INK),Color.green(TvActivity.INK),Color.blue(TvActivity.INK)),TvActivity.INK}));addView(fade,new LayoutParams(-1,activity.dp(250),Gravity.BOTTOM));
         copy=activity.column();copy.setPadding(activity.dp(30),0,activity.dp(24),0);
         LayoutParams copyLayout=new LayoutParams(activity.dp(540),-2,Gravity.TOP|Gravity.START);copyLayout.topMargin=activity.dp(54);addView(copy,copyLayout);
         FrameLayout identity=new FrameLayout(activity);copy.addView(identity,new LinearLayout.LayoutParams(-1,activity.dp(88)));

@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.Rect;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -30,8 +29,6 @@ public final class DetailActivity extends TvActivity {
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);
         backdrop=new ImageView(this);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,0);
         stage.addView(backdrop,new FrameLayout.LayoutParams(-1,-1));
-        View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,new int[]{Color.argb(245,11,17,26),Color.argb(145,11,17,26),Color.argb(65,11,17,26)}));stage.addView(shade,new FrameLayout.LayoutParams(-1,-1));
-        View fade=new View(this);fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,INK}));stage.addView(fade,new FrameLayout.LayoutParams(-1,-1));
         scroll=new FocusScroll.Vertical(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
         content=column();content.setPadding(dp(42),dp(26),dp(42),dp(28));scroll.addView(content);stage.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         status=text("正在读取详情…",13,MUTED);content.addView(status);setContentView(stage);
@@ -50,8 +47,9 @@ public final class DetailActivity extends TvActivity {
         Images.load(api,api.artwork(item,"Logo",720),logo,ok->{logo.setVisibility(ok?View.VISIBLE:View.GONE);title.setVisibility(ok?View.GONE:View.VISIBLE);});
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         ImageView douban=new ImageView(this);douban.setImageDrawable(doubanMark());douban.setPadding(dp(3),dp(3),dp(3),dp(3));douban.setBackground(shape(Color.rgb(0,119,34),0));metadata.addView(douban,new LinearLayout.LayoutParams(dp(21),dp(21)));
-        metadata.addView(meta(" "+DetailPresentation.rating(item,"DoubanRating")+"  豆瓣    ",Color.WHITE));
-        metadata.addView(meta("★ "+DetailPresentation.rating(item,"TMDbRating")+"  TMDb    ",Color.rgb(255,205,75)));
+        metadata.addView(meta(" "+DetailPresentation.rating(item,"DoubanRating")+"    ",Color.WHITE));
+        ImageView tmdb=new ImageView(this);tmdb.setImageDrawable(tmdbMark());metadata.addView(tmdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
+        metadata.addView(meta(" "+DetailPresentation.rating(item,"TMDbRating")+"    ",Color.rgb(255,205,75)));
         String year=item.optString("ProductionYear");if(!year.isEmpty())metadata.addView(meta(year+"    ",MUTED));
         String duration=DetailPresentation.duration(item.optLong("RunTimeTicks"));if(!duration.isEmpty())metadata.addView(meta(duration+"    ",MUTED));
         String rating=item.optString("OfficialRating");if(!rating.isEmpty()){TextView certificate=meta(rating,Color.WHITE);certificate.setPadding(dp(7),dp(2),dp(7),dp(2));certificate.setBackground(shape(Color.TRANSPARENT,MUTED));metadata.addView(certificate);}
@@ -67,8 +65,9 @@ public final class DetailActivity extends TvActivity {
         content.addView(overview,new LinearLayout.LayoutParams(dp(Math.min(650,getResources().getConfiguration().screenWidthDp-84)),-2));
         status=text("",12,MUTED);content.addView(status);episodeArea=column();content.addView(episodeArea);updateChoices();
         String type=item.optString("Type");
-        if(type.equals("Series")||type.equals("Season"))loadEpisodes();else{setPlayable(item);focusPlay();}
+        if(type.equals("Series")||type.equals("Season")||type.equals("Episode"))loadEpisodes();else{setPlayable(item);focusPlay();}
         renderCast();
+        renderSimilar();
     }
     private TextView meta(String value,int color){TextView label=text(value,13,color);label.setGravity(Gravity.CENTER_VERTICAL);return label;}
     private void focusPlay(){playButton.post(()->{playButton.requestFocus();scroll.scrollTo(0,0);});}
@@ -89,7 +88,7 @@ public final class DetailActivity extends TvActivity {
         new AlertDialog.Builder(this).setTitle("版本").setSingleChoiceItems(labels,sourceIndex,(dialog,index)->{sourceIndex=index;audio=subtitle=PlaybackSelection.AUTO;updateChoices();dialog.dismiss();}).setNegativeButton("取消",null).show();
     }
     private void chooseStream(boolean subtitles){
-        List<JSONObject> streams=PlaybackSelection.streams(selectedSource(),subtitles);List<String> labels=new ArrayList<>();List<Integer> indices=new ArrayList<>();labels.add("默认");indices.add(PlaybackSelection.AUTO);
+        List<JSONObject> streams=PlaybackSelection.streams(selectedSource(),subtitles);List<String> labels=new ArrayList<>();List<Integer> indices=new ArrayList<>();labels.add("默认 · "+PlaybackSelection.selectionLabel(selectedSource(),PlaybackSelection.AUTO,subtitles));indices.add(PlaybackSelection.AUTO);
         if(subtitles){labels.add("关闭字幕");indices.add(-1);}
         for(JSONObject stream:streams){labels.add(PlaybackSelection.streamLabel(stream));indices.add(stream.optInt("Index"));}
         int current=indices.indexOf(subtitles?subtitle:audio);
@@ -101,20 +100,23 @@ public final class DetailActivity extends TvActivity {
             allEpisodes.clear();allEpisodes.addAll(EtknApi.rows(data.optJSONObject("episodes")));
             if(item.optString("Type").equals("Season"))allEpisodes.removeIf(episode->!item.optString("Id").equals(episode.optString("SeasonId")));
             if(allEpisodes.isEmpty()){status.setText("暂无可播放分集");return;}
-            JSONObject recommended=DetailPresentation.recommended(allEpisodes);setPlayable(recommended);List<JSONObject> seasons=EtknApi.rows(data.optJSONObject("seasons"));
+            JSONObject recommended=DetailPresentation.recommended(allEpisodes);if(item.optString("Type").equals("Episode"))for(JSONObject episode:allEpisodes)if(item.optString("Id").equals(episode.optString("Id"))){recommended=episode;break;}setPlayable(recommended);List<JSONObject> seasons=EtknApi.rows(data.optJSONObject("seasons"));
             LinearLayout seasonRow=row();HorizontalScrollView seasonScroll=new FocusScroll.Row(this);seasonScroll.setHorizontalScrollBarEnabled(false);seasonScroll.addView(seasonRow);
             if(seasons.size()>1&&!item.optString("Type").equals("Season")){episodeArea.addView(seasonScroll);for(JSONObject season:seasons)seasonRow.addView(button(EtknApi.title(season),()->showSeason(season.optString("Id"))));}
             preview=row();preview.setGravity(Gravity.CENTER_VERTICAL);preview.setPadding(0,dp(8),0,dp(8));
             episodeImage=new ImageView(this);episodeImage.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(episodeImage,dp(8));preview.addView(episodeImage,new LinearLayout.LayoutParams(dp(224),dp(126)));
             LinearLayout copy=column();copy.setPadding(dp(18),0,0,0);episodeTitle=text("",19,Color.WHITE);episodeTitle.setMaxLines(2);copy.addView(episodeTitle);episodeOverview=text("",14,MUTED);episodeOverview.setMaxLines(4);episodeOverview.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(episodeOverview);preview.addView(copy,new LinearLayout.LayoutParams(0,dp(144),1));episodeArea.addView(preview);
-            showSeason(recommended.optString("SeasonId"));status.setText(allEpisodes.size()+" 集");focusPlay();
+            showSeason(recommended.optString("SeasonId"),recommended);status.setText(allEpisodes.size()+" 集");focusPlay();
         });
     }
     private void showSeason(String seasonId){
+        showSeason(seasonId,null);
+    }
+    private void showSeason(String seasonId,JSONObject preferred){
         if(preview==null)return;
         while(episodeArea.indexOfChild(preview)+1<episodeArea.getChildCount())episodeArea.removeViewAt(episodeArea.getChildCount()-1);
         List<JSONObject> episodes=new ArrayList<>();for(JSONObject episode:allEpisodes)if(seasonId.isEmpty()||seasonId.equals(episode.optString("SeasonId")))episodes.add(episode);if(episodes.isEmpty())return;
-        JSONObject selected=DetailPresentation.recommended(episodes);setPlayable(selected);updatePreview(selected);
+        JSONObject selected=preferred==null?DetailPresentation.recommended(episodes):preferred;setPlayable(selected);updatePreview(selected);
         GridLayout grid=new GridLayout(this);int columns=Math.max(3,(getResources().getConfiguration().screenWidthDp-84)/112);grid.setColumnCount(columns);
         ScrollView matrix=new FocusScroll.Vertical(this);matrix.setFillViewport(false);matrix.addView(grid);episodeArea.addView(matrix,new LinearLayout.LayoutParams(-1,dp(Math.min(224,((episodes.size()+columns-1)/columns)*58+24))));
         for(JSONObject episode:episodes){Button cell=button(DetailPresentation.episodeNumber(episode),()->{setPlayable(episode);play(false);});cell.setContentDescription(DetailPresentation.episodeNumber(episode)+"，"+EtknApi.title(episode));
@@ -131,9 +133,18 @@ public final class DetailActivity extends TvActivity {
         content.addView(text("演员表",20,Color.WHITE));LinearLayout cast=row();HorizontalScrollView castScroll=new FocusScroll.Row(this);castScroll.setHorizontalScrollBarEnabled(false);castScroll.addView(cast);content.addView(castScroll);
         for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person==null||!person.optString("Type",person.optString("PersonType")).equalsIgnoreCase("Actor"))continue;
             LinearLayout card=column();card.setFocusable(true);card.setBackground(focusBackground());card.setPadding(dp(6),dp(6),dp(6),dp(6));LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(112),dp(200));bounds.setMargins(0,dp(8),dp(14),dp(8));cast.addView(card,bounds);
+            card.setContentDescription("演员 · "+person.optString("Name"));card.setClickable(true);card.setOnClickListener(view->startActivity(new Intent(this,PersonActivity.class).putExtra("id",person.optString("Id")).putExtra("name",person.optString("Name"))));
             ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);portrait.setImageResource(android.R.drawable.ic_menu_myplaces);Images.rounded(portrait,dp(7));card.addView(portrait,new LinearLayout.LayoutParams(-1,dp(130)));Images.load(api,api.artwork(person,"Primary",240),portrait);
             TextView name=text(person.optString("Name"),13,Color.WHITE);name.setGravity(Gravity.CENTER);name.setMaxLines(1);card.addView(name);TextView role=text(person.optString("Role"),11,MUTED);role.setGravity(Gravity.CENTER);role.setMaxLines(2);role.setPadding(0,0,0,0);card.addView(role);
         }
+    }
+    private void renderSimilar(){
+        LinearLayout area=column();content.addView(area);area.addView(text("更多类似",20,Color.WHITE));TextView loading=text("正在读取相似媒体…",13,MUTED);area.addView(loading);
+        async(()->api.get("/api/tv/Items/"+EtknApi.encode(item.optString("Id"))+"/Similar?UserId="+EtknApi.encode(api.session.userId())+"&Limit=20"),result->{
+            area.removeView(loading);List<JSONObject> items=EtknApi.rows(result);if(items.isEmpty()){area.addView(text("暂无相似推荐",13,MUTED));return;}
+            HorizontalScrollView rail=new FocusScroll.Row(this);rail.setHorizontalScrollBarEnabled(false);GridLayout cards=new GridLayout(this);cards.setRowCount(1);cards.setColumnCount(items.size());rail.addView(cards);area.addView(rail);
+            for(JSONObject media:items)posterCard(cards,media,()->detail(media),result.optString("EpisodeCountMode","unplayed"));
+        });
     }
     private void play(boolean fromStart){
         if(playable==null)return;

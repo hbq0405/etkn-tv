@@ -36,7 +36,7 @@
 - 首次访问账号列表时迁移原有单账号 token；退出/令牌失效只移除当前账号，保留同服务器的其它保存账号。登录新账号时清除任务栈并重新创建首页，使各 API/通知使用新活动账号。
 - 只在所有创建的 ImageView 上设置圆角背景轮廓并开启 clipToOutline，覆盖媒体卡片、轮播背景和 Logo、设置页头像、菜单头像；头像使用圆形裁切。新增 ImageView 时也要补该处理。
 - ETKN 的 `/emby/Users/{id}/Items/Latest` 已支持按 `ParentId=library-*` 查询，且后端已根据媒体库 `definition_json.show_in_latest` 对关闭的库返回空列表，并继续做用户媒体库权限过滤。客户端逐库请求该路由，非空分区标题为“最新+媒体库名称”，不新增后台开关映射或绕过服务器过滤。
-- 首页焦点背景底部用垂直渐变过渡至首页 `INK` 底色，使下一区域继承同一底色；确保文字/焦点框仍清晰并保持渐变高度不遮挡主要内容。
+- 首页和详情背景按用户 2026-10-29 最新要求直接显示原图，移除背景暗色遮罩和渐变；海报内评分区的局部底色不属于全屏背景。
 - 每个新的 `exec_command` 都会启动独立 PowerShell，不保证继承其它会话设置的 `ANDROID_HOME`、`JAVA_HOME` 或 `PATH`。aapt2 与 apksigner 检查曾因这些变量缺失而未能完成；确认 APK/manifest/checksum 已生成后，必须在同一命令中从 `work/android-toolchain/paths.json` 读取 SDK/JDK 路径、设置环境并运行工具。捕获 apksigner 输出时先检查 `$LASTEXITCODE`，再筛选证书摘要；不要把 Select-String 无匹配误判为签名失败，也不要因环境缺失重建或替换发行资产。
 - PowerShell 不要把长输出的原生工具直接管道到 `Select-Object -First`；提前关闭 stdout 可能使工具返回非零，即使已打印有效头部。先完整捕获输出，检查 `$LASTEXITCODE`，再从变量截取显示内容。
 - PowerShell 调用 Gradle 时，将带点号的完整 `-P` 属性作为单个引号参数，例如 `'-Pandroid.testInstrumentationRunnerArguments.class=xyz.etkn.tv.HomeFocusTest'`。未引用时曾被拆为任务名，构建在测试前失败、未改发行资产；确认状态后用完整引用参数重跑，模拟器仪器测试通过。
@@ -49,3 +49,14 @@
 - Media3 合并主媒体与外挂字幕时，Format.id 会带来源前缀，例如 `0:2`、`1:etkn-subtitle-12`。匹配外挂字幕前只去掉冒号前缀，保留服务端轨道 Index 和独立字幕 ID；同语言内封轨道按媒体源内类型顺序定位，不按语言碰运气。使用合成 Matroska 在模拟器检查实际选中轨道。
 - 当前补丁接口拒绝在同一补丁内 Delete/Add 同一路径（`multiple operations target`），失败前未写入。先用 git diff 核对无变化，再用 PowerShell UTF-8 here-string 原位写入完整目标文件，现已通过编译、单测与模拟器验证；不继续换输入方式试错。
 - PowerShell 字符串中的 `\n` 是字面字符，不是换行。本轮独立验证脚本曾因此 SyntaxError，确认只更新了探针、服务代码与容器健康未受影响后，用 `[Environment]::NewLine` 修正并先 py_compile，重新上传后验证通过。生成多行脚本使用 here-string 或真实换行，上传前本地语法检查。
+
+## 原生播放与验证补充
+
+- 首行海报缩放越界时，同时检查海报网格和父滚动容器的实际可见矩形；仅关闭子网格裁剪不能保证父容器容纳溢出。网格内部上下保留 FocusScroll.MARGIN_DP，验证聚焦图片四边的实际可见边界。
+- NextLib 1.8.0-0.9.0 的 FFmpeg 6 JNI 对立体声 TrueHD 缺少初始声道布局，重置还会丢失配置并读取已释放上下文。使用 third_party/nextlib_compat 的固定源与四 ABI 库；禁止仅凭 supportsFormat 或曲目出现就宣布可解码，必须检查切轨、seek 后的非零输出缓冲。软件视频检查实际输出帧，ASS 检查 seek 完成后的可见像素。
+- JNI 公共头搜索使用 -idirafter，避免 FFmpeg 源码根目录 VERSION 在 Windows 上遮蔽 C++ 标准库 <version>。首次失败只生成了独立 scratch、未生成 .so；调整头搜索顺序后四 ABI 编译及模拟器解码通过。
+- Android CLI 使用安装清单中真实存在的 android.exe 和 `--sdk $taskPaths.sdk` 分开参数，不用未加子表达式的 `--sdk_root=$taskPaths.sdk`；后者会把整个对象传为路径，失败前未安装。重新核对真实文件后再调用。NDK 安装后以 clang++ 文件存在及编译成功验收。
+- pytest 的 basetemp 使用本轮专属目录，先创建其父目录；测试隔离必须在连接池创建前阻断真实数据库。不要清理其他任务的临时测试目录。
+- Java 仪器测试调用 Kotlin API 时，若返回类型只在 runtime 依赖中，不直接调用该签名；诊断可反射读取对象字段，不为测试扩大应用依赖。首次编译失败无 APK 更新，修正后重新构建测试 APK。
+- 发布新增原生依赖时保留原始版权/许可与固定源码、子模块及构建脚本，检查 GPL 组合许可、APK 内许可入口和 Release 对应源码包。普通 Gradle 构建使用已核验的 JNI 库；修改 JNI 后必须用脚本重建四 ABI 并重复原生解码回归。
+- 新增原始 FriBidi/libvpx 许可时，暂存后的 diff --check 会报告上游空白行和行尾空格；首次失败后确认只完成暂存、未提交，再用 .gitattributes 对这两个原始许可限定 -whitespace，保持正文原字节。已验证暂存检查通过且 APK 许可与源码相同，业务源码继续使用正常空白检查。

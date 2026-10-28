@@ -86,7 +86,7 @@ abstract class TvActivity extends Activity {
         FrameLayout.LayoutParams ratingBounds=new FrameLayout.LayoutParams(-1,dp(42),android.view.Gravity.BOTTOM);artwork.addView(ratings,ratingBounds);
         ImageView doubanIcon=new ImageView(this);doubanIcon.setImageDrawable(doubanMark());doubanIcon.setBackground(shape(Color.rgb(0,119,34),0));doubanIcon.setPadding(dp(3),dp(3),dp(3),dp(3));ratings.addView(doubanIcon,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView douban=text(rating(media,"DoubanRating"),11,Color.WHITE);douban.setGravity(android.view.Gravity.CENTER_VERTICAL);douban.setPadding(0,0,0,0);LinearLayout.LayoutParams scoreSpace=new LinearLayout.LayoutParams(-2,-1);scoreSpace.leftMargin=dp(3);scoreSpace.rightMargin=dp(8);ratings.addView(douban,scoreSpace);
-        TextView star=text("★",12,Color.rgb(255,205,75));star.setGravity(android.view.Gravity.CENTER_VERTICAL);star.setPadding(0,0,0,0);ratings.addView(star);
+        ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());ratings.addView(star,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
         org.json.JSONObject userData=media.optJSONObject("UserData");
         if("Series".equalsIgnoreCase(media.optString("Type"))&&userData!=null){
@@ -105,6 +105,13 @@ abstract class TvActivity extends Activity {
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(24,24,android.graphics.Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.WHITE);
         android.graphics.Path path=androidx.core.graphics.PathParser.createPathFromPathData("M.51 3.06h22.98V.755H.51V3.06Zm20.976 2.537v9.608h-2.137l-1.669 5.76H24v2.28H0v-2.28h6.32l-1.67-5.76H2.515V5.597h18.972Zm-5.066 9.608H7.58l1.67 5.76h5.501l1.67-5.76ZM18.367 7.9H5.634v5.025h12.733V7.9Z");canvas.drawPath(path,paint);
+        return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
+    }
+    android.graphics.drawable.Drawable tmdbMark(){
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(24,24,android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.rgb(255,205,75));
+        canvas.scale(24f/22f,24f/21.2f);canvas.translate(-1,-1);
+        canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("M12 1 15.4 8.2 23 9.2 17.5 14.6 18.8 22.2 12 18.6 5.2 22.2 6.5 14.6 1 9.2 8.6 8.2Z"),paint);
         return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
     }
     private android.graphics.drawable.Drawable focusOutline(){android.graphics.drawable.GradientDrawable outline=new android.graphics.drawable.GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setCornerRadius(dp(9));outline.setStroke(dp(2),ACCENT);return outline;}

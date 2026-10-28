@@ -1,0 +1,3 @@
+# Preserve whitespace in these verbatim upstream license texts.
+app/src/main/assets/licenses/fribidi-COPYING.txt -whitespace
+app/src/main/assets/licenses/libvpx-LICENSE.txt -whitespace

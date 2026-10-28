@@ -12,6 +12,7 @@
         </activity>
         <activity android:name=".HomeActivity" android:exported="false" android:screenOrientation="landscape" />
         <activity android:name=".DetailActivity" android:exported="false" android:screenOrientation="landscape" />
+        <activity android:name=".PersonActivity" android:exported="false" android:screenOrientation="landscape" />
         <activity android:name=".DiscoveryActivity" android:exported="false" android:screenOrientation="landscape" />
         <activity android:name=".PlayerActivity" android:exported="false" android:screenOrientation="landscape" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize" />
         <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="landscape" />

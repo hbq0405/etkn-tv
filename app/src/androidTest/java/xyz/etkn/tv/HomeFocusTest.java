@@ -20,6 +20,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import static org.junit.Assert.*;
 
 /** 在真实首页和 Android 焦点滚动路径上验收；只连接模拟器内的合成媒体服务。 */
@@ -27,6 +28,28 @@ public class HomeFocusTest {
     private final Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
     private HomeActivity home;
     private File evidence;
+    private void await(BooleanSupplier condition)throws Exception{long end=System.currentTimeMillis()+20000;while(System.currentTimeMillis()<end){boolean[] ready={false};instrumentation.runOnMainSync(()->ready[0]=condition.getAsBoolean());if(ready[0]){settle();return;}Thread.sleep(100);}fail("等待媒体库状态超时");}
+    @SuppressWarnings("unchecked") private View library(String id){return ((java.util.Map<String,View>)field(HomeActivity.class,"libraryCards")).get(id);}
+    private void call(String name,Class<?>[] types,Object... args){instrumentation.runOnMainSync(()->{try{java.lang.reflect.Method method=HomeActivity.class.getDeclaredMethod(name,types);method.setAccessible(true);method.invoke(home,args);}catch(Exception error){throw new AssertionError(error);}});}
+
+    @Test public void librarySortingPersistsIndependentlyAndBackRestoresTheLibraryCard()throws Exception{
+        try(Fixture server=new Fixture()){
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"sort-fixture","排序测试","synthetic-test-session");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->library("library-2")!=null&&home.getCurrentFocus()!=null);
+            instrumentation.runOnMainSync(()->library("library-2").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
+            call("setSort",new Class<?>[]{String.class,String.class},"DoubanRating","Descending");await(()->server.lastListingPath.contains("SortBy=DoubanRating"));
+            key(KeyEvent.KEYCODE_BACK);await(()->library("library-2")!=null&&home.getCurrentFocus()==library("library-2"));
+            instrumentation.runOnMainSync(()->library("library-3").performClick());await(()->"library-3".equals(field(HomeActivity.class,"parent"))&&posterGrid()!=null&&posterGrid().getChildCount()==60);
+            assertEquals("SortName",field(HomeActivity.class,"sortBy"));call("setSort",new Class<?>[]{String.class,String.class},"ProductionYear","Ascending");
+            await(()->server.lastListingPath.contains("SortBy=ProductionYear"));instrumentation.runOnMainSync(()->home.finish());settle();
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));await(()->library("library-2")!=null);
+            instrumentation.runOnMainSync(()->library("library-2").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);assertEquals("DoubanRating",field(HomeActivity.class,"sortBy"));assertEquals("Descending",field(HomeActivity.class,"sortOrder"));
+            key(KeyEvent.KEYCODE_BACK);await(()->library("library-2")!=null);call("loadLibraries",new Class<?>[]{});await(()->"library".equals(field(HomeActivity.class,"mode"))&&library("library-3")!=null);
+            instrumentation.runOnMainSync(()->library("library-3").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);assertEquals("ProductionYear",field(HomeActivity.class,"sortBy"));
+            key(KeyEvent.KEYCODE_BACK);await(()->"library".equals(field(HomeActivity.class,"mode"))&&home.getCurrentFocus()==library("library-3"));
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
 
     @Test public void focusedArtworkRemainsVisibleAcrossShelvesAndRowEdges() throws Exception {
         try(Fixture server=new Fixture()) {
@@ -99,6 +122,9 @@ public class HomeFocusTest {
             View first=posterGrid().getChildAt(0);instrumentation.runOnMainSync(()->{first.requestFocus();scroll.scrollTo(0,0);});settle();
             Rect visible=new Rect();((ViewGroup)first).getChildAt(0).getGlobalVisibleRect(visible);
             assertFalse("海报焦点图应完整显示",visible.isEmpty());
+            View art=((ViewGroup)first).getChildAt(0);int[] location=new int[2];art.getLocationOnScreen(location);
+            assertEquals("第一行聚焦海报顶部不能被裁切",location[1],visible.top,1);
+            assertEquals("第一行聚焦海报高度必须完整",Math.round(art.getHeight()*first.getScaleY()),visible.height(),2);
             Bitmap screenshot=instrumentation.getUiAutomation().takeScreenshot();
             try(FileOutputStream file=new FileOutputStream(new File(evidence,"poster-wall.png"))){screenshot.compress(Bitmap.CompressFormat.PNG,100,file);}screenshot.recycle();
         } finally {

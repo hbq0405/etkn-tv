@@ -6,13 +6,20 @@ import android.os.Handler;
 import android.os.Looper;
 import android.net.Uri;
 import android.view.KeyEvent;
+import android.view.View;
+import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.*;
 import androidx.media3.common.*;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.ui.PlayerView;
+import io.github.peerless2012.ass.media.AssHandlerConfig;
+import io.github.peerless2012.ass.media.kt.AssPlayerKt;
+import io.github.peerless2012.ass.media.type.AssRenderType;
+import io.github.peerless2012.ass.media.widget.AssSubtitleView;
 import org.json.*;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
@@ -22,25 +29,44 @@ import java.util.concurrent.Executors;
 public final class PlayerActivity extends TvActivity {
     private ExoPlayer player;
     private PlayerView video;
+    private LinearLayout controls;
+    private Button audioButton,subtitleButton,decoderButton,skipButton;
+    private AlertDialog trackDialog;
     private JSONObject info,source;
     private String itemId,playSession="";
     private long position;
     private int selected;
     private boolean foreground,reportedStart,versionConfirmed,audioPending,subtitlePending;
+    private boolean softwareVideo,playWhenReady=true;
+    private int skipMode;
+    private long skipTarget=-1;
     private int audioIndex=PlaybackSelection.AUTO,subtitleIndex=PlaybackSelection.AUTO;
     private final Handler timer=new Handler(Looper.getMainLooper());
     private final ExecutorService reports=Executors.newSingleThreadExecutor();
     private final Runnable progress=new Runnable(){@Override public void run(){if(player!=null){report("Progress");timer.postDelayed(this,10000);}}};
+    private final Runnable skipCheck=new Runnable(){@Override public void run(){if(player!=null){updateSkip();timer.postDelayed(this,400);}}};
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);itemId=getIntent().getStringExtra("id");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
         audioIndex=state==null?getIntent().getIntExtra("audioIndex",PlaybackSelection.AUTO):state.getInt("audioIndex",PlaybackSelection.AUTO);subtitleIndex=state==null?getIntent().getIntExtra("subtitleIndex",PlaybackSelection.AUTO):state.getInt("subtitleIndex",PlaybackSelection.AUTO);
+        softwareVideo=state!=null&&state.getBoolean("softwareVideo");
+        playWhenReady=state==null||state.getBoolean("playWhenReady",true);skipMode=new TvPreferences(this,api).skipMode();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        root=column();root.setBackgroundColor(INK);root.setPadding(dp(18),dp(8),dp(18),dp(10));
-        LinearLayout actions=row();actions.addView(button("返回",this::finish));actions.addView(button("版本",this::chooseVersion));actions.addView(button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO)));actions.addView(button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT)));root.addView(actions);
-        status=text(getIntent().getStringExtra("title"),14,MUTED);root.addView(status);
-        video=new PlayerView(this);video.setUseController(true);video.setControllerAutoShow(true);video.setKeepContentOnPlayerReset(true);video.setShowSubtitleButton(false);
-        root.addView(video,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);video.requestFocus();
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
+        video=new PlayerView(this);video.setUseController(true);video.setControllerAutoShow(false);video.setControllerShowTimeoutMs(5000);video.setKeepContentOnPlayerReset(true);video.setShowSubtitleButton(false);video.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
+        stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
+        controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(android.graphics.Color.argb(205,0,0,0));
+        controls.addView(text(getIntent().getStringExtra("title"),18,android.graphics.Color.WHITE));
+        LinearLayout actions=row();actions.addView(button("版本",this::chooseVersion));
+        audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
+        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(decoderButton);
+        HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);controls.addView(actionScroll);
+        FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=dp(96);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
+        video.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{controls.setVisibility(visibility);if(visibility!=View.VISIBLE)video.requestFocus();});
+        skipButton=button("跳过片头",this::skipSegment);skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
+        status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
+        setContentView(stage);video.hideController();video.requestFocus();
         String requestedSource=state==null?getIntent().getStringExtra("sourceId"):state.getString("sourceId",getIntent().getStringExtra("sourceId"));
         async(()->api.post("/api/tv/Items/"+EtknApi.encode(itemId)+"/PlaybackInfo?UserId="+EtknApi.encode(api.session.userId()),new JSONObject()),result->{
             info=result;playSession=info.optString("PlaySessionId");JSONArray sources=info.optJSONArray("MediaSources");
@@ -65,7 +91,10 @@ public final class PlayerActivity extends TvActivity {
             // The authenticated ETKN URL carries its token in the query. No auth header is
             // attached to Media3, so a remote CDN redirect cannot receive ETKN credentials.
             DefaultHttpDataSource.Factory http=new DefaultHttpDataSource.Factory().setUserAgent(EtknApi.USER_AGENT).setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(30000);
-            player=new ExoPlayer.Builder(this).setMediaSourceFactory(new DefaultMediaSourceFactory(http)).build();video.setPlayer(player);
+            // Keep the authenticated URL in the URI only, including external subtitles.
+            // The native extensions receive no ETKN Authorization/Cookie headers on CDN redirects.
+            player=AssPlayerKt.buildWithAssSupport(new ExoPlayer.Builder(this),this,AssRenderType.OVERLAY_OPEN_GL,
+                new AssHandlerConfig(10000,64,1920*1080),video.getSubtitleView(),http,new DefaultExtractorsFactory(),new TvRenderersFactory(this,softwareVideo));video.setPlayer(player);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
             TrackSelectionParameters.Builder preferences=player.getTrackSelectionParameters().buildUpon();
             preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,source.optInt("DefaultSubtitleStreamIndex",-1)<0);
@@ -77,49 +106,93 @@ public final class PlayerActivity extends TvActivity {
                 Uri uri=Uri.parse(delivery).buildUpon().appendQueryParameter("X-Emby-Token",api.token).appendQueryParameter("UserId",api.session.userId()).build();
                 String codec=stream.optString("Codec").toLowerCase(Locale.ROOT);
                 String mime=codec.contains("ass")||codec.contains("ssa")?MimeTypes.TEXT_SSA:codec.contains("vtt")?MimeTypes.TEXT_VTT:MimeTypes.APPLICATION_SUBRIP;
-                subtitles.add(new MediaItem.SubtitleConfiguration.Builder(uri).setId(PlaybackSelection.externalId(stream.optInt("Index"))).setMimeType(mime).setLanguage(stream.optString("Language")).setLabel(stream.optString("DisplayTitle","外挂字幕")).setSelectionFlags(stream.optBoolean("IsDefault")?C.SELECTION_FLAG_DEFAULT:0).build());
+                subtitles.add(new MediaItem.SubtitleConfiguration.Builder(uri).setId(PlaybackSelection.externalId(stream.optInt("Index"))).setMimeType(mime).setLanguage(stream.optString("Language")).setLabel(PlaybackSelection.streamLabel(stream)).setSelectionFlags(stream.optBoolean("IsDefault")?C.SELECTION_FLAG_DEFAULT:0).build());
             }
-            audioPending=audioIndex!=PlaybackSelection.AUTO;subtitlePending=subtitleIndex!=PlaybackSelection.AUTO;
+            audioPending=subtitlePending=true;
             if(subtitleIndex==-1)preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,true);
             else if(subtitleIndex>=0)preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false);
             player.setTrackSelectionParameters(preferences.build());
             player.setMediaItem(new MediaItem.Builder().setUri(address).setSubtitleConfigurations(subtitles).build(),Math.max(0,position));
             reportedStart=false;
             player.addListener(new Player.Listener(){
-                @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);}
-                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setText(getIntent().getStringExtra("title")+"  ·  "+source.optString("Name"));}if(state==Player.STATE_ENDED){report("Stopped");status.setText("播放完成");}}
-                @Override public void onPlayerError(PlaybackException error){status.setText("播放失败："+error.getErrorCodeName()+"。可切换版本或返回重试。");report("Stopped");}
+                @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
+                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){report("Stopped");message("播放完成");showControls();}}
+                @Override public void onPlayerError(PlaybackException error){
+                    if(!softwareVideo&&error.errorCode>=4001&&error.errorCode<=4005){stopPlayer();softwareVideo=true;message("硬件解码失败，正在尝试软件兼容模式…");startSource();return;}
+                    message("播放失败："+error.getErrorCodeName()+"。可切换解码模式或播放版本。");report("Stopped");showControls();
+                }
             });
-            player.prepare();player.play();video.requestFocus();
-        }catch(Exception error){status.setText(error.getMessage()==null?"无法开始播放":error.getMessage());}
+            player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);video.hideController();video.requestFocus();updateTrackButtons();
+        }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
+    }
+    private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}
+    private void updateSkip(){
+        SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
+        skipTarget=segment==null?-1:segment.end;
+        if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){player.seekTo(segment.end);skipTarget=-1;segment=null;}
+        if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
+    }
+    private void skipSegment(){if(player!=null&&skipTarget>=0){player.seekTo(skipTarget);updateSkip();}}
+    private static final class TrackRef{
+        final Tracks.Group group;final int index;
+        TrackRef(Tracks.Group group,int index){this.group=group;this.index=index;}
+        boolean supported(){return group.isTrackSupported(index);}
+    }
+    private TrackRef findTrack(JSONObject stream,int type){
+        if(player==null)return null;List<TrackRef> embedded=new ArrayList<>();String externalId=PlaybackSelection.externalId(stream.optInt("Index"));TrackRef named=null;int namedCount=0;
+        for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==type)for(int i=0;i<group.length;i++){
+            Format format=group.getTrackFormat(i);String id=PlaybackSelection.localTrackId(format.id);boolean external=id.startsWith("etkn-subtitle-");
+            if(stream.optBoolean("IsExternal")){if(externalId.equals(id))return new TrackRef(group,i);}
+            else if(!external){TrackRef ref=new TrackRef(group,i);embedded.add(ref);if(!stream.optString("Title").isEmpty()&&stream.optString("Title").equals(format.label)){named=ref;namedCount++;}}
+        }
+        if(stream.optBoolean("IsExternal"))return null;if(namedCount==1)return named;
+        List<JSONObject> expected=new ArrayList<>();for(JSONObject value:PlaybackSelection.streams(source,type==C.TRACK_TYPE_TEXT))if(!value.optBoolean("IsExternal"))expected.add(value);
+        // Ordinals are valid only when both parsers exposed the same complete list.
+        int ordinal=PlaybackSelection.embeddedOrdinal(source,stream.optInt("Index"),type==C.TRACK_TYPE_TEXT);
+        return expected.size()==embedded.size()&&ordinal>=0&&ordinal<embedded.size()?embedded.get(ordinal):null;
     }
     private void applyInitialTrack(int type){
         boolean subtitles=type==C.TRACK_TYPE_TEXT;
         if(player==null||!(subtitles?subtitlePending:audioPending))return;
-        int index=subtitles?subtitleIndex:audioIndex;
-        if(index==-1){subtitlePending=false;return;}
+        int index=subtitles?subtitleIndex:audioIndex;if(index==PlaybackSelection.AUTO)index=PlaybackSelection.defaultIndex(source,subtitles);
+        if(index<0){if(subtitles){subtitlePending=false;player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type,true).build());}else audioPending=false;return;}
         JSONObject selectedStream=PlaybackSelection.stream(source,index,subtitles);
         if(selectedStream==null){if(subtitles)subtitlePending=false;else audioPending=false;return;}
-        boolean external=selectedStream.optBoolean("IsExternal");
-        int ordinal=PlaybackSelection.embeddedOrdinal(source,index,subtitles),seen=0;
-        for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==type)for(int i=0;i<group.length;i++){
-            Format format=group.getTrackFormat(i);String trackId=PlaybackSelection.localTrackId(format.id);boolean externalFormat=trackId.startsWith("etkn-subtitle-");
-            boolean matches=external?PlaybackSelection.externalId(index).equals(trackId):!externalFormat&&seen++==ordinal;
-            if(matches&&group.isTrackSupported(i)){
-                if(subtitles)subtitlePending=false;else audioPending=false;
-                player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(type,false).setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(),i)).build());return;
-            }
-        }
+        TrackRef ref=findTrack(selectedStream,type);if(ref==null||!ref.supported())return;
+        if(subtitles)subtitlePending=false;else audioPending=false;
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(type,false).setOverrideForType(new TrackSelectionOverride(ref.group.getMediaTrackGroup(),ref.index)).build());
     }
     private void chooseTrack(int type){
-        if(player==null)return;if(type==C.TRACK_TYPE_TEXT)subtitlePending=false;else audioPending=false;List<Runnable> choose=new ArrayList<>();List<String> labels=new ArrayList<>();
-        if(type==C.TRACK_TYPE_TEXT){labels.add("关闭字幕");choose.add(()->player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(type,true).build()));}
-        for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==type)for(int i=0;i<group.length;i++)if(group.isTrackSupported(i)){
-            int index=i;Format format=group.getTrackFormat(i);labels.add((group.isTrackSelected(i)?"✓ ":"")+(format.label!=null?format.label:format.language!=null?format.language:"轨道 "+(labels.size()+1))+(format.codecs==null?"":"  "+format.codecs));
-            choose.add(()->player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(type,false).setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(),index)).build()));
+        if(player==null)return;boolean subtitles=type==C.TRACK_TYPE_TEXT;List<Integer> indices=new ArrayList<>();List<String> labels=new ArrayList<>();
+        indices.add(PlaybackSelection.AUTO);labels.add("默认 · "+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles));
+        if(subtitles){indices.add(-1);labels.add("关闭字幕");}
+        for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){
+            indices.add(stream.optInt("Index"));TrackRef ref=findTrack(stream,type);
+            labels.add(PlaybackSelection.streamLabel(stream)+(ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持"));
         }
-        if(labels.isEmpty()){status.setText("暂无可选择的轨道");return;}
-        new AlertDialog.Builder(this).setTitle(type==C.TRACK_TYPE_AUDIO?"音轨":"字幕").setItems(labels.toArray(new String[0]),(dialog,index)->{if(player!=null)choose.get(index).run();}).setNegativeButton("取消",null).show();
+        int selectedIndex=indices.indexOf(subtitles?subtitleIndex:audioIndex);
+        video.setControllerShowTimeoutMs(0);
+        trackDialog=new AlertDialog.Builder(this).setTitle(subtitles?"字幕":"音轨").setSingleChoiceItems(labels.toArray(new String[0]),selectedIndex,(dialog,index)->{
+            if(player==null)return;int wanted=indices.get(index),resolved=wanted==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,subtitles):wanted;
+            JSONObject stream=PlaybackSelection.stream(source,resolved,subtitles);TrackRef ref=stream==null?null:findTrack(stream,type);
+            if(resolved>=0&&(ref==null||!ref.supported())){Toast.makeText(this,ref==null?"该轨道尚未解析，不能确认对应关系":"当前解码模式不支持该轨道",Toast.LENGTH_LONG).show();return;}
+            if(subtitles){subtitleIndex=wanted;subtitlePending=true;}else{audioIndex=wanted;audioPending=true;}
+            applyInitialTrack(type);updateTrackButtons();dialog.dismiss();
+        }).setNegativeButton("取消",null).create();
+        trackDialog.setOnDismissListener(dialog->{video.setControllerShowTimeoutMs(5000);showControls();});trackDialog.show();
+    }
+    private String currentTrackTitle(boolean subtitles){
+        int type=subtitles?C.TRACK_TYPE_TEXT:C.TRACK_TYPE_AUDIO;
+        if(player!=null&&subtitles&&player.getTrackSelectionParameters().disabledTrackTypes.contains(type))return "关闭";
+        for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){TrackRef ref=findTrack(stream,type);if(ref!=null&&ref.group.isTrackSelected(ref.index))return PlaybackSelection.streamLabel(stream);}
+        return PlaybackSelection.selectionLabel(source,subtitles?subtitleIndex:audioIndex,subtitles);
+    }
+    private void updateTrackButtons(){audioButton.setText("音轨 · "+currentTrackTitle(false));subtitleButton.setText("字幕 · "+currentTrackTitle(true));decoderButton.setText(softwareVideo?"解码 · 软件兼容":"解码 · 自动");}
+    private void showControls(){video.showController();controls.setVisibility(View.VISIBLE);}
+    private void chooseDecoder(){
+        if(player==null)return;video.setControllerShowTimeoutMs(0);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("视频解码").setSingleChoiceItems(new String[]{"自动：硬解优先，失败回退","软件兼容：高分辨率可能较慢"},softwareVideo?1:0,(choice,index)->{if(softwareVideo!=(index==1)){stopPlayer();softwareVideo=index==1;startSource();}choice.dismiss();}).setNegativeButton("取消",null).create();
+        dialog.setOnDismissListener(value->{video.setControllerShowTimeoutMs(5000);showControls();});dialog.show();
     }
     private void report(String event){
         if(source==null)return;long milliseconds=player==null?position:Math.max(0,player.getCurrentPosition());boolean paused=player==null||!player.isPlaying();long duration=player==null?source.optLong("RunTimeTicks"):player.getDuration()>0?player.getDuration()*10000:source.optLong("RunTimeTicks");
@@ -127,10 +200,21 @@ public final class PlayerActivity extends TvActivity {
             reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
-    private void stopPlayer(){timer.removeCallbacks(progress);if(player!=null){position=Math.max(0,player.getCurrentPosition());report("Stopped");video.setPlayer(null);player.release();player=null;}}
+    private void stopPlayer(){timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;if(video.getSubtitleView()!=null)for(int i=video.getSubtitleView().getChildCount()-1;i>=0;i--)if(video.getSubtitleView().getChildAt(i) instanceof AssSubtitleView)video.getSubtitleView().removeViewAt(i);}}
     @Override protected void onStart(){super.onStart();foreground=true;if(info!=null&&player==null)startSource();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
-    @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);super.onSaveInstanceState(state);}
-    @Override public boolean dispatchKeyEvent(KeyEvent event){if(event.getKeyCode()==KeyEvent.KEYCODE_MENU&&event.getAction()==KeyEvent.ACTION_DOWN){chooseTrack(C.TRACK_TYPE_TEXT);return true;}return video!=null&&video.dispatchMediaKeyEvent(event)||super.dispatchKeyEvent(event);}
+    @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
+    @Override public boolean dispatchKeyEvent(KeyEvent event){
+        int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
+        if(key==KeyEvent.KEYCODE_BACK&&controls.getVisibility()==View.VISIBLE){if(down){video.hideController();video.requestFocus();}return true;}
+        if(key==KeyEvent.KEYCODE_MENU){if(down)chooseTrack(C.TRACK_TYPE_TEXT);return true;}
+        if(video!=null&&!video.isControllerFullyVisible()){
+            if(key==KeyEvent.KEYCODE_DPAD_DOWN){if(down){showControls();audioButton.requestFocus();}return true;}
+            if(key==KeyEvent.KEYCODE_DPAD_UP)return true;
+            if(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER){if(down&&event.getRepeatCount()==0&&player!=null){if(player.isPlaying())player.pause();else player.play();}return true;}
+            if(key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT){if(down&&player!=null)player.seekTo(Math.max(0,player.getCurrentPosition()+(key==KeyEvent.KEYCODE_DPAD_RIGHT?10000:-10000)));return true;}
+        }
+        return video!=null&&video.dispatchMediaKeyEvent(event)||super.dispatchKeyEvent(event);
+    }
 }

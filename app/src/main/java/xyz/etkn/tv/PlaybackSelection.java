@@ -15,7 +15,20 @@ final class PlaybackSelection {
     }
     static JSONObject stream(JSONObject source,int index,boolean subtitles){for(JSONObject stream:streams(source,subtitles))if(stream.optInt("Index",-1)==index)return stream;return null;}
     static String streamLabel(JSONObject stream){String title=stream.optString("DisplayTitle");if(title.isEmpty())title=stream.optString("Title");if(title.isEmpty())title=stream.optString("Language","未知语言")+" · "+stream.optString("Codec");return title;}
-    static String selectionLabel(JSONObject source,int index,boolean subtitles){if(index==AUTO)return "默认";if(subtitles&&index==-1)return "关闭";JSONObject stream=stream(source,index,subtitles);return stream==null?"默认":streamLabel(stream);}
+    static int defaultIndex(JSONObject source,boolean subtitles){
+        if(source==null)return AUTO;
+        String field=subtitles?"DefaultSubtitleStreamIndex":"DefaultAudioStreamIndex";
+        if(source.has(field)&&!source.isNull(field))return source.optInt(field,subtitles?-1:AUTO);
+        List<JSONObject> candidates=streams(source,subtitles);
+        for(JSONObject stream:candidates)if(stream.optBoolean("IsDefault"))return stream.optInt("Index",AUTO);
+        return subtitles?-1:candidates.isEmpty()?AUTO:candidates.get(0).optInt("Index",AUTO);
+    }
+    static String selectionLabel(JSONObject source,int index,boolean subtitles){
+        boolean automatic=index==AUTO;if(automatic)index=defaultIndex(source,subtitles);
+        if(subtitles&&index==-1)return "关闭";
+        JSONObject stream=stream(source,index,subtitles);
+        return stream==null?"默认":streamLabel(stream)+(automatic?"（默认）":"");
+    }
     static int embeddedOrdinal(JSONObject source,int index,boolean subtitles){int ordinal=0;for(JSONObject stream:streams(source,subtitles)){if(stream.optBoolean("IsExternal"))continue;if(stream.optInt("Index",-1)==index)return ordinal;ordinal++;}return -1;}
     static String localTrackId(String id){return id==null?"":id.substring(id.lastIndexOf(':')+1);}
     static String externalId(int index){return "etkn-subtitle-"+index;}
