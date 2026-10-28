@@ -7,6 +7,7 @@
 - 补丁首次失败先检查 diff 确认无部分写入，再用锚点唯一的确定性文本替换。不得连换 heredoc/管道/编码尝试。
 - 发行前运行单元测试、Lint、assembleRelease；核验 API 24、包名、递增版本和固定签名。
 - 发行私钥与密码只存 `.private/` 或指定私有目录，限制目录 ACL。不得输出密码、提交私钥或将凭据放入 Release。
+- Windows 新启动的 Gradle 终端如果未设置 `ETKN_TV_SIGNING_PROPERTIES`，单独运行 `assembleRelease` 仍可能成功，但只生成 `app-release-unsigned.apk`。先检查实际产物；设置签名配置后使用 `scripts/Build-Release.ps1`，并确认 `apksigner` 通过。v0.1.3 已验证该流程生成签名包且证书与此前发行版一致；Gradle 成功本身不代表 APK 已签名。
 - GitHub CLI 未认证时使用官方设备授权；账号主人在浏览器确认。授权完成必须通过 API 读取账号确认，再创建仓库/推送/发布；不得把设备码已输入当作登录成功。
 - 只发布本轮校验过的 APK、update.json、校验清单和发行说明；同一仓库保存源码和 Releases。发布后匿名下载比对 SHA-256。
 - 没有连接 adb 设备时明确记录未实机验收，不把构建通过说成电视操作和真实播放已通过。
