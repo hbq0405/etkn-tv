@@ -1,0 +1,22 @@
+package xyz.etkn.tv;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.util.*;
+
+/** Stream indices are server indices, never language names or dialog positions. */
+final class PlaybackSelection {
+    static final int AUTO=-2;
+    static int sourceIndex(JSONArray sources,String id){if(id==null||id.isEmpty())return -1;for(int i=0;i<sources.length();i++)if(id.equals(sources.optJSONObject(i).optString("Id")))return i;return -1;}
+    static String sourceLabel(JSONObject source,int index){return source==null?"默认":source.optString("Name","版本 "+(index+1));}
+    static List<JSONObject> streams(JSONObject source,boolean subtitles){
+        List<JSONObject> result=new ArrayList<>();JSONArray streams=source==null?null:source.optJSONArray("MediaStreams");
+        if(streams!=null)for(int i=0;i<streams.length();i++){JSONObject stream=streams.optJSONObject(i);if(stream!=null&&stream.optString("Type").equalsIgnoreCase(subtitles?"Subtitle":"Audio"))result.add(stream);}return result;
+    }
+    static JSONObject stream(JSONObject source,int index,boolean subtitles){for(JSONObject stream:streams(source,subtitles))if(stream.optInt("Index",-1)==index)return stream;return null;}
+    static String streamLabel(JSONObject stream){String title=stream.optString("DisplayTitle");if(title.isEmpty())title=stream.optString("Title");if(title.isEmpty())title=stream.optString("Language","未知语言")+" · "+stream.optString("Codec");return title;}
+    static String selectionLabel(JSONObject source,int index,boolean subtitles){if(index==AUTO)return "默认";if(subtitles&&index==-1)return "关闭";JSONObject stream=stream(source,index,subtitles);return stream==null?"默认":streamLabel(stream);}
+    static int embeddedOrdinal(JSONObject source,int index,boolean subtitles){int ordinal=0;for(JSONObject stream:streams(source,subtitles)){if(stream.optBoolean("IsExternal"))continue;if(stream.optInt("Index",-1)==index)return ordinal;ordinal++;}return -1;}
+    static String localTrackId(String id){return id==null?"":id.substring(id.lastIndexOf(':')+1);}
+    static String externalId(int index){return "etkn-subtitle-"+index;}
+}

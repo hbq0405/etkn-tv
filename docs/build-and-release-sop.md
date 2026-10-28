@@ -42,3 +42,10 @@
 - PowerShell 调用 Gradle 时，将带点号的完整 `-P` 属性作为单个引号参数，例如 `'-Pandroid.testInstrumentationRunnerArguments.class=xyz.etkn.tv.HomeFocusTest'`。未引用时曾被拆为任务名，构建在测试前失败、未改发行资产；确认状态后用完整引用参数重跑，模拟器仪器测试通过。
 
 - 仪器测试截图需在 APK 仍安装时提取；Gradle connected 测试可能在完成后卸载被测应用，外部文件目录随之消失。已验证 installDebug/installDebugAndroidTest 后直接 adb shell am instrument -w 可保留截图并 adb pull；先核对 pm list packages 与路径状态，不反复尝试同一失效目录。
+
+## 详情页与轨道验收
+
+- 分集列表必须显式请求 `Fields=MediaSources,MediaStreams,Overview`。生产抽样默认列表没有 MediaSources，带 Fields 后 20 集均返回；客户端应核对实际响应，不能依据列表 DTO 的理论字段假设其始终存在。
+- Media3 合并主媒体与外挂字幕时，Format.id 会带来源前缀，例如 `0:2`、`1:etkn-subtitle-12`。匹配外挂字幕前只去掉冒号前缀，保留服务端轨道 Index 和独立字幕 ID；同语言内封轨道按媒体源内类型顺序定位，不按语言碰运气。使用合成 Matroska 在模拟器检查实际选中轨道。
+- 当前补丁接口拒绝在同一补丁内 Delete/Add 同一路径（`multiple operations target`），失败前未写入。先用 git diff 核对无变化，再用 PowerShell UTF-8 here-string 原位写入完整目标文件，现已通过编译、单测与模拟器验证；不继续换输入方式试错。
+- PowerShell 字符串中的 `\n` 是字面字符，不是换行。本轮独立验证脚本曾因此 SyntaxError，确认只更新了探针、服务代码与容器健康未受影响后，用 `[Environment]::NewLine` 修正并先 py_compile，重新上传后验证通过。生成多行脚本使用 here-string 或真实换行，上传前本地语法检查。
