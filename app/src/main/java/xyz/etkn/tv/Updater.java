@@ -49,14 +49,21 @@ final class Updater {
         }finally{conn.disconnect();if(partial.exists())partial.delete();}
     }
     @SuppressWarnings("deprecation") static void validatePackage(Context context,File apk,Release release)throws Exception {
-        PackageManager manager=context.getPackageManager();int flags=Build.VERSION.SDK_INT>=28?PackageManager.GET_SIGNING_CERTIFICATES:PackageManager.GET_SIGNATURES;
-        PackageInfo installed=manager.getPackageInfo(context.getPackageName(),flags),candidate=manager.getPackageArchiveInfo(apk.getAbsolutePath(),flags);
-        if(candidate==null||!candidate.packageName.equals(context.getPackageName())||version(candidate)!=release.code||version(candidate)<=version(installed))throw new Exception("更新包版本或应用标识不符");
-        android.content.pm.Signature[] current=Build.VERSION.SDK_INT>=28?(installed.signingInfo==null?null:installed.signingInfo.getApkContentsSigners()):installed.signatures;
-        android.content.pm.Signature[] next=Build.VERSION.SDK_INT>=28?(candidate.signingInfo==null?null:candidate.signingInfo.getApkContentsSigners()):candidate.signatures;
-        if(current==null||next==null||current.length!=next.length)throw new Exception("更新包签名不符");
+        validatePackage(context.getPackageManager(),context.getPackageName(),apk,release,Build.VERSION.SDK_INT);
+    }
+    // sdk comes from Build.VERSION.SDK_INT; the parameter also permits compatibility regression tests.
+    @android.annotation.SuppressLint("NewApi") @SuppressWarnings("deprecation")
+    static void validatePackage(PackageManager manager,String packageName,File apk,Release release,int sdk)throws Exception {
+        // Android 9/10 archive parsing needs GET_SIGNATURES to collect certificates.
+        int flags=PackageManager.GET_SIGNATURES|(sdk>=28?PackageManager.GET_SIGNING_CERTIFICATES:0);
+        PackageInfo installed=manager.getPackageInfo(packageName,flags),candidate=manager.getPackageArchiveInfo(apk.getAbsolutePath(),flags);
+        if(candidate==null||!packageName.equals(candidate.packageName)||version(candidate,sdk)!=release.code||version(candidate,sdk)<=version(installed,sdk))throw new Exception("更新包版本或应用标识不符");
+        android.content.pm.Signature[] current=sdk>=28&&installed.signingInfo!=null?installed.signingInfo.getApkContentsSigners():installed.signatures;
+        android.content.pm.Signature[] next=sdk>=28&&candidate.signingInfo!=null?candidate.signingInfo.getApkContentsSigners():candidate.signatures;
+        if(current==null||next==null||current.length==0||next.length==0)throw new Exception("无法读取更新包签名，请重新下载或手动覆盖安装");
+        if(current.length!=next.length)throw new Exception("更新包签名不符");
         Set<String> a=new HashSet<>(),b=new HashSet<>();for(android.content.pm.Signature sig:current)a.add(hex(MessageDigest.getInstance("SHA-256").digest(sig.toByteArray())));for(android.content.pm.Signature sig:next)b.add(hex(MessageDigest.getInstance("SHA-256").digest(sig.toByteArray())));if(!a.equals(b))throw new Exception("更新包签名不符");
     }
-    @SuppressWarnings("deprecation") static long version(PackageInfo info){return Build.VERSION.SDK_INT>=28?info.getLongVersionCode():info.versionCode;}
+    @android.annotation.SuppressLint("NewApi") @SuppressWarnings("deprecation") static long version(PackageInfo info,int sdk){return sdk>=28?info.getLongVersionCode():info.versionCode;}
     static String hex(byte[] bytes){StringBuilder text=new StringBuilder();for(byte value:bytes)text.append(String.format(Locale.ROOT,"%02x",value&255));return text.toString();}
 }
