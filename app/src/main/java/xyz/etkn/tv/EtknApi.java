@@ -52,6 +52,7 @@ final class EtknApi {
             JSONObject json;
             try { json = text.startsWith("[") ? new JSONObject().put("Items", new JSONArray(text)) : text.trim().isEmpty() ? new JSONObject() : new JSONObject(text); }
             catch (Exception error) { throw new Exception("服务响应异常（HTTP " + status + "）"); }
+            if (status == 404 && path.startsWith("/api/tv/")) throw new Exception("请先更新 ETKN 服务端以支持独立 TV 接口");
             if (status >= 400) {
                 if (status == 401) throw new AuthException();
                 throw new Exception(json.optString("detail", "请求失败（HTTP " + status + "）"));
@@ -69,11 +70,11 @@ final class EtknApi {
     void login(String address, String username, String password) throws Exception {
         address = LanDiscovery.resolve(address,7000).getString("url");
         session.ensureServer(address);
-        JSONObject result = request(address, "", "POST", "/emby/Users/AuthenticateByName", new JSONObject().put("Username", username).put("Pw", password));
+        JSONObject result = request(address, "", "POST", "/api/tv/Users/AuthenticateByName", new JSONObject().put("Username", username).put("Pw", password));
         String access = result.getString("AccessToken"); JSONObject user = result.getJSONObject("User");
         session.save(address, user.getString("Id"), user.optString("Name"), access);
     }
-    String userPath() { return "/emby/Users/" + encode(session.userId()); }
+    String userPath() { return "/api/tv/Users/" + encode(session.userId()); }
     String artwork(JSONObject media, String type, int width) {
         String id=media.optString("Id"),tag="";
         if(type.equals("Backdrop")&&!media.optString("ParentBackdropItemId").isEmpty()){
@@ -84,7 +85,7 @@ final class EtknApi {
             JSONObject tags=media.optJSONObject("ImageTags");
             tag=type.equals("Backdrop")?media.optString("BackdropImageTag"):tags==null?"":tags.optString(type);
         }
-        return server+"/emby/Items/"+encode(id)+"/Images/"+type+"?maxWidth="+width+"&quality=90&tag="+encode(tag);
+        return server+"/api/tv/Items/"+encode(id)+"/Images/"+type+"?maxWidth="+width+"&quality=90&tag="+encode(tag);
     }
     static String resumeTitle(JSONObject item) {
         if(!"Episode".equals(item.optString("Type")))return title(item);
@@ -98,7 +99,7 @@ final class EtknApi {
         if (!media.optString("poster_path").isEmpty()) return "https://image.tmdb.org/t/p/w342" + media.optString("poster_path");
         String id = media.optString("Id"), type = "Primary";
         if (media.optString("Type").equals("Episode") && !media.optString("ParentBackdropItemId").isEmpty()) { id = media.optString("ParentBackdropItemId"); type = "Backdrop"; }
-        return server + "/emby/Items/" + encode(id) + "/Images/" + type + "?maxWidth=320&quality=85";
+        return server + "/api/tv/Items/" + encode(id) + "/Images/" + type + "?maxWidth=320&quality=85";
     }
     static List<JSONObject> rows(JSONObject payload) {
         for (String key : new String[]{"Items", "results", "resources", "items", "data"}) {

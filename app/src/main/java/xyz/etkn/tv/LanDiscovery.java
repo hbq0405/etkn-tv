@@ -66,9 +66,8 @@ final class LanDiscovery {
     private static JSONObject identify(String address,int timeout)throws Exception {
         JSONObject health=read(address+"/api/health",timeout);
         if(!"ok".equals(health.optString("status")))throw new Exception("该地址不是可用的 ETKN");
-        JSONObject auth=read(address+"/api/auth/check_status",timeout);
-        if(!auth.has("status"))throw new Exception("该地址不是 ETKN");
-        JSONObject info=read(address+"/emby/System/Info/Public",timeout);
+        JSONObject info=read(address+"/api/tv/System/Info/Public",timeout);
+        if(!"ETKN".equals(info.optString("ProductName"))||info.optInt("TvApiVersion")!=1)throw new Exception("请先更新 ETKN 服务端以支持独立 TV 接口");
         return new JSONObject().put("url",address).put("name",info.optString("ServerName","ETKN")).put("id",info.optString("Id"));
     }
     private static JSONObject read(String address,int timeout)throws Exception {

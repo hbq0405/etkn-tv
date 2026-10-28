@@ -23,7 +23,7 @@ public class ConnectionTest {
                     String body;
                     if(path.equals("/api/health"))body="{\"status\":\"ok\"}";
                     else if(path.equals("/api/auth/check_status"))body="{\"status\":\"login_required\"}";
-                    else if(path.equals("/emby/System/Info/Public"))body="{\"Id\":\""+id+"\",\"ServerName\":\"Test\"}";
+                    else if(path.equals("/api/tv/System/Info/Public"))body="{\"Id\":\""+id+"\",\"ServerName\":\"Test\",\"ProductName\":\"ETKN\",\"TvApiVersion\":1}";
                     else body="{\"ProductName\":\"ETKN\",\"ApiPort\":"+socket.getLocalPort()+",\"MediaServerPort\":"+mediaPort+",\"MediaServerAddress\":\"http://127.0.0.1:"+mediaPort+"\"}";
                     byte[] bytes=body.getBytes(StandardCharsets.UTF_8);
                     client.getOutputStream().write(("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: "+bytes.length+"\r\n\r\n").getBytes(StandardCharsets.UTF_8));

@@ -19,7 +19,11 @@ public final class FocusScroll {
     }
 
     public static final class Row extends HorizontalScrollView {
-        public Row(Context context) { super(context); }
+        public Row(Context context) {
+            super(context);
+            // 片架本身也要允许越界绘制；只关闭 GridLayout 的子裁剪仍会被本层裁掉。
+            setClipChildren(false);
+        }
         @Override protected int computeScrollDeltaToGetChildRectOnScreen(Rect rectangle) {
             return super.computeScrollDeltaToGetChildRectOnScreen(expand(rectangle, margin(getContext())));
         }

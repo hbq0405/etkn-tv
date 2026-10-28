@@ -39,7 +39,7 @@ public final class PlayerActivity extends TvActivity {
         status=text(getIntent().getStringExtra("title"),14,MUTED);root.addView(status);
         video=new PlayerView(this);video.setUseController(true);video.setControllerAutoShow(true);video.setKeepContentOnPlayerReset(true);video.setShowSubtitleButton(false);
         root.addView(video,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);video.requestFocus();
-        async(()->api.post("/emby/Items/"+EtknApi.encode(itemId)+"/PlaybackInfo?UserId="+EtknApi.encode(api.session.userId()),new JSONObject()),result->{info=result;playSession=info.optString("PlaySessionId");if(info.optJSONArray("MediaSources")==null||info.optJSONArray("MediaSources").length()==0){status.setText("暂无可播放版本");return;}if(info.optJSONArray("MediaSources").length()>1)chooseVersion();else if(foreground)startSource();});
+        async(()->api.post("/api/tv/Items/"+EtknApi.encode(itemId)+"/PlaybackInfo?UserId="+EtknApi.encode(api.session.userId()),new JSONObject()),result->{info=result;playSession=info.optString("PlaySessionId");if(info.optJSONArray("MediaSources")==null||info.optJSONArray("MediaSources").length()==0){status.setText("暂无可播放版本");return;}if(info.optJSONArray("MediaSources").length()>1)chooseVersion();else if(foreground)startSource();});
     }
     private void chooseVersion(){
         if(info==null)return;JSONArray sources=info.optJSONArray("MediaSources");if(sources==null||sources.length()==0)return;
@@ -92,7 +92,7 @@ public final class PlayerActivity extends TvActivity {
     private void report(String event){
         if(source==null)return;long milliseconds=player==null?position:Math.max(0,player.getCurrentPosition());boolean paused=player==null||!player.isPlaying();long duration=player==null?source.optLong("RunTimeTicks"):player.getDuration()>0?player.getDuration()*10000:source.optLong("RunTimeTicks");
         try{JSONObject payload=new JSONObject().put("ItemId",itemId).put("UserId",api.session.userId()).put("MediaSourceId",source.optString("Id")).put("PlaySessionId",playSession).put("PositionTicks",milliseconds*10000).put("RunTimeTicks",duration).put("IsPaused",paused).put("CanSeek",true).put("PlayMethod","DirectStream").put("Client","ETKN TV");
-            reports.execute(()->{try{api.post("/emby/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
+            reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
     private void stopPlayer(){timer.removeCallbacks(progress);if(player!=null){position=Math.max(0,player.getCurrentPosition());report("Stopped");video.setPlayer(null);player.release();player=null;}}

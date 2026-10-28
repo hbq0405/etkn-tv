@@ -82,7 +82,7 @@ abstract class TvActivity extends Activity {
     GridLayout grid(LinearLayout target) { GridLayout grid=new GridLayout(this); int width=getResources().getConfiguration().screenWidthDp; grid.setColumnCount(Math.max(3,(width-72)/140)); target.addView(grid); return grid; }
     void loadAvatar(ImageView view) {
         view.setImageResource(android.R.drawable.ic_menu_myplaces);
-        async(()->api.get("/emby/Users/Me"),user->{String tag=user.optString("PrimaryImageTag");if(!tag.isEmpty())Images.load(api,api.server+api.userPath()+"/Images/Primary?maxWidth=160&tag="+EtknApi.encode(tag),view);});
+        async(()->api.get("/api/tv/Users/Me"),user->{String tag=user.optString("PrimaryImageTag");if(!tag.isEmpty())Images.load(api,api.server+api.userPath()+"/Images/Primary?maxWidth=160&tag="+EtknApi.encode(tag),view);});
     }
     void detail(org.json.JSONObject item) { startActivity(new Intent(this,DetailActivity.class).putExtra("id",item.optString("Id"))); }
 }
