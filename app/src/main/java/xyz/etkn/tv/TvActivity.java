@@ -14,6 +14,8 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 
 abstract class TvActivity extends Activity {
+    /** 媒体卡片聚焦放大比例；FocusScroll.MARGIN_DP 必须覆盖其对最宽卡片的单侧溢出。 */
+    static final float FOCUS_SCALE = 1.08f;
     static final int INK = Color.rgb(11,17,26), PANEL = Color.rgb(25,36,50), ACCENT = Color.rgb(118,213,176), MUTED = Color.rgb(163,179,198);
     static final ExecutorService IO = Executors.newFixedThreadPool(6);
     LinearLayout root, content, nav;
@@ -31,7 +33,7 @@ abstract class TvActivity extends Activity {
         TextView heading = text(title, 29, Color.WHITE); heading.setTypeface(null, Typeface.BOLD); root.addView(heading);
         if (!subtitle.isEmpty()) root.addView(text(subtitle, 13, MUTED));
         nav = row(); root.addView(nav); status = text("", 13, MUTED); root.addView(status);
-        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
+        ScrollView scroll = new FocusScroll.Vertical(this); scroll.setFillViewport(true);
         content = column(); scroll.addView(content); root.addView(scroll, new LinearLayout.LayoutParams(-1,0,1)); setContentView(root);
     }
     LinearLayout row() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.HORIZONTAL); return view; }
@@ -68,7 +70,7 @@ abstract class TvActivity extends Activity {
         GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(landscape?264:132);layout.height=dp(landscape?215:248);layout.setMargins(dp(4),dp(5),dp(4),dp(5));grid.addView(card,layout);
         String image=landscape&&!"CollectionFolder".equals(media.optString("Type"))?api.artwork(media,"Backdrop",640):api.image(media);
         Images.load(api,image,poster,success->{if(!success&&!image.equals(api.image(media)))Images.load(api,api.image(media),poster);});
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?1.08f:1f);card.setScaleY(hasFocus?1.08f:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
         org.json.JSONObject data=media.optJSONObject("UserData");
         if(landscape&&data!=null&&data.optLong("PlaybackPositionTicks")>0&&media.optLong("RunTimeTicks")>0){
             ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setProgress((int)Math.min(1000,1000.0*data.optLong("PlaybackPositionTicks")/media.optLong("RunTimeTicks")));progress.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.argb(180,0,0,0)));FrameLayout.LayoutParams bar=new FrameLayout.LayoutParams(-1,dp(4),android.view.Gravity.BOTTOM);bar.leftMargin=dp(10);bar.rightMargin=dp(10);bar.bottomMargin=dp(6);artwork.addView(progress,bar);
