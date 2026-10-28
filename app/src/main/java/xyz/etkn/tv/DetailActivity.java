@@ -29,6 +29,7 @@ public final class DetailActivity extends TvActivity {
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);
         backdrop=new ImageView(this);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,0);
         stage.addView(backdrop,new FrameLayout.LayoutParams(-1,-1));
+        stage.addView(backdropShade(),new FrameLayout.LayoutParams(-1,-1));
         scroll=new FocusScroll.Vertical(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
         content=column();content.setPadding(dp(42),dp(26),dp(42),dp(28));scroll.addView(content);stage.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         status=text("正在读取详情…",13,MUTED);content.addView(status);setContentView(stage);
@@ -61,7 +62,7 @@ public final class DetailActivity extends TvActivity {
         LinearLayout selections=row();versionButton=button("版本",this::chooseVersion);audioButton=button("音轨 · 默认",()->chooseStream(false));subtitleButton=button("字幕 · 默认",()->chooseStream(true));
         selections.addView(versionButton);selections.addView(audioButton);selections.addView(subtitleButton);
         HorizontalScrollView selectionScroll=new FocusScroll.Row(this);selectionScroll.setHorizontalScrollBarEnabled(false);selectionScroll.addView(selections);content.addView(selectionScroll);
-        TextView overview=text(item.optString("Overview","暂无简介"),15,Color.rgb(219,227,237));overview.setMaxLines(3);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);overview.setFocusable(true);overview.setBackground(focusBackground());overview.setPadding(dp(10),dp(5),dp(10),dp(5));overview.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(EtknApi.title(item)).setMessage(item.optString("Overview")).setPositiveButton("关闭",null).show());
+        TextView overview=text(item.optString("Overview","暂无简介"),15,Color.rgb(219,227,237));overview.setMaxLines(3);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);overview.setFocusable(true);overview.setBackground(transparentFocusBackground());overview.setPadding(dp(10),dp(5),dp(10),dp(5));overview.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(EtknApi.title(item)).setMessage(item.optString("Overview")).setPositiveButton("关闭",null).show());
         content.addView(overview,new LinearLayout.LayoutParams(dp(Math.min(650,getResources().getConfiguration().screenWidthDp-84)),-2));
         status=text("",12,MUTED);content.addView(status);episodeArea=column();content.addView(episodeArea);updateChoices();
         String type=item.optString("Type");
@@ -132,7 +133,7 @@ public final class DetailActivity extends TvActivity {
         JSONArray people=item.optJSONArray("People");if(people==null||people.length()==0)return;
         content.addView(text("演员表",20,Color.WHITE));LinearLayout cast=row();HorizontalScrollView castScroll=new FocusScroll.Row(this);castScroll.setHorizontalScrollBarEnabled(false);castScroll.addView(cast);content.addView(castScroll);
         for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person==null||!person.optString("Type",person.optString("PersonType")).equalsIgnoreCase("Actor"))continue;
-            LinearLayout card=column();card.setFocusable(true);card.setBackground(focusBackground());card.setPadding(dp(6),dp(6),dp(6),dp(6));LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(112),dp(200));bounds.setMargins(0,dp(8),dp(14),dp(8));cast.addView(card,bounds);
+            LinearLayout card=column();card.setFocusable(true);card.setBackground(transparentFocusBackground());card.setPadding(dp(3),dp(3),dp(3),dp(3));LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(112),dp(200));bounds.setMargins(0,dp(8),dp(14),dp(8));cast.addView(card,bounds);
             card.setContentDescription("演员 · "+person.optString("Name"));card.setClickable(true);card.setOnClickListener(view->startActivity(new Intent(this,PersonActivity.class).putExtra("id",person.optString("Id")).putExtra("name",person.optString("Name"))));
             ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);portrait.setImageResource(android.R.drawable.ic_menu_myplaces);Images.rounded(portrait,dp(7));card.addView(portrait,new LinearLayout.LayoutParams(-1,dp(130)));Images.load(api,api.artwork(person,"Primary",240),portrait);
             TextView name=text(person.optString("Name"),13,Color.WHITE);name.setGravity(Gravity.CENTER);name.setMaxLines(1);card.addView(name);TextView role=text(person.optString("Role"),11,MUTED);role.setGravity(Gravity.CENTER);role.setMaxLines(2);role.setPadding(0,0,0,0);card.addView(role);

@@ -61,14 +61,16 @@ with zipfile.ZipFile(args.output, "w", compression=zipfile.ZIP_STORED) as bundle
     for name in manifest:
         bundle.write(args.cache / name, name)
     bundle.writestr("sources.json", json.dumps(manifest, indent=2) + "\n")
-    bundle.writestr("README.txt", """Native-player corresponding sources for ETKN TV 0.1.11.
+    bundle.writestr("README.txt", """Native-player corresponding sources for ETKN TV 0.1.12.
 The app and modified JNI sources are in the matching ETKN TV source tag.
-NextLib uses FFmpeg 6.0, libvpx 1.13.0 and mbedTLS 3.4.1 (ffmpeg/setup.sh).
+ETKN builds FFmpeg 6.0 decoders statically with scripts/Build-PlayerNative.py.
+NextLib Java/JNI changes are included in the matching ETKN source tag.
+The original NextLib source and its historical dependency sources are also retained.
 libass-android v0.5.1 contains libass-cmake at the commit listed in sources.json.
 Restore its src/* git submodules from the matching named archives in this bundle.
 Use each upstream build script and its pinned toolchain. All original license
 and copyright files are retained inside each source archive.
-Rebuild ETKN's TrueHD JNI compatibility layer using scripts/Build-NextlibCompat.py.
+Rebuild ETKN's complete decoder/JNI library using scripts/Build-PlayerNative.py.
 AndroidX Media3 1.8.0 source: https://github.com/androidx/media/tree/1.8.0
 AndroidX/Kotlin dependencies use their respective Apache-2.0 licenses and source
 artifacts published alongside each Maven dependency.

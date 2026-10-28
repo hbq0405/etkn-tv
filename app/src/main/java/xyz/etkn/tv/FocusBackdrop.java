@@ -19,6 +19,7 @@ final class FocusBackdrop extends FrameLayout {
     FocusBackdrop(TvActivity activity){
         super(activity);this.activity=activity;setBackgroundColor(TvActivity.INK);
         backdrop=new ImageView(activity);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,activity.dp(10));addView(backdrop,new LayoutParams(-1,-1));
+        addView(activity.backdropShade(),new LayoutParams(-1,-1));
         copy=activity.column();copy.setPadding(activity.dp(30),0,activity.dp(24),0);
         LayoutParams copyLayout=new LayoutParams(activity.dp(540),-2,Gravity.TOP|Gravity.START);copyLayout.topMargin=activity.dp(54);addView(copy,copyLayout);
         FrameLayout identity=new FrameLayout(activity);copy.addView(identity,new LinearLayout.LayoutParams(-1,activity.dp(88)));

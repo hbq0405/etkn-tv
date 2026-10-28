@@ -4,15 +4,19 @@ Upstream: `anilbeesetti/nextlib`, tag `1.8.0-0.9.0`, source tree
 `1b69e9490c172c42f73f7a6f1b9ffd1c8be4a060`, `media3ext/src/main/cpp`.
 License: GPL-3.0; the original full license is retained in this directory.
 
-ETKN modifications, 2026-10-29, are limited to `ffaudio.cpp`:
+ETKN modifications, 2026-10-29, cover `ffaudio.cpp` and `ffvideo.cpp`:
 
 - Initialize FFmpeg's channel layout for TrueHD, including stereo.
 - Preserve output format, sample rate and channel count before destroying the
   context during a TrueHD reset. The upstream code read a released context and
   recreated it without its channel layout.
+- Convert FFmpeg 10-bit planar video frames to 8-bit `AV_PIX_FMT_YUV420P`
+  before filling Media3's `VideoDecoderOutputBuffer`.
+- Copy normalized Y/U/V planes directly into the Android YV12 window and fall
+  back to the displayed width when a device reports a zero native-window stride.
 
-`ffcommon.cpp`, `ffcommon.h`, `ffmain.cpp` and `ffvideo.cpp` are unchanged.
-The JNI library is named `libetkn_media3ext.so`; `TvRenderersFactory` selects it
+`ffcommon.cpp`, `ffcommon.h` and `ffmain.cpp` are unchanged. The JNI library is
+named `libetkn_media3ext.so`; `TvRenderersFactory` selects it
 before constructing any decoder. The FFmpeg shared libraries and Java classes
 come unchanged from the pinned Maven dependency. No media transport is added.
 

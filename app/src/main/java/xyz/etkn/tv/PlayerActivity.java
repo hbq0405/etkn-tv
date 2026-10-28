@@ -38,13 +38,26 @@ public final class PlayerActivity extends TvActivity {
     private int selected;
     private boolean foreground,reportedStart,versionConfirmed,audioPending,subtitlePending;
     private boolean softwareVideo,playWhenReady=true;
+    private boolean videoFrameSeen;
+    private long videoReadySince;
+    private String videoDecoder="等待解码器";
+    private TextView videoInfo;
     private int skipMode;
     private long skipTarget=-1;
+    private boolean seekKeys;
     private int audioIndex=PlaybackSelection.AUTO,subtitleIndex=PlaybackSelection.AUTO;
     private final Handler timer=new Handler(Looper.getMainLooper());
     private final ExecutorService reports=Executors.newSingleThreadExecutor();
     private final Runnable progress=new Runnable(){@Override public void run(){if(player!=null){report("Progress");timer.postDelayed(this,10000);}}};
     private final Runnable skipCheck=new Runnable(){@Override public void run(){if(player!=null){updateSkip();timer.postDelayed(this,400);}}};
+    private final Runnable videoCheck=new Runnable(){@Override public void run(){
+        if(player==null)return;
+        boolean expected=player.getCurrentTracks().containsType(C.TRACK_TYPE_VIDEO);
+        if(!expected||videoFrameSeen||!player.getPlayWhenReady()||player.getPlaybackState()!=Player.STATE_READY)videoReadySince=0;
+        else if(videoReadySince==0)videoReadySince=android.os.SystemClock.elapsedRealtime();
+        else if(android.os.SystemClock.elapsedRealtime()-videoReadySince>=6000){recoverVideo();return;}
+        updateVideoInfo();timer.postDelayed(this,1000);
+    }};
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);itemId=getIntent().getStringExtra("id");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
@@ -58,6 +71,7 @@ public final class PlayerActivity extends TvActivity {
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
         controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(android.graphics.Color.argb(205,0,0,0));
         controls.addView(text(getIntent().getStringExtra("title"),18,android.graphics.Color.WHITE));
+        videoInfo=text("",12,MUTED);controls.addView(videoInfo);
         LinearLayout actions=row();actions.addView(button("版本",this::chooseVersion));
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
         actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(decoderButton);
@@ -114,18 +128,33 @@ public final class PlayerActivity extends TvActivity {
             player.setTrackSelectionParameters(preferences.build());
             player.setMediaItem(new MediaItem.Builder().setUri(address).setSubtitleConfigurations(subtitles).build(),Math.max(0,position));
             reportedStart=false;
+            videoFrameSeen=false;videoReadySince=0;videoDecoder="等待解码器";
+            player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener(){
+                @Override public void onVideoDecoderInitialized(EventTime time,String name,long at,long duration){videoDecoder=name;updateVideoInfo();}
+            });
             player.addListener(new Player.Listener(){
+                @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
                 @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){report("Stopped");message("播放完成");showControls();}}
                 @Override public void onPlayerError(PlaybackException error){
-                    if(!softwareVideo&&error.errorCode>=4001&&error.errorCode<=4005){stopPlayer();softwareVideo=true;message("硬件解码失败，正在尝试软件兼容模式…");startSource();return;}
+                    if(!softwareVideo&&error.errorCode>=4001&&error.errorCode<=4005){recoverVideo();return;}
                     message("播放失败："+error.getErrorCodeName()+"。可切换解码模式或播放版本。");report("Stopped");showControls();
                 }
             });
-            player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);video.hideController();video.requestFocus();updateTrackButtons();
+            player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();video.requestFocus();updateTrackButtons();
         }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
     }
     private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}
+    private void recoverVideo(){
+        if(!softwareVideo){stopPlayer();softwareVideo=true;message("视频未正常输出，正在尝试软件兼容模式…");startSource();}
+        else{message("视频仍未输出画面，请切换版本或解码模式。");showControls();updateVideoInfo();}
+    }
+    private void updateVideoInfo(){
+        if(player==null||videoInfo==null)return;Format format=player.getVideoFormat();
+        if(format==null){for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_VIDEO&&group.length>0){format=group.getTrackFormat(0);break;}}
+        String label=format==null?"尚未解析视频":format.sampleMimeType+"  "+format.width+"×"+format.height;
+        videoInfo.setText(label+"  ·  "+videoDecoder+"  ·  "+(videoFrameSeen?"已输出画面":"等待画面"));
+    }
     private void updateSkip(){
         SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
         skipTarget=segment==null?-1:segment.end;
@@ -200,20 +229,25 @@ public final class PlayerActivity extends TvActivity {
             reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
-    private void stopPlayer(){timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;if(video.getSubtitleView()!=null)for(int i=video.getSubtitleView().getChildCount()-1;i>=0;i--)if(video.getSubtitleView().getChildAt(i) instanceof AssSubtitleView)video.getSubtitleView().removeViewAt(i);}}
+    private void stopPlayer(){timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;if(video.getSubtitleView()!=null)for(int i=video.getSubtitleView().getChildCount()-1;i>=0;i--)if(video.getSubtitleView().getChildAt(i) instanceof AssSubtitleView)video.getSubtitleView().removeViewAt(i);}}
     @Override protected void onStart(){super.onStart();foreground=true;if(info!=null&&player==null)startSource();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
-        if(key==KeyEvent.KEYCODE_BACK&&controls.getVisibility()==View.VISIBLE){if(down){video.hideController();video.requestFocus();}return true;}
+        if(key==KeyEvent.KEYCODE_BACK&&controls.getVisibility()==View.VISIBLE){if(down){seekKeys=false;video.hideController();video.requestFocus();}return true;}
         if(key==KeyEvent.KEYCODE_MENU){if(down)chooseTrack(C.TRACK_TYPE_TEXT);return true;}
+        if((key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT)&&video!=null&&(!video.isControllerFullyVisible()||seekKeys)){
+            if(down&&player!=null){seekKeys=true;long end=player.getDuration();long target=Math.max(0,player.getCurrentPosition()+(key==KeyEvent.KEYCODE_DPAD_RIGHT?10000:-10000));player.seekTo(end>0?Math.min(target,end):target);showControls();video.requestFocus();}return true;
+        }
+        if(key==KeyEvent.KEYCODE_DPAD_DOWN&&seekKeys){if(down){seekKeys=false;showControls();audioButton.requestFocus();}return true;}
+        if((key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER)&&video!=null&&(!video.isControllerFullyVisible()||seekKeys)){
+            if(down&&event.getRepeatCount()==0&&player!=null){if(skipButton.getVisibility()==View.VISIBLE&&skipTarget>=0)skipSegment();else if(player.getPlayWhenReady())player.pause();else player.play();}return true;
+        }
         if(video!=null&&!video.isControllerFullyVisible()){
             if(key==KeyEvent.KEYCODE_DPAD_DOWN){if(down){showControls();audioButton.requestFocus();}return true;}
             if(key==KeyEvent.KEYCODE_DPAD_UP)return true;
-            if(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER){if(down&&event.getRepeatCount()==0&&player!=null){if(player.isPlaying())player.pause();else player.play();}return true;}
-            if(key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT){if(down&&player!=null)player.seekTo(Math.max(0,player.getCurrentPosition()+(key==KeyEvent.KEYCODE_DPAD_RIGHT?10000:-10000)));return true;}
         }
         return video!=null&&video.dispatchMediaKeyEvent(event)||super.dispatchKeyEvent(event);
     }

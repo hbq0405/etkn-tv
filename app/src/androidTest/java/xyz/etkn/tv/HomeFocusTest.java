@@ -32,6 +32,17 @@ public class HomeFocusTest {
     @SuppressWarnings("unchecked") private View library(String id){return ((java.util.Map<String,View>)field(HomeActivity.class,"libraryCards")).get(id);}
     private void call(String name,Class<?>[] types,Object... args){instrumentation.runOnMainSync(()->{try{java.lang.reflect.Method method=HomeActivity.class.getDeclaredMethod(name,types);method.setAccessible(true);method.invoke(home,args);}catch(Exception error){throw new AssertionError(error);}});}
 
+    @Test public void slowLibraryDoesNotBlockOtherShelvesOrInitialFocus()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.holdFirstLatest=true;server.holdResume=true;
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"slow-fixture","首页延迟测试","synthetic-test-session");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->library("library-2")!=null&&home.getCurrentFocus()==library("library-0")&&cards().size()>=18);
+            assertEquals("媒体库列表只能请求一次",1,server.viewCalls);assertEquals(1L,server.latestGate.getCount());assertEquals(1L,server.resumeGate.getCount());
+            View focused=home.getCurrentFocus();server.latestGate.countDown();server.resumeGate.countDown();await(()->cards().size()==90);assertEquals("后续加载不可抢走焦点",focused,home.getCurrentFocus());
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+
     @Test public void librarySortingPersistsIndependentlyAndBackRestoresTheLibraryCard()throws Exception{
         try(Fixture server=new Fixture()){
             new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"sort-fixture","排序测试","synthetic-test-session");
@@ -182,18 +193,25 @@ public class HomeFocusTest {
         volatile String unexpectedPath;
         volatile String lastListingPath="";
         volatile int listingCalls;
+        volatile boolean holdFirstLatest,holdResume;
+        final java.util.concurrent.CountDownLatch latestGate=new java.util.concurrent.CountDownLatch(1),resumeGate=new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicInteger views=new java.util.concurrent.atomic.AtomicInteger();
+        volatile int viewCalls;
         Fixture()throws Exception{
             Bitmap bitmap=Bitmap.createBitmap(640,360,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);canvas.drawColor(Color.rgb(45,80,110));
             Paint paint=new Paint();paint.setColor(Color.rgb(225,150,70));canvas.drawRect(0,0,640,18,paint);canvas.drawRect(0,342,640,360,paint);
             paint.setColor(Color.WHITE);paint.setTextSize(40);canvas.drawText("TV Focus Fixture",100,190,paint);
             ByteArrayOutputStream bytes=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,90,bytes);bitmap.recycle();image=bytes.toByteArray();
-            Thread thread=new Thread(()->{while(!closed){try{serve(socket.accept());}catch(Exception ignored){if(closed)return;}}},"focus-fixture");thread.setDaemon(true);thread.start();
+            Thread thread=new Thread(()->{while(!closed){try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}},"focus-request");worker.setDaemon(true);worker.start();}catch(Exception ignored){if(closed)return;}}},"focus-fixture");thread.setDaemon(true);thread.start();
         }
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
         void serve(Socket client)throws Exception{
             try(client){
                 BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));
                 String request=reader.readLine();if(request==null)return;String path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
+                if(path.endsWith("/Views"))viewCalls=views.incrementAndGet();
+                if(holdFirstLatest&&path.contains("/Items/Latest?ParentId=library-0&"))latestGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
+                if(holdResume&&path.contains("/Items/Resume?"))resumeGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&path.contains("/Items?")){lastListingPath=path;listingCalls++;}
                 boolean picture=path.contains("/Images/");
                 byte[] body=picture?image:response(path).toString().getBytes(StandardCharsets.UTF_8);
@@ -212,6 +230,6 @@ public class HomeFocusTest {
             for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
             return new JSONObject().put("Items",items);
         }
-        @Override public void close()throws IOException{closed=true;socket.close();}
+        @Override public void close()throws IOException{closed=true;latestGate.countDown();resumeGate.countDown();socket.close();}
     }
 }

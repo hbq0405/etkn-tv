@@ -18,6 +18,7 @@ extern "C" {
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 #include <libavutil/opt.h>
+#include <libavutil/imgutils.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
@@ -73,8 +74,6 @@ struct JniContext {
     jmethodID init_method{};
 
     AVCodecContext *codecContext{};
-    SwsContext *swsContext{};
-
     ANativeWindow *native_window = nullptr;
     jobject surface = nullptr;
     int native_window_width = 0;
@@ -96,7 +95,7 @@ JniContext *createVideoContext(JNIEnv *env,
     if (extraData) {
         jsize size = env->GetArrayLength(extraData);
         codecContext->extradata_size = size;
-        codecContext->extradata = (uint8_t *) av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
+        codecContext->extradata = (uint8_t *) av_mallocz(size + AV_INPUT_BUFFER_PADDING_SIZE);
         if (!codecContext->extradata) {
             LOGE("Failed to allocate extradata.");
             releaseContext(codecContext);
@@ -166,7 +165,6 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
     auto *const jniContext = reinterpret_cast<JniContext *>(jContext);
     AVCodecContext *context = jniContext->codecContext;
     if (context) {
-        sws_freeContext(jniContext->swsContext);
         releaseContext(context);
         delete jniContext;
     }
@@ -201,19 +199,6 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         jniContext->native_window_width = displayed_width;
         jniContext->native_window_height = displayed_height;
 
-        // Initializing swsContext with AV_PIX_FMT_YUV420P, which is equivalent to YV12.
-        // The only difference is the order of the u and v planes.
-        SwsContext *swsContext = sws_getContext(displayed_width, displayed_height,
-                                                jniContext->codecContext->pix_fmt,
-                                                displayed_width, displayed_height,
-                                                AV_PIX_FMT_YUV420P,
-                                                SWS_BILINEAR, nullptr, nullptr, nullptr);
-
-        if (!swsContext) {
-            LOGE("Failed to allocate swsContext.");
-            return VIDEO_DECODER_ERROR_OTHER;
-        }
-        jniContext->swsContext = swsContext;
     }
 
     ANativeWindow_Buffer native_window_buffer;
@@ -247,12 +232,13 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
     int strideV = yuvStrides[kPlaneV];
 
 
+    const int native_stride = native_window_buffer.stride > 0 ? native_window_buffer.stride : displayed_width;
     const int32_t native_window_buffer_uv_height = (native_window_buffer.height + 1) / 2;
     auto native_window_buffer_bits = reinterpret_cast<uint8_t *>(native_window_buffer.bits);
-    const int native_window_buffer_uv_stride = ALIGN(native_window_buffer.stride / 2, 16);
+    const int native_window_buffer_uv_stride = ALIGN(native_stride / 2, 16);
     const int v_plane_height = std::min(native_window_buffer_uv_height, displayed_height);
 
-    const int y_plane_size = native_window_buffer.stride * native_window_buffer.height;
+    const int y_plane_size = native_stride * native_window_buffer.height;
     const int v_plane_size = v_plane_height * native_window_buffer_uv_stride;
 
     // source data
@@ -267,18 +253,27 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
                         native_window_buffer_bits + y_plane_size};
 
     // destination strides
-    int dest_stride[3] = {native_window_buffer.stride,
+    int dest_stride[3] = {native_stride,
                           native_window_buffer_uv_stride,
                           native_window_buffer_uv_stride};
 
 
-    //Perform color space conversion using sws_scale.
-    //Convert the source data (src) with specified strides (src_stride) and displayed height,
-    //and store the result in the destination data (dest) with corresponding strides (dest_stride).
-    sws_scale(jniContext->swsContext,
-              src, src_stride,
-              0, displayed_height,
-              dest, dest_stride);
+    // Both the decoder output and the native window are 8-bit 4:2:0. Copy
+    // the planes directly; swscale is unnecessary after 10-bit normalization.
+    const int copyYWidth = std::min(displayed_width, native_window_buffer.stride);
+    const int copyYHeight = std::min(displayed_height, native_window_buffer.height);
+    for (int y = 0; y < copyYHeight; ++y) {
+        memcpy(dest[kPlaneY] + y * dest_stride[kPlaneY],
+               src[kPlaneY] + y * src_stride[kPlaneY], copyYWidth);
+    }
+    const int copyUvWidth = std::min((displayed_width + 1) / 2, native_window_buffer_uv_stride);
+    const int copyUvHeight = std::min((displayed_height + 1) / 2, native_window_buffer_uv_height);
+    for (int y = 0; y < copyUvHeight; ++y) {
+        memcpy(dest[kPlaneU] + y * dest_stride[kPlaneU],
+               src[kPlaneU] + y * src_stride[kPlaneU], copyUvWidth);
+        memcpy(dest[kPlaneV] + y * dest_stride[kPlaneV],
+               src[kPlaneV] + y * src_stride[kPlaneV], copyUvWidth);
+    }
 
     env->ReleaseIntArrayElements(*yuvStrides_array, yuvStrides, 0);
 
@@ -356,6 +351,42 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
         return VIDEO_DECODER_ERROR_OTHER;
     }
 
+    // Media3's YUV output buffer is 8-bit YUV420. FFmpeg can return 10-bit
+    // planar frames for HEVC Main10; copying those 16-bit planes directly
+    // produces a green/corrupted surface. Convert before filling the buffer.
+    AVFrame *converted = nullptr;
+    SwsContext *convertContext = nullptr;
+    const AVFrame *outputFrame = frame;
+    if (frame->format != AV_PIX_FMT_YUV420P) {
+        converted = av_frame_alloc();
+        if (!converted) {
+            av_frame_free(&frame);
+            return VIDEO_DECODER_ERROR_OTHER;
+        }
+        converted->format = AV_PIX_FMT_YUV420P;
+        converted->width = frame->width;
+        converted->height = frame->height;
+        if (av_frame_get_buffer(converted, 32) < 0) {
+            av_frame_free(&converted);
+            av_frame_free(&frame);
+            return VIDEO_DECODER_ERROR_OTHER;
+        }
+        convertContext = sws_getContext(frame->width, frame->height,
+                                         static_cast<AVPixelFormat>(frame->format),
+                                         frame->width, frame->height,
+                                         AV_PIX_FMT_YUV420P, SWS_BILINEAR,
+                                         nullptr, nullptr, nullptr);
+        if (!convertContext || sws_scale(convertContext, frame->data, frame->linesize,
+                                         0, frame->height, converted->data,
+                                         converted->linesize) <= 0) {
+            sws_freeContext(convertContext);
+            av_frame_free(&converted);
+            av_frame_free(&frame);
+            return VIDEO_DECODER_ERROR_OTHER;
+        }
+        outputFrame = converted;
+    }
+
     // success
     // init time and mode
     env->CallVoidMethod(output_buffer, jniContext->init_method, frame->pts, output_mode, nullptr);
@@ -363,9 +394,9 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
     // init data
     const jboolean init_result = env->CallBooleanMethod(
             output_buffer, jniContext->init_for_yuv_frame_method,
-            frame->width,
-            frame->height,
-            frame->linesize[0], frame->linesize[1],
+            outputFrame->width,
+            outputFrame->height,
+            outputFrame->linesize[0], outputFrame->linesize[1],
             0);
     if (env->ExceptionCheck()) {
         // Exception is thrown in Java when returning from the native call.
@@ -377,16 +408,18 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
 
     jobject data_object = env->GetObjectField(output_buffer, jniContext->data_field);
     auto *data = reinterpret_cast<jbyte *>(env->GetDirectBufferAddress(data_object));
-    const int32_t uvHeight = (frame->height + 1) / 2;
-    const uint64_t yLength = frame->linesize[0] * frame->height;
-    const uint64_t uvLength = frame->linesize[1] * uvHeight;
+    const int32_t uvHeight = (outputFrame->height + 1) / 2;
+    const uint64_t yLength = outputFrame->linesize[0] * outputFrame->height;
+    const uint64_t uvLength = outputFrame->linesize[1] * uvHeight;
 
     // TODO: Support rotate YUV data
 
-    memcpy(data, frame->data[0], yLength);
-    memcpy(data + yLength, frame->data[1], uvLength);
-    memcpy(data + yLength + uvLength, frame->data[2], uvLength);
+    memcpy(data, outputFrame->data[0], yLength);
+    memcpy(data + yLength, outputFrame->data[1], uvLength);
+    memcpy(data + yLength + uvLength, outputFrame->data[2], uvLength);
 
+    sws_freeContext(convertContext);
+    av_frame_free(&converted);
     av_frame_free(&frame);
 
     return result;

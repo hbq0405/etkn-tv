@@ -139,6 +139,7 @@ public class DetailFlowTest {
             onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(4000);player.play();});
             await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.isPlaying()&&player.getCurrentPosition()>4300;});
             await(()->{for(View view:descendants((View)field(playback,"video")))if(view instanceof TextureView&&view.getClass().getSimpleName().contains("AssSubtitle")){Bitmap image=((TextureView)view).getBitmap();if(image==null)return false;boolean pixels=false;for(int y=0;y<image.getHeight()&&!pixels;y+=3)for(int x=0;x<image.getWidth();x+=3)if(Color.alpha(image.getPixel(x,y))>100){pixels=true;break;}image.recycle();return pixels;}return false;});screenshot("hevc-native-audio-ass.png");
+            assertVisibleVideoPixels();
         }finally{cleanup();}
     }
 
@@ -151,10 +152,72 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
+    private void assertVisibleVideoPixels() throws Exception{
+        Bitmap image=instrumentation.getUiAutomation().takeScreenshot();int colored=0,total=0,greenDominant=0;
+        java.util.HashSet<Integer> colors=new java.util.HashSet<>();
+        int minRed=255,maxRed=0,minGreen=255,maxGreen=0,minBlue=255,maxBlue=0;
+        for(int y=image.getHeight()/3;y<image.getHeight()*2/3;y+=10)for(int x=image.getWidth()/3;x<image.getWidth()*2/3;x+=10){
+            int color=image.getPixel(x,y),red=Color.red(color),green=Color.green(color),blue=Color.blue(color);total++;
+            if(Math.max(red,Math.max(green,blue))>35)colored++;
+            if(green>red*1.25f&&green>blue*1.25f)greenDominant++;
+            colors.add((red>>4)<<8|(green>>4)<<4|(blue>>4));
+            minRed=Math.min(minRed,red);maxRed=Math.max(maxRed,red);minGreen=Math.min(minGreen,green);maxGreen=Math.max(maxGreen,green);minBlue=Math.min(minBlue,blue);maxBlue=Math.max(maxBlue,blue);
+        }
+        image.recycle();
+        assertTrue("字幕显示时，中央视频区域必须有实际画面像素",colored>total/5);
+        assertTrue("视频画面不能退化成单色平面",colors.size()>=8&&maxRed-minRed>=24&&maxGreen-minGreen>=24&&maxBlue-minBlue>=24);
+        assertTrue("视频画面不能是纯绿色错误输出",greenDominant<total*0.9f);
+    }
+    @Test public void compatibleDolbyProfilesUseHevcAndProfileFiveRemainsDolby()throws Exception{
+        ColorInfo hdr10=new ColorInfo.Builder().setColorSpace(C.COLOR_SPACE_BT2020).setColorTransfer(C.COLOR_TRANSFER_ST2084).build();
+        assertTrue(TvVideoRenderer.hasHevcBaseLayer(new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION).setCodecs("dvhe.07.06").setColorInfo(hdr10).build()));
+        assertFalse(TvVideoRenderer.hasHevcBaseLayer(new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION).setCodecs("dvhe.07.06").build()));
+        assertTrue(TvVideoRenderer.hasHevcBaseLayer(new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION).setCodecs("dvhe.08.06").build()));
+        assertFalse(TvVideoRenderer.hasHevcBaseLayer(new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION).setCodecs("dvhe.05.06").build()));
+        assertFalse(TvVideoRenderer.hasHevcBaseLayer(new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_H265).build()));
+    }
+    @Test public void softwareVideoOutputsFourKTenBitWithAss()throws Exception{verifyVideoFixture("player-hevc10.mkv",MimeTypes.VIDEO_H265);}
+    @Test public void vc1ActuallyOutputsVideoWithAss()throws Exception{verifyVideoFixture("player-vc1.mkv",MimeTypes.VIDEO_VC1);}
+    @Test public void firstFrameRecoveryWaitsForActivePlaybackAndPreservesSelections()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();clickTrack(false,3);clickTrack(true,2);
+            final int[] selectedBefore={0,0};onMain(()->{selectedBefore[0]=(Integer)field(playback,"audioIndex");selectedBefore[1]=(Integer)field(playback,"subtitleIndex");});
+            onMain(()->{try{
+                java.lang.reflect.Field seen=PlayerActivity.class.getDeclaredField("videoFrameSeen"),since=PlayerActivity.class.getDeclaredField("videoReadySince");seen.setAccessible(true);since.setAccessible(true);
+                seen.setBoolean(playback,false);since.setLong(playback,android.os.SystemClock.elapsedRealtime()-7000);((Runnable)field(playback,"videoCheck")).run();
+                assertFalse("暂停不能触发回退",Boolean.TRUE.equals(field(playback,"softwareVideo")));assertEquals(0L,field(playback,"videoReadySince"));
+                ExoPlayer player=(ExoPlayer)field(playback,"player");player.play();since.setLong(playback,android.os.SystemClock.elapsedRealtime()-7000);((Runnable)field(playback,"videoCheck")).run();
+            }catch(ReflectiveOperationException error){throw new AssertionError(error);}});
+            await(()->Boolean.TRUE.equals(field(playback,"softwareVideo"))&&Boolean.TRUE.equals(field(playback,"videoFrameSeen")));
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");assertEquals(selectedBefore[0],field(playback,"audioIndex"));assertEquals(selectedBefore[1],field(playback,"subtitleIndex"));assertTrue(!selected(C.TRACK_TYPE_AUDIO).isEmpty());assertTrue(player.getPlayWhenReady());});
+        }finally{cleanup();}
+    }
+    private void verifyVideoFixture(String file,String mime)throws Exception{
+        try(Fixture server=new Fixture(true,file)){
+            open(server,"movie-single");play();onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.play();((Button)field(playback,"decoderButton")).performClick();});settle();
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+            await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player!=null&&player.getVideoFormat()!=null&&mime.equals(player.getVideoFormat().sampleMimeType)&&player.getVideoDecoderCounters()!=null&&player.getVideoDecoderCounters().renderedOutputBufferCount>2&&Boolean.TRUE.equals(field(playback,"videoFrameSeen"));});
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");assertNull(player.getPlayerError());assertTrue(Boolean.TRUE.equals(field(playback,"softwareVideo")));player.seekTo(4000);});
+            await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.getPlaybackState()==Player.STATE_READY&&player.getCurrentPosition()>4300;});
+            onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());settle();assertVisibleVideoPixels();screenshot(file+".png");
+        }finally{cleanup();}
+    }
+
+    @Test public void remoteSeekingShowsTimelineAndKeepsControlsNavigable()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
+            onMain(()->{androidx.media3.ui.PlayerView view=(androidx.media3.ui.PlayerView)field(playback,"video");assertTrue(view.isControllerFullyVisible());assertTrue(view.findViewById(androidx.media3.ui.R.id.exo_progress).isShown());assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()>=10000);});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT);settle();onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()<3000));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertEquals(field(playback,"audioButton"),playback.getCurrentFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getPlayWhenReady()));
+        }finally{cleanup();}
+    }
+
     @Test public void skipModesHonorExplicitMarkersAndPersistAcrossSettingsReopen()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");TvPreferences preferences=new TvPreferences(detail,detail.api);preferences.setSkipMode(TvPreferences.SKIP_BUTTON);play();
-            onMain(()->((ExoPlayer)field(playback,"player")).seekTo(1200));await(()->((View)field(playback,"skipButton")).getVisibility()==View.VISIBLE);onMain(()->((Button)field(playback,"skipButton")).performClick());await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=3000);closePlayer();
+            onMain(()->{((ExoPlayer)field(playback,"player")).seekTo(1200);((ExoPlayer)field(playback,"player")).play();});await(()->((View)field(playback,"skipButton")).getVisibility()==View.VISIBLE);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=3000);onMain(()->assertTrue("确认跳过不能暂停播放",((ExoPlayer)field(playback,"player")).getPlayWhenReady()));closePlayer();
             preferences.setSkipMode(TvPreferences.SKIP_AUTO);play();onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(1200);player.play();});await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=3000);assertEquals(View.GONE,((View)field(playback,"skipButton")).getVisibility());closePlayer();
             preferences.setSkipMode(TvPreferences.SKIP_OFF);play();onMain(()->((ExoPlayer)field(playback,"player")).seekTo(1200));settle();assertEquals(View.GONE,((View)field(playback,"skipButton")).getVisibility());onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()<3000));closePlayer();
             assertEquals(TvPreferences.SKIP_OFF,new TvPreferences(detail,detail.api).skipMode());
@@ -212,9 +275,12 @@ public class DetailFlowTest {
         final boolean codecMedia;
         final JSONObject personal=new JSONObject();
         Fixture()throws Exception{this(false);}
-        Fixture(boolean codecs)throws Exception{codecMedia=codecs;personal.put("audio_lang_priority",JSONObject.NULL).put("subtitle_priority",new JSONArray().put("chs"));
+        Fixture(boolean codecs)throws Exception{this(codecs,codecs?"player-codecs.mkv":"detail-tracks.mkv");}
+        Fixture(boolean codecs,String file)throws Exception{codecMedia=codecs;personal.put("audio_lang_priority",JSONObject.NULL).put("subtitle_priority",new JSONArray().put("chs"));
             Bitmap bitmap=Bitmap.createBitmap(960,540,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);canvas.drawColor(Color.rgb(38,60,84));Paint paint=new Paint();paint.setColor(Color.rgb(95,140,155));canvas.drawCircle(750,180,220,paint);paint.setColor(Color.rgb(205,155,85));canvas.drawRect(620,300,900,500,paint);ByteArrayOutputStream output=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,85,output);bitmap.recycle();image=output.toByteArray();
-            try(InputStream stream=instrumentation.getContext().getAssets().open(codecs?"player-codecs.mkv":"detail-tracks.mkv")){ByteArrayOutputStream data=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;while((n=stream.read(buffer))!=-1)data.write(buffer,0,n);media=data.toByteArray();}
+            File external=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"codec-fixtures/"+file);
+            if("player-vc1.mkv".equals(file))org.junit.Assume.assumeTrue("请按构建规范放置 FFmpeg VC1 测试片段；不随公开仓库分发",external.isFile());
+            try(InputStream stream=external.isFile()?new FileInputStream(external):instrumentation.getContext().getAssets().open(file)){ByteArrayOutputStream data=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;while((n=stream.read(buffer))!=-1)data.write(buffer,0,n);media=data.toByteArray();}
             Thread thread=new Thread(()->{while(!closed)try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception error){if(!closed)android.util.Log.e("DetailFixture","request",error);}});worker.setDaemon(true);worker.start();}catch(IOException ignored){if(closed)return;}},"detail-fixture");thread.setDaemon(true);thread.start();
         }
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
