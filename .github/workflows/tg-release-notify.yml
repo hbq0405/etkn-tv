@@ -1,0 +1,52 @@
+name: TV Release Telegram Notification
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send TV release notification
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_TOKEN", "")
+          chat = os.environ.get("TELEGRAM_TO", "")
+          if not token or not chat:
+              raise SystemExit("Configure TELEGRAM_TOKEN and TELEGRAM_TO repository secrets.")
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event:
+              release = json.load(event)["release"]
+          if release["draft"]:
+              raise SystemExit("Only published releases can send notifications.")
+          heading = "ETKN TV 新版本发布\n\n版本：" + (release["name"] or release["tag_name"])
+          link = "\n\n下载：" + release["html_url"]
+          notes = "\n\n更新内容：\n" + (release.get("body") or "详见下载页面")
+          available = 4096 - len(heading) - len(link)
+          if len(notes) > available:
+              notes = notes[:available - 1] + "…"
+          payload = json.dumps({"chat_id": chat, "text": heading + notes + link,
+                                "link_preview_options": {"is_disabled": True}}).encode("utf-8")
+          request = urllib.request.Request("https://api.telegram.org/bot" + token + "/sendMessage",
+                                           data=payload, headers={"Content-Type": "application/json"})
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  result = json.load(response)
+          except urllib.error.HTTPError as error:
+              raise SystemExit("Telegram notification failed (HTTP " + str(error.code) + ").") from None
+          except urllib.error.URLError:
+              raise SystemExit("Telegram notification connection failed.") from None
+          if not result.get("ok") or not result.get("result", {}).get("message_id"):
+              raise SystemExit("Telegram did not confirm delivery.")
+          print("TV release notification delivered; message_id=" + str(result["result"]["message_id"]))

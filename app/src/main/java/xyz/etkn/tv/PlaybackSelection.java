@@ -7,6 +7,18 @@ import java.util.*;
 /** Playback uses server indices; season preferences store an audio-list ordinal. */
 final class PlaybackSelection {
     static final int AUTO=-2;
+    static JSONObject nextEpisode(List<JSONObject> episodes,String currentId){
+        JSONObject current=null,next=null;
+        for(JSONObject episode:episodes)if(currentId.equals(episode.optString("Id"))){current=episode;break;}
+        if(current==null||current.optInt("ParentIndexNumber",-1)<0||current.optInt("IndexNumber",-1)<0)return null;
+        int season=current.optInt("ParentIndexNumber"),number=current.optInt("IndexNumber");
+        for(JSONObject episode:episodes){
+            int s=episode.optInt("ParentIndexNumber",-1),n=episode.optInt("IndexNumber",-1);
+            if(!"Episode".equals(episode.optString("Type"))||episode.optString("Id").isEmpty()||episode.optBoolean("IsMissing")||"Virtual".equals(episode.optString("LocationType"))||s<season||n<0||s==season&&n<=number)continue;
+            if(next==null||s<next.optInt("ParentIndexNumber")||s==next.optInt("ParentIndexNumber")&&n<next.optInt("IndexNumber"))next=episode;
+        }
+        return next;
+    }
     static String seasonKey(JSONObject item){
         if(item==null||!"Episode".equals(item.optString("Type")))return "";
         String season=item.optString("SeasonId");if(!season.isEmpty())return season;

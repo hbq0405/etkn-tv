@@ -5,6 +5,7 @@
 - 当前 Google SDK 工具使用 `android --sdk <目录> sdk list --all` 确认实际包名，安装使用 `platforms/android-36` 等斜杠名称。安装返回码须结合目录与安装清单核验，不能仅以 exit 0 判断包已安装。
 - Media3 非稳定接口在调用类显式 OptIn，固定依赖版本并跑 Lint，不通过关闭错误来放行。
 - 补丁首次失败先检查 diff 确认无部分写入，再用锚点唯一的确定性文本替换。不得连换 heredoc/管道/编码尝试。
+- `apply_patch` 头必须为 `*** Update File: 路径`（冒号后有空格）。本轮格式校验失败前没有写入，核对 diff 只有此前诊断测试后，修正头格式即成功；不把补丁解析失败当作源码编译失败。
 - 发行前运行单元测试、Lint、assembleRelease；核验 API 24、包名、递增版本和固定签名。
 - 发行私钥与密码只存 `.private/` 或指定私有目录，限制目录 ACL。不得输出密码、提交私钥或将凭据放入 Release。
 - Windows 新启动的 Gradle 终端如果未设置 `ETKN_TV_SIGNING_PROPERTIES`，单独运行 `assembleRelease` 仍可能成功，但只生成 `app-release-unsigned.apk`。先检查实际产物；设置签名配置后使用 `scripts/Build-Release.ps1`，并确认 `apksigner` 通过。v0.1.3 已验证该流程生成签名包且证书与此前发行版一致；Gradle 成功本身不代表 APK 已签名。
@@ -43,6 +44,7 @@
 - PowerShell 调用 Gradle 时，将带点号的完整 `-P` 属性作为单个引号参数，例如 `'-Pandroid.testInstrumentationRunnerArguments.class=xyz.etkn.tv.HomeFocusTest'`。未引用时曾被拆为任务名，构建在测试前失败、未改发行资产；确认状态后用完整引用参数重跑，模拟器仪器测试通过。
 
 - 仪器测试截图需在 APK 仍安装时提取；Gradle connected 测试可能在完成后卸载被测应用，外部文件目录随之消失。已验证 installDebug/installDebugAndroidTest 后直接 adb shell am instrument -w 可保留截图并 adb pull；先核对 pm list packages 与路径状态，不反复尝试同一失效目录。
+- 测试仍在运行时，新截图可能尚未生成。本轮提前 pull 返回 No such file，未生成本地图片；核对远端目录后确认后续用例已生成，再 pull 成功。提取成功后才能调用图片查看工具。
 
 ## 详情页与轨道验收
 
@@ -50,6 +52,7 @@
 - Media3 合并主媒体与外挂字幕时，Format.id 会带来源前缀，例如 `0:2`、`1:etkn-subtitle-12`。匹配外挂字幕前只去掉冒号前缀，保留服务端轨道 Index 和独立字幕 ID；同语言内封轨道按媒体源内类型顺序定位，不按语言碰运气。使用合成 Matroska 在模拟器检查实际选中轨道。
 - 当前补丁接口拒绝在同一补丁内 Delete/Add 同一路径（`multiple operations target`），失败前未写入。先用 git diff 核对无变化，再用 PowerShell UTF-8 here-string 原位写入完整目标文件，现已通过编译、单测与模拟器验证；不继续换输入方式试错。
 - PowerShell 字符串中的 `\n` 是字面字符，不是换行。本轮独立验证脚本曾因此 SyntaxError，确认只更新了探针、服务代码与容器健康未受影响后，用 `[Environment]::NewLine` 修正并先 py_compile，重新上传后验证通过。生成多行脚本使用 here-string 或真实换行，上传前本地语法检查。
+- PowerShell 不使用反斜杠转义 `python -c` 外层双引号。本轮只读网页检查因此出现未闭合字符串，未修改文件；改成单引号 here-string 经 stdin 传给 Python 后读取成功。复杂脚本优先用独立文件或 here-string，避免多层引号。
 
 ## 原生播放与验证补充
 
@@ -77,6 +80,7 @@
 - adb shell am instrument 的进程返回码不能单独说明 JUnit 通过；曾返回 0 但正文有 FAILURES。检查最终 OK、失败/跳过状态；VC-1 私有素材缺失按 assumption 跳过，单独记录，不宣称已实播。
 - Media3 1.8.0 的 ExoPlaybackException 没有 rendererType 字段，先核对固定版本 API，使用 rendererFormat MIME 与 rendererName 判断轨道；首次编译失败未生成新版 APK。PGS 像素 Y=235/Cr=Cb=128 按现用转换输出 RGB235，单测不得误期望 RGB255。
 - 文件读取前先用 rg --files/命中位置核对真实类名。许可入口实际在 SettingsActivity，读取不存在的 LicensesActivity 失败未改源码；已确认 getAssets().list("licenses") 自动列出新增 NOTICE。目录搜索禁止 docs\\*.md 路径通配符；本轮误用后核实未写入，改用 rg 关键词 docs -g '*.md' 完成检索。
+- 文件读写使用绝对路径或先核对 `workdir`。本轮仓库没有 `release-notes/`，发行说明沿用聊天交付目录；误从仓库读聊天 `work/tv-controls/` 也只产生路径不存在错误，未写入。已检查真实目录后使用聊天绝对路径成功读取，不能混用两个工作区的相对路径。
 - 4K 色条的画面检查曾在中央三分之一裁区误报“单色”：实际采到 13 色、RGB 范围 0/23/231，失败截图有完整色条和 ASS，红色色条在裁区外。保留亮度、颜色数、各通道范围与非纯绿门槛，改为横跨色条的居中宽区域采样；断言输出具体范围，先存截图再断言。不得仅凭单次像素失败改动 JNI 或直接删除检查。
 
 ## 首页缓存、分集状态与焦点验证

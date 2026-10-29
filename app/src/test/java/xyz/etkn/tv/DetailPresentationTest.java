@@ -6,6 +6,16 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class DetailPresentationTest {
+    private JSONObject episode(String id,int season,int number)throws Exception{return new JSONObject().put("Id",id).put("Type","Episode").put("ParentIndexNumber",season).put("IndexNumber",number);}
+    @Test public void nextEpisodeUsesNumericOrderAcrossSeasonsAndSkipsMissingEntries()throws Exception{
+        JSONObject current=episode("current",1,9),next=episode("next",1,12),nextSeason=episode("season-two",2,1);
+        List<JSONObject> episodes=Arrays.asList(nextSeason,episode("missing",1,10).put("IsMissing",true),next,current,episode("virtual",1,11).put("LocationType","Virtual"),episode("special",0,99));
+        assertSame(next,PlaybackSelection.nextEpisode(episodes,"current"));
+        assertSame(nextSeason,PlaybackSelection.nextEpisode(episodes,"next"));
+        assertNull(PlaybackSelection.nextEpisode(episodes,"season-two"));assertNull(PlaybackSelection.nextEpisode(episodes,"unknown"));
+        nextSeason.remove("IndexNumber");assertNull(PlaybackSelection.nextEpisode(episodes,"next"));
+        current.remove("ParentIndexNumber");assertNull(PlaybackSelection.nextEpisode(episodes,"current"));
+    }
     @Test public void seasonAudioUsesListOrdinalDespiteMislabeledTitlesAndDifferentServerIndices()throws Exception{
         JSONObject source=new JSONObject().put("DefaultAudioStreamIndex",3).put("MediaStreams",new JSONArray()
             .put(new JSONObject().put("Type","Video").put("Index",0))

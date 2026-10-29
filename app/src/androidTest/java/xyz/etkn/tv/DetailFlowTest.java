@@ -63,9 +63,69 @@ public class DetailFlowTest {
             });
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
             onMain(()->assertEquals(View.VISIBLE,((View)field(playback,"controls")).getVisibility()));
+            onMain(()->{
+                Set<View> reachable=new HashSet<>();ArrayDeque<View> pending=new ArrayDeque<>();pending.add(playback.getCurrentFocus());
+                while(!pending.isEmpty()){View current=pending.remove();if(!reachable.add(current))continue;for(int direction:new int[]{View.FOCUS_UP,View.FOCUS_DOWN,View.FOCUS_LEFT,View.FOCUS_RIGHT}){View next=current.focusSearch(direction);if(next!=null&&!reachable.contains(next))pending.add(next);}}
+                View video=(View)field(playback,"video");
+                for(int id:new int[]{androidx.media3.ui.R.id.exo_prev,androidx.media3.ui.R.id.exo_next,androidx.media3.ui.R.id.exo_rew_with_amount,androidx.media3.ui.R.id.exo_ffwd_with_amount})assertFalse("中间四键必须隐藏",video.findViewById(id).isShown());
+                View pause=video.findViewById(androidx.media3.ui.R.id.exo_play_pause);assertTrue(pause.isShown());assertTrue(pause.isEnabled());assertTrue("播放暂停必须可通过方向键到达",reachable.contains(pause));
+                assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());
+            });
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
             assertFalse(playback.isFinishing());
             onMain(()->assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility()));
+        }finally{cleanup();}
+    }
+
+    private void nextByRemote()throws Exception{
+        Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+        PlayerActivity previous=playback;
+        if(((View)field(playback,"controls")).getVisibility()==View.VISIBLE){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();}
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
+        assertSame(field(playback,"audioButton"),playback.getCurrentFocus());
+        for(int i=0;i<3;i++){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();}
+        assertSame(field(playback,"nextButton"),playback.getCurrentFocus());screenshot("next-episode-controls.png");
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+        playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
+        await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
+        onMain(()->((ExoPlayer)field(playback,"player")).pause());settle();assertTrue(previous.isFinishing());
+    }
+    @Test public void nextEpisodeStopsOldPlaybackAndRestoresSeasonAudioByOrdinal()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.ordinalFixture=true;open(server,"episode-1-2");play();clickTrack(false,2);await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));
+            onMain(()->((ExoPlayer)field(playback,"player")).play());await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=1000);onMain(()->((ExoPlayer)field(playback,"player")).pause());
+            await(()->((View)field(playback,"nextButton")).getVisibility()==View.VISIBLE);server.audioOffset=20;nextByRemote();
+            assertEquals("episode-1-3",playback.getIntent().getStringExtra("id"));assertEquals(0,playback.getIntent().getLongExtra("position",0));
+            await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));assertEquals(24,field(playback,"audioIndex"));
+            await(()->server.stopped.stream().anyMatch(event->"episode-1-2".equals(event.optString("ItemId"))));
+            JSONObject stopped=server.stopped.stream().filter(event->"episode-1-2".equals(event.optString("ItemId"))).findFirst().get();assertTrue("切集必须保存旧集播放进度",stopped.optLong("PositionTicks")>=10000000);
+            assertEquals(1,new TvPreferences(playback,playback.api).seasonAudio("season-1"));
+        }finally{cleanup();}
+    }
+    @Test public void nextEpisodeCrossesSeasonAndUsesTargetSeasonLockThenHidesAtSeriesEnd()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.ordinalFixture=true;open(server,"series-many");
+            new TvPreferences(detail,detail.api).saveSeasonAudio("season-1",1);
+            new TvPreferences(detail,detail.api).saveSeasonAudio("season-2",0);
+            onMain(()->button("第 1 季").performClick());settle();
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+            onMain(()->button("第 24 集").performClick());playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
+            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->((ExoPlayer)field(playback,"player")).pause());
+            await(()->((View)field(playback,"nextButton")).getVisibility()==View.VISIBLE);nextByRemote();
+            assertEquals("episode-2-1",playback.getIntent().getStringExtra("id"));assertEquals("season-2",playback.getIntent().getStringExtra("seasonKey"));
+            await(()->"1".equals(selected(C.TRACK_TYPE_AUDIO)));assertEquals(0,field(playback,"audioIndex"));
+            closePlayer();onMain(()->detail.finish());open(server,"episode-1-24");play();settle();assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());
+        }finally{cleanup();}
+    }
+    @Test public void resumeNextEpisodeLookupFailureDoesNotInterruptPlayback()throws Exception{
+        try(Fixture server=new Fixture()){
+            open(server,"episode-1-2");server.failNext=true;
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+            onMain(()->detail.resumePlayback((JSONObject)field(detail,"playable")));
+            playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
+            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);settle();
+            assertEquals("series-one",playback.getIntent().getStringExtra("seriesId"));
+            onMain(()->{assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());assertEquals(View.GONE,playback.status.getVisibility());assertNull(((ExoPlayer)field(playback,"player")).getPlayerError());});
         }finally{cleanup();}
     }
 
@@ -342,7 +402,8 @@ public class DetailFlowTest {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image,media;
         final List<String> imagePaths=Collections.synchronizedList(new ArrayList<>());
-        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress;volatile int audioOffset;volatile String unexpectedPath;volatile int reports;
+        final List<JSONObject> stopped=Collections.synchronizedList(new ArrayList<>());
+        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress,failNext;volatile int audioOffset;volatile String unexpectedPath;volatile int reports;
         final boolean codecMedia;
         final JSONObject personal=new JSONObject();
         Fixture()throws Exception{this(false);}
@@ -377,16 +438,17 @@ public class DetailFlowTest {
             if(path.contains("/Persons/person-1"))return new JSONObject().put("Id","person-1").put("Name","合成演员").put("Overview","合成人物简介");
             if(path.contains("/PlaybackInfo")){JSONArray original=sources(!path.contains("movie-single")),reversed=new JSONArray();for(int i=original.length()-1;i>=0;i--)reversed.put(original.get(i));return new JSONObject().put("MediaSources",reversed).put("PlaySessionId","synthetic-play");}
             if(path.contains("/Seasons")){JSONArray seasons=new JSONArray().put(new JSONObject().put("Id","season-1").put("Name","第 1 季"));if(path.contains("series-many"))seasons.put(new JSONObject().put("Id","season-2").put("Name","第 2 季"));return new JSONObject().put("Items",seasons);}
-            if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("RunTimeTicks",100000000).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",!noProgress&&s==seasons&&e==3?30000000:0).put("Played",e==1)));if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
+            if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeriesId",seasons==2?"series-many":"series-one").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("RunTimeTicks",100000000).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",!noProgress&&s==seasons&&e==3?30000000:0).put("Played",e==1)));if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
             String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));return item;
         }
         void serve(Socket client)throws Exception{
             try(client){BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));String line=reader.readLine();if(line==null)return;String path=line.split(" ")[1];boolean post=line.startsWith("POST ");int range=0,length=0;while((line=reader.readLine())!=null&&!line.isEmpty()){if(line.toLowerCase(Locale.ROOT).startsWith("range: bytes="))range=Integer.parseInt(line.substring(13).split("-")[0]);if(line.toLowerCase(Locale.ROOT).startsWith("content-length:"))length=Integer.parseInt(line.substring(15).trim());}
                 if(post&&path.contains("/PlaybackPreferences")){char[] body=new char[length];int received=0,n;while(received<length&&(n=reader.read(body,received,length-received))>0)received+=n;JSONObject changes=new JSONObject(new String(body));for(String key:new String[]{"audio_lang_priority","subtitle_priority"})if(changes.has(key))personal.put(key,changes.get(key));}
+                if(post&&path.contains("/Sessions/Playing/Stopped")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;stopped.add(new JSONObject(new String(data)));}
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path;
                 boolean picture=path.contains("/Images/"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single");if(picture)imagePaths.add(path);
                 byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?image:response(path).toString().getBytes(StandardCharsets.UTF_8);
-                String code=missing?"404 Not Found":range>0?"206 Partial Content":"200 OK";int start=video?range:0;
+                String code=failNext&&path.contains("/Episodes")&&!path.contains("Fields=")?"500 Internal Server Error":missing?"404 Not Found":range>0?"206 Partial Content":"200 OK";int start=video?range:0;
                 String headers="HTTP/1.1 "+code+"\r\nContent-Type: "+(video?"video/x-matroska":subtitle?"text/vtt":picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+(body.length-start)+"\r\n"+(range>0?"Content-Range: bytes "+start+"-"+(body.length-1)+"/"+body.length+"\r\n":"")+"Connection: close\r\n\r\n";
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);
             }
