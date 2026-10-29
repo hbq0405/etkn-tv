@@ -16,6 +16,8 @@ final class TvPreferences {
     }
     int skipMode(){int value=prefs.getInt(scope+"skip",SKIP_BUTTON);return value>=0&&value<SKIP_LABELS.length?value:SKIP_BUTTON;}
     void setSkipMode(int value){prefs.edit().putInt(scope+"skip",value).apply();}
+    int seasonAudio(String season){return season==null||season.isEmpty()?-1:prefs.getInt(scope+"season-audio/"+season,-1);}
+    void saveSeasonAudio(String season,int ordinal){if(season==null||season.isEmpty())return;SharedPreferences.Editor edit=prefs.edit();String key=scope+"season-audio/"+season;if(ordinal<0)edit.remove(key);else edit.putInt(key,ordinal);edit.apply();}
     String[] librarySort(String id){return new String[]{prefs.getString(scope+id+"/sort","SortName"),prefs.getString(scope+id+"/order","Ascending")};}
     void saveLibrarySort(String id,String field,String direction){prefs.edit().putString(scope+id+"/sort",field).putString(scope+id+"/order",direction).apply();}
 }

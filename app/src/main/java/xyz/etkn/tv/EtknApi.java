@@ -19,7 +19,8 @@ final class EtknApi {
     final SessionStore session;
     final String server;
     final String token;
-    EtknApi(Context context) { session = new SessionStore(context); server = session.server(); token = session.token(); }
+    final java.io.File cacheDir;
+    EtknApi(Context context) { session = new SessionStore(context); server = session.server(); token = session.token(); cacheDir=new java.io.File(context.getCacheDir(),"artwork"); }
     static String encode(Object value) { try { return URLEncoder.encode(String.valueOf(value), "UTF-8"); } catch(java.io.UnsupportedEncodingException impossible) { throw new AssertionError(impossible); } }
     static String normalizeServer(String input) throws Exception {
         String value = input.trim();
@@ -83,7 +84,8 @@ final class EtknApi {
             id=media.optString("ParentLogoItemId");tag=media.optString("ParentLogoImageTag");
         }else{
             JSONObject tags=media.optJSONObject("ImageTags");
-            tag=type.equals("Backdrop")?media.optString("BackdropImageTag"):tags==null?"":tags.optString(type);
+            JSONArray backdrops=media.optJSONArray("BackdropImageTags");
+            tag=type.equals("Backdrop")?(backdrops==null?media.optString("BackdropImageTag"):backdrops.optString(0)):tags==null?"":tags.optString(type);
         }
         return server+"/api/tv/Items/"+encode(id)+"/Images/"+type+"?maxWidth="+width+"&quality=90&tag="+encode(tag);
     }
@@ -99,7 +101,10 @@ final class EtknApi {
         if (!media.optString("poster_path").isEmpty()) return "https://image.tmdb.org/t/p/w342" + media.optString("poster_path");
         String id = media.optString("Id"), type = "Primary";
         if (media.optString("Type").equals("Episode") && !media.optString("ParentBackdropItemId").isEmpty()) { id = media.optString("ParentBackdropItemId"); type = "Backdrop"; }
-        return server + "/api/tv/Items/" + encode(id) + "/Images/" + type + "?maxWidth=320&quality=85";
+        JSONObject tags=media.optJSONObject("ImageTags");
+        String tag=tags==null?"":tags.optString(type);
+        if(type.equals("Backdrop")){JSONArray parentTags=media.optJSONArray("ParentBackdropImageTags");tag=parentTags==null?"":parentTags.optString(0);}
+        return server + "/api/tv/Items/" + encode(id) + "/Images/" + type + "?maxWidth=320&quality=85&tag="+encode(tag);
     }
     static List<JSONObject> rows(JSONObject payload) {
         for (String key : new String[]{"Items", "results", "resources", "items", "data"}) {

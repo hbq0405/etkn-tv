@@ -69,6 +69,20 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
+    @Test public void directResumeStartsDefaultVersionAtSavedPositionWithTransparentTextCaptions()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+            onMain(()->{try{detail.resumePlayback(new JSONObject().put("Id","movie-resume").put("Type","Movie").put("UserData",new JSONObject().put("PlaybackPositionTicks",40000000)));}catch(Exception error){throw new AssertionError(error);}});
+            playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
+            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.pause();assertTrue(player.getCurrentPosition()>=4000);assertEquals(0,field(playback,"selected"));
+                androidx.media3.ui.SubtitleView subtitles=((androidx.media3.ui.PlayerView)field(playback,"video")).getSubtitleView();
+                try{java.lang.reflect.Field style=androidx.media3.ui.SubtitleView.class.getDeclaredField("style");style.setAccessible(true);androidx.media3.ui.CaptionStyleCompat caption=(androidx.media3.ui.CaptionStyleCompat)style.get(subtitles);assertEquals(Color.TRANSPARENT,caption.backgroundColor);assertEquals(Color.TRANSPARENT,caption.windowColor);}catch(ReflectiveOperationException error){throw new AssertionError(error);}
+            });
+        }finally{cleanup();}
+    }
+
     @Test public void playerUsesSubtitleTitlesExactDefaultsAndPreservesUnavailableTracks()throws Exception{
         try(Fixture server=new Fixture()){
             server.preferSecond=true;open(server,"movie-single");assertTrue(button("音轨").getText().toString().contains("音轨二"));assertTrue(button("字幕").getText().toString().contains("内封二"));play();
@@ -76,7 +90,7 @@ public class DetailFlowTest {
             assertTrue(((Button)field(playback,"audioButton")).getText().toString().contains("音轨二"));clickTrack(false,1);await(()->"1".equals(selected(C.TRACK_TYPE_AUDIO)));
             assertTrue(((Button)field(playback,"audioButton")).getText().toString().contains("音轨一"));
             onMain(()->((Button)field(playback,"subtitleButton")).performClick());settle();
-            onMain(()->{ListView list=((AlertDialog)field(playback,"trackDialog")).getListView();assertEquals(5,list.getCount());assertEquals("内封二 · 副标题（默认）",list.getAdapter().getItem(0));assertEquals("内封一 · 副标题",list.getAdapter().getItem(2));((AlertDialog)field(playback,"trackDialog")).dismiss();});closePlayer();
+            onMain(()->{ListView list=((AlertDialog)field(playback,"trackDialog")).getListView();assertEquals(5,list.getCount());assertEquals("内封二 · 副标题",list.getAdapter().getItem(0));assertEquals("内封一 · 副标题",list.getAdapter().getItem(2));((AlertDialog)field(playback,"trackDialog")).dismiss();});closePlayer();
             server.extraTrack=true;play();onMain(()->((Button)field(playback,"audioButton")).performClick());settle();
             onMain(()->{AlertDialog dialog=(AlertDialog)field(playback,"trackDialog");ListView list=dialog.getListView();assertEquals("全部服务端音轨必须保留",4,list.getCount());assertTrue(list.getAdapter().getItem(3).toString().contains("未解析音轨"));list.performItemClick(null,3,3);assertTrue("无法可靠对应的轨道不可静默选错",dialog.isShowing());assertEquals(PlaybackSelection.AUTO,field(playback,"audioIndex"));dialog.dismiss();});
         }finally{cleanup();}
@@ -85,6 +99,32 @@ public class DetailFlowTest {
     @Test public void continueWatchingEpisodeIncludesTheOtherEpisodes()throws Exception{
         try(Fixture server=new Fixture()){
             open(server,"episode-1-2");assertNotNull(button("第 1 集"));assertNotNull(button("第 24 集"));assertTrue(((TextView)field(detail,"episodeTitle")).getText().toString().contains("故事 2"));assertEquals("episode-1-2",((JSONObject)field(detail,"playable")).getString("Id"));screenshot("resume-episode-selection.png");
+        }finally{cleanup();}
+    }
+
+    @Test public void matrixEntryUsesFirstOrResumeEpisodeAndMarksWatchedEpisodes()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.noProgress=true;open(server,"series-one");assertEquals("episode-1-1",((JSONObject)field(detail,"playable")).optString("Id"));
+            assertTrue(button("第 1 集").getText().toString().contains("✓"));assertTrue(button("第 1 集").getContentDescription().toString().contains("已观看"));
+            onMain(()->{GridLayout grid=(GridLayout)field(detail,"episodeGrid");assertTrue("最后一列应铺满可用宽度",Math.abs(grid.getWidth()-grid.getChildAt(grid.getColumnCount()-1).getRight())<=2);});
+            onMain(()->button("音轨").requestFocus());for(int i=0;i<8&&detail.getCurrentFocus()!=field(detail,"episodeEntry");i++){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();}assertSame(button("第 1 集"),detail.getCurrentFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();assertSame(button("第 2 集"),detail.getCurrentFocus());screenshot("watched-and-filled-matrix.png");
+            onMain(()->detail.finish());server.noProgress=false;open(server,"series-one");
+            onMain(()->{android.graphics.drawable.LayerDrawable background=(android.graphics.drawable.LayerDrawable)button("第 3 集").getBackground();assertEquals(3000,background.getDrawable(1).getLevel());assertTrue(button("第 3 集").getContentDescription().toString().contains("30%"));});
+            onMain(()->button("音轨").requestFocus());for(int i=0;i<8&&detail.getCurrentFocus()!=field(detail,"episodeEntry");i++){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();}assertSame(button("第 3 集"),detail.getCurrentFocus());screenshot("resume-progress-matrix.png");android.os.SystemClock.sleep(1200);screenshot("focus-pulse-matrix.png");
+        }finally{cleanup();}
+    }
+
+    @Test public void seasonAudioOrdinalSurvivesRecreationAndMissingTrackWithoutTrustingTitles()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.ordinalFixture=true;open(server,"episode-1-2");play();clickTrack(false,2);
+            await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));
+            TvPreferences preferences=new TvPreferences(detail,detail.api);assertEquals(1,preferences.seasonAudio("season-1"));assertEquals(-1,preferences.seasonAudio("season-2"));
+            closePlayer();onMain(()->detail.finish());server.audioOffset=20;
+            open(server,"episode-1-3");assertTrue(button("音轨").getText().toString().contains("本季第 2 音轨"));play();
+            await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));assertEquals(24,field(playback,"audioIndex"));closePlayer();
+            server.missingAudio=true;play();assertEquals(PlaybackSelection.AUTO,field(playback,"audioIndex"));assertEquals(1,field(playback,"missingSeasonAudio"));assertEquals(1,new TvPreferences(playback,playback.api).seasonAudio("season-1"));closePlayer();
+            server.missingAudio=false;play();await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));clickTrack(false,0);await(()->"1".equals(selected(C.TRACK_TYPE_AUDIO)));assertEquals(-1,preferences.seasonAudio("season-1"));
         }finally{cleanup();}
     }
 
@@ -302,7 +342,7 @@ public class DetailFlowTest {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image,media;
         final List<String> imagePaths=Collections.synchronizedList(new ArrayList<>());
-        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle;volatile String unexpectedPath;volatile int reports;
+        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress;volatile int audioOffset;volatile String unexpectedPath;volatile int reports;
         final boolean codecMedia;
         final JSONObject personal=new JSONObject();
         Fixture()throws Exception{this(false);}
@@ -323,7 +363,9 @@ public class DetailFlowTest {
             JSONArray streams=new JSONArray().put(stream("Audio",0,"音轨一").put("IsDefault",true)).put(stream("Audio",4,"音轨二")).put(stream("Subtitle",7,"内封一")).put(stream("Subtitle",8,"内封二")).put(stream("Subtitle",12,"外挂字幕").put("IsExternal",true).put("Codec","webvtt").put("DeliveryUrl","/api/tv/subtitle.vtt"));
             if(pgsSubtitle)streams.getJSONObject(4).put("Codec","pgs");
             if(extraTrack)streams.put(stream("Audio",100,"未解析音轨"));
+            if(ordinalFixture){streams.getJSONObject(0).put("Index",audioOffset).put("Title","国语");streams.getJSONObject(1).put("Index",audioOffset+4).put("Title","国语");if(missingAudio)streams.remove(1);}
             JSONArray sources=new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","1080P").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",preferSecond?4:0).put("DefaultSubtitleStreamIndex",preferSecond?8:-1));
+            if(ordinalFixture)sources.getJSONObject(0).put("DefaultAudioStreamIndex",audioOffset);
             if(multi)sources.put(new JSONObject(sources.getJSONObject(0).toString()).put("Id","source-b").put("Name","4K 版本"));return sources;
         }
         JSONObject base(String id,String type)throws Exception{return new JSONObject().put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演")));}
@@ -335,7 +377,7 @@ public class DetailFlowTest {
             if(path.contains("/Persons/person-1"))return new JSONObject().put("Id","person-1").put("Name","合成演员").put("Overview","合成人物简介");
             if(path.contains("/PlaybackInfo")){JSONArray original=sources(!path.contains("movie-single")),reversed=new JSONArray();for(int i=original.length()-1;i>=0;i--)reversed.put(original.get(i));return new JSONObject().put("MediaSources",reversed).put("PlaySessionId","synthetic-play");}
             if(path.contains("/Seasons")){JSONArray seasons=new JSONArray().put(new JSONObject().put("Id","season-1").put("Name","第 1 季"));if(path.contains("series-many"))seasons.put(new JSONObject().put("Id","season-2").put("Name","第 2 季"));return new JSONObject().put("Items",seasons);}
-            if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",s==seasons&&e==3?30000000:0)));if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
+            if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("RunTimeTicks",100000000).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",!noProgress&&s==seasons&&e==3?30000000:0).put("Played",e==1)));if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
             String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));return item;
         }
         void serve(Socket client)throws Exception{

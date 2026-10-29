@@ -29,6 +29,8 @@ public final class PlayerActivity extends TvActivity {
     private AlertDialog trackDialog;
     private JSONObject info,source;
     private String itemId,playSession="";
+    private String seasonKey;
+    private int missingSeasonAudio=-1;
     private long position;
     private int selected;
     private boolean foreground,reportedStart,versionConfirmed,audioPending,subtitlePending;
@@ -61,7 +63,7 @@ public final class PlayerActivity extends TvActivity {
     }};
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);itemId=getIntent().getStringExtra("id");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
+        super.onCreate(state);itemId=getIntent().getStringExtra("id");seasonKey=getIntent().getStringExtra("seasonKey");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
         audioIndex=state==null?getIntent().getIntExtra("audioIndex",PlaybackSelection.AUTO):state.getInt("audioIndex",PlaybackSelection.AUTO);subtitleIndex=state==null?getIntent().getIntExtra("subtitleIndex",PlaybackSelection.AUTO):state.getInt("subtitleIndex",PlaybackSelection.AUTO);
         softwareVideo=state!=null&&state.getBoolean("softwareVideo");
         softwareAudio=state==null||state.getBoolean("softwareAudio",true);enhancedSubtitles=state==null||state.getBoolean("enhancedSubtitles",true);
@@ -92,7 +94,7 @@ public final class PlayerActivity extends TvActivity {
             int preferred=PlaybackSelection.sourceIndex(sources,requestedSource);
             if(requestedSource!=null&&!requestedSource.isEmpty()&&preferred<0){status.setText("所选版本已不可用，请返回重新选择");return;}
             if(preferred>=0){selected=preferred;versionConfirmed=true;startSource();}
-            else if(sources.length()>1)chooseVersion();else{versionConfirmed=true;startSource();}
+            else if(sources.length()>1&&!getIntent().getBooleanExtra("resume",false))chooseVersion();else{versionConfirmed=true;startSource();}
         });
     }
     private void chooseVersion(){
@@ -104,6 +106,8 @@ public final class PlayerActivity extends TvActivity {
         if(!foreground||!versionConfirmed||info==null||player!=null)return;
         try{
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
+            int locked=new TvPreferences(this,api).seasonAudio(seasonKey);
+            if(locked>=0){audioIndex=PlaybackSelection.audioAt(source,locked);if(audioIndex==PlaybackSelection.AUTO&&missingSeasonAudio!=locked){missingSeasonAudio=locked;Toast.makeText(this,"本集缺少第 "+(locked+1)+" 音轨，使用默认音轨；本季锁定已保留",Toast.LENGTH_LONG).show();}}
             String address=source.getString("DirectStreamUrl");if(address.startsWith("/"))address=api.server+address;
             if(!Http.sameOrigin(address,api.server))throw new Exception("服务器返回了无效播放地址");
             try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles);}
@@ -177,7 +181,7 @@ public final class PlayerActivity extends TvActivity {
             if(stream.optBoolean("IsExternal")){if(externalId.equals(id))return new TrackRef(group,i);}
             else if(!external){TrackRef ref=new TrackRef(group,i);embedded.add(ref);if(!stream.optString("Title").isEmpty()&&stream.optString("Title").equals(format.label)){named=ref;namedCount++;}}
         }
-        if(stream.optBoolean("IsExternal"))return null;if(namedCount==1)return named;
+        if(stream.optBoolean("IsExternal"))return null;if(type==C.TRACK_TYPE_TEXT&&namedCount==1)return named;
         List<JSONObject> expected=new ArrayList<>();for(JSONObject value:PlaybackSelection.streams(source,type==C.TRACK_TYPE_TEXT))if(!value.optBoolean("IsExternal"))expected.add(value);
         // Ordinals are valid only when both parsers exposed the same complete list.
         int ordinal=PlaybackSelection.embeddedOrdinal(source,stream.optInt("Index"),type==C.TRACK_TYPE_TEXT);
@@ -196,11 +200,11 @@ public final class PlayerActivity extends TvActivity {
     }
     private void chooseTrack(int type){
         if(player==null)return;boolean subtitles=type==C.TRACK_TYPE_TEXT;List<Integer> indices=new ArrayList<>();List<String> labels=new ArrayList<>();
-        indices.add(PlaybackSelection.AUTO);labels.add(PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles));
+        indices.add(PlaybackSelection.AUTO);labels.add((subtitles?"":seasonKey==null||seasonKey.isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles));
         if(subtitles){indices.add(-1);labels.add("关闭字幕");}
         for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){
             indices.add(stream.optInt("Index"));TrackRef ref=findTrack(stream,type);
-            labels.add(PlaybackSelection.streamLabel(stream)+(ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持"));
+            labels.add((subtitles?"":"第 "+(PlaybackSelection.audioOrdinal(source,stream.optInt("Index"))+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream)+(ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持"));
         }
         int selectedIndex=indices.indexOf(subtitles?subtitleIndex:audioIndex);
         video.setControllerShowTimeoutMs(0);
@@ -208,7 +212,7 @@ public final class PlayerActivity extends TvActivity {
             if(player==null)return;int wanted=indices.get(index),resolved=wanted==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,subtitles):wanted;
             JSONObject stream=PlaybackSelection.stream(source,resolved,subtitles);TrackRef ref=stream==null?null:findTrack(stream,type);
             if(resolved>=0&&(ref==null||!ref.supported())){Toast.makeText(this,ref==null?"该轨道尚未解析，不能确认对应关系":"当前解码模式不支持该轨道",Toast.LENGTH_LONG).show();return;}
-            if(subtitles){subtitleIndex=wanted;subtitlePending=true;}else{audioIndex=wanted;audioPending=true;}
+            if(subtitles){subtitleIndex=wanted;subtitlePending=true;}else{audioIndex=wanted;audioPending=true;new TvPreferences(this,api).saveSeasonAudio(seasonKey,PlaybackSelection.audioOrdinal(source,wanted));}
             applyInitialTrack(type);updateTrackButtons();dialog.dismiss();
         }).setNegativeButton("取消",null).create();
         trackDialog.setOnDismissListener(dialog->{video.setControllerShowTimeoutMs(5000);showControls();});trackDialog.show();

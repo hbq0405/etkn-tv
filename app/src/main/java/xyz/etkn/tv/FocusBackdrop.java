@@ -26,7 +26,7 @@ final class FocusBackdrop extends FrameLayout {
         title=activity.text("",32,Color.WHITE);title.setTypeface(null,Typeface.BOLD);title.setMaxLines(2);identity.addView(title,new LayoutParams(-1,-1));
         logo=new ImageView(activity);logo.setScaleType(ImageView.ScaleType.FIT_START);Images.rounded(logo,activity.dp(7));logo.setVisibility(GONE);identity.addView(logo,new LayoutParams(activity.dp(340),activity.dp(82),Gravity.CENTER_VERTICAL));
         metadata=activity.text("",14,Color.rgb(207,222,231));copy.addView(metadata);
-        overview=activity.text("",15,Color.rgb(226,232,238));overview.setMaxLines(4);copy.addView(overview);
+        overview=activity.text("",15,Color.rgb(226,232,238));overview.setMaxLines(2);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(overview);
     }
 
     void show(JSONObject item,boolean library,boolean showDetails){
@@ -36,11 +36,11 @@ final class FocusBackdrop extends FrameLayout {
         String rating=item.optString("OfficialRating"),score=item.optDouble("CommunityRating",0)>0?"★ "+item.optString("CommunityRating"):"";
         metadata.setText(join(type,item.optString("ProductionYear"),rating,score,genres(item)));overview.setText(item.optString("Overview"));
         String image=library?activity.api.artwork(item,"Primary",1280):activity.api.artwork(item,"Backdrop",1280);
-        Images.load(activity.api,image,backdrop,success->{String fallback=activity.api.image(item);if(!success&&!image.equals(fallback))Images.load(activity.api,fallback,backdrop);});
+        Images.backdrop(activity.api,image,backdrop,success->{String fallback=activity.api.image(item);if(!success&&!image.equals(fallback))Images.backdrop(activity.api,fallback,backdrop,ignored->{});});
         if(showDetails&&!library){
             String logoUrl=activity.api.artwork(item,"Logo",600);JSONObject tags=item.optJSONObject("ImageTags");
             boolean hasLogo=tags!=null&&!tags.optString("Logo").isEmpty()||!item.optString("ParentLogoItemId").isEmpty()&&!item.optString("ParentLogoImageTag").isEmpty();
-            if(hasLogo)Images.load(activity.api,logoUrl,logo,success->{logo.setVisibility(success?VISIBLE:GONE);title.setVisibility(success?GONE:VISIBLE);});
+            if(hasLogo)Images.backdrop(activity.api,logoUrl,logo,success->{logo.setVisibility(success?VISIBLE:GONE);title.setVisibility(success?GONE:VISIBLE);});
         }
     }
 

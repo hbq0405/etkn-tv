@@ -17,7 +17,6 @@ final class DetailPresentation {
         JSONObject resume=null;String latest="";
         for(JSONObject episode:episodes)if(position(episode)>0){String date=episode.optJSONObject("UserData").optString("LastPlayedDate");if(resume==null||date.compareTo(latest)>0){resume=episode;latest=date;}}
         if(resume!=null)return resume;
-        for(JSONObject episode:episodes){JSONObject data=episode.optJSONObject("UserData");if(data==null||!data.optBoolean("Played"))return episode;}
         return episodes.get(0);
     }
 }

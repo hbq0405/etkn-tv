@@ -32,6 +32,59 @@ public class HomeFocusTest {
     @SuppressWarnings("unchecked") private View library(String id){return ((java.util.Map<String,View>)field(HomeActivity.class,"libraryCards")).get(id);}
     private void call(String name,Class<?>[] types,Object... args){instrumentation.runOnMainSync(()->{try{java.lang.reflect.Method method=HomeActivity.class.getDeclaredMethod(name,types);method.setAccessible(true);method.invoke(home,args);}catch(Exception error){throw new AssertionError(error);}});}
 
+    @Test public void continueWatchingClickOpensPlayerDirectly()throws Exception{
+        PlayerActivity playback=null;
+        Instrumentation.ActivityMonitor details=instrumentation.addMonitor(DetailActivity.class.getName(),null,true);
+        Instrumentation.ActivityMonitor player=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+        try(Fixture server=new Fixture()){
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"resume-fixture","直接续播测试","synthetic-test-session");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->field(HomeActivity.class,"resumeFirst")!=null);
+            instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).performClick());
+            playback=(PlayerActivity)player.waitForActivityWithTimeout(8000);assertNotNull(playback);assertEquals("item-0",playback.getIntent().getStringExtra("id"));assertTrue(playback.getIntent().getBooleanExtra("resume",false));assertEquals(0,details.getHits());
+        }finally{instrumentation.removeMonitor(details);instrumentation.removeMonitor(player);if(playback!=null){PlayerActivity current=playback;instrumentation.runOnMainSync(current::finish);}if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+
+    @Test public void heroLoadsWhileCardImagesAreBlockedAndResumeSitsAtBottom()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.holdCardImages=true;
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"hero-fixture","首屏测试","synthetic-test-session");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            assertTrue("背景图不能排在卡片图片之后",server.heroLoaded.await(8,java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals("卡片请求仍被阻塞",1L,server.cardGate.getCount());
+            await(()->field(HomeActivity.class,"resumeFirst")!=null);
+            instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
+            evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"home-performance");assertTrue(evidence.isDirectory()||evidence.mkdirs());saveScreenshot("compact-resume.png");
+            instrumentation.runOnMainSync(()->{
+                View card=home.getCurrentFocus();assertEquals(home.dp(192),card.getWidth());assertEquals(home.dp(150),card.getHeight());
+                int[] location=new int[2];card.getLocationOnScreen(location);int bottom=Math.round(location[1]+card.getHeight()*card.getScaleY());
+                int screen=home.getWindow().getDecorView().getHeight();
+                assertTrue("聚焦卡片须完整保留在底部安全区，bottom="+bottom+" screen="+screen,bottom<=screen&&screen-bottom<=home.dp(24));
+            });
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+
+    @Test public void cachedHomeAppearsBeforeNetworkAndServerEventRefreshesWithoutStealingFocus()throws Exception{
+        try(Fixture server=new Fixture()){
+            SessionStore session=new SessionStore(instrumentation.getTargetContext());session.save(server.origin(),"cache-fixture","缓存测试","synthetic-test-session");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->cards().size()==90&&home.getCurrentFocus()!=null);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            instrumentation.runOnMainSync(()->home.finish());settle();server.holdResume=true;server.holdFirstLatest=true;
+            long started=android.os.SystemClock.elapsedRealtime();
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->cards().size()==90&&home.getCurrentFocus()!=null);
+            android.util.Log.i("HomePerformance","cached interactive ms="+(android.os.SystemClock.elapsedRealtime()-started));
+            assertEquals("缓存应在续播请求结束前展示",1L,server.resumeGate.getCount());assertEquals(1L,server.latestGate.getCount());
+            instrumentation.runOnMainSync(()->library("library-2").requestFocus());
+            server.resumeGate.countDown();server.latestGate.countDown();
+            await(()->((java.util.Set<?>)field(HomeActivity.class,"pendingShelves")).isEmpty());
+            server.changed=true;server.updateGate.countDown();
+            await(()->cards().stream().anyMatch(card->((android.widget.TextView)((ViewGroup)card).getChildAt(1)).getText().toString().contains("更新后的影片")));
+            assertSame("后台刷新不能抢走其它片架的焦点",library("library-2"),home.getCurrentFocus());
+            assertEquals("服务端更新后不能重复追加片架",90,cards().size());
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+
     @Test public void slowLibraryDoesNotBlockOtherShelvesOrInitialFocus()throws Exception{
         try(Fixture server=new Fixture()){
             server.holdFirstLatest=true;server.holdResume=true;
@@ -193,7 +246,8 @@ public class HomeFocusTest {
         volatile String unexpectedPath;
         volatile String lastListingPath="";
         volatile int listingCalls;
-        volatile boolean holdFirstLatest,holdResume;
+        volatile boolean holdFirstLatest,holdResume,holdCardImages,changed;
+        final java.util.concurrent.CountDownLatch cardGate=new java.util.concurrent.CountDownLatch(1),heroLoaded=new java.util.concurrent.CountDownLatch(1),updateGate=new java.util.concurrent.CountDownLatch(1),eventsConnected=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.CountDownLatch latestGate=new java.util.concurrent.CountDownLatch(1),resumeGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.atomic.AtomicInteger views=new java.util.concurrent.atomic.AtomicInteger();
         volatile int viewCalls;
@@ -209,6 +263,12 @@ public class HomeFocusTest {
             try(client){
                 BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));
                 String request=reader.readLine();if(request==null)return;String path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
+                if(path.endsWith("/Home/Events")){
+                    OutputStream output=client.getOutputStream();output.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\nevent: home\ndata: {\"revision\":\"v1\"}\n\n".getBytes(StandardCharsets.UTF_8));output.flush();eventsConnected.countDown();
+                    updateGate.await(30,java.util.concurrent.TimeUnit.SECONDS);if(!closed){output.write("event: home\ndata: {\"revision\":\"v2\"}\n\n".getBytes(StandardCharsets.UTF_8));output.flush();while(!closed){Thread.sleep(1000);output.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8));output.flush();}}return;
+                }
+                if(path.contains("maxWidth=1280"))heroLoaded.countDown();
+                if(holdCardImages&&path.contains("/Images/")&&!path.contains("maxWidth=1280"))cardGate.await(20,java.util.concurrent.TimeUnit.SECONDS);
                 if(path.endsWith("/Views"))viewCalls=views.incrementAndGet();
                 if(holdFirstLatest&&path.contains("/Items/Latest?ParentId=library-0&"))latestGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
                 if(holdResume&&path.contains("/Items/Resume?"))resumeGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
@@ -227,9 +287,9 @@ public class HomeFocusTest {
                 return new JSONObject().put("Items",page).put("TotalRecordCount",120).put("EpisodeCountMode","unplayed");
             }
             boolean libraries=path.endsWith("/Views");JSONArray items=new JSONArray();
-            for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
+            for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
             return new JSONObject().put("Items",items);
         }
-        @Override public void close()throws IOException{closed=true;latestGate.countDown();resumeGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;latestGate.countDown();resumeGate.countDown();cardGate.countDown();updateGate.countDown();socket.close();}
     }
 }

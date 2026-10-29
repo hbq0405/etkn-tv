@@ -32,6 +32,7 @@ final class TvPlayerFactory {
     private static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(30,TimeUnit.SECONDS)
         .readTimeout(10,TimeUnit.SECONDS).connectionPool(new ConnectionPool(5,5,TimeUnit.MINUTES)).build();
     static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles){
+        if(subtitleView!=null)subtitleView.setStyle(new androidx.media3.ui.CaptionStyleCompat(android.graphics.Color.WHITE,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,android.graphics.Color.BLACK,null));
         // Authentication stays in same-origin media URIs; never attach ETKN headers to CDN requests.
         DefaultDataSource.Factory data=new DefaultDataSource.Factory(context,new OkHttpDataSource.Factory(HTTP).setUserAgent(EtknApi.USER_AGENT));
         ActivityManager memory=(ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE);
