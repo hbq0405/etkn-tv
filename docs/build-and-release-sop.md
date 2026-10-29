@@ -37,7 +37,7 @@
 - 首次访问账号列表时迁移原有单账号 token；退出/令牌失效只移除当前账号，保留同服务器的其它保存账号。登录新账号时清除任务栈并重新创建首页，使各 API/通知使用新活动账号。
 - 只在所有创建的 ImageView 上设置圆角背景轮廓并开启 clipToOutline，覆盖媒体卡片、轮播背景和 Logo、设置页头像、菜单头像；头像使用圆形裁切。新增 ImageView 时也要补该处理。
 - ETKN 的 `/emby/Users/{id}/Items/Latest` 已支持按 `ParentId=library-*` 查询，且后端已根据媒体库 `definition_json.show_in_latest` 对关闭的库返回空列表，并继续做用户媒体库权限过滤。客户端逐库请求该路由，非空分区标题为“最新+媒体库名称”，不新增后台开关映射或绕过服务器过滤。
-- 首页和详情背景按用户 2026-10-29 最新要求直接显示原图，移除背景暗色遮罩和渐变；海报内评分区的局部底色不属于全屏背景。
+- 首页轮播、焦点背景和详情背景按用户 2026-10-29 后续要求统一降低亮度，使用共用灰色遮罩；0.1.13 的遮罩 alpha 从 75/255 加深至 125/255，保持无渐变。此要求覆盖此前移除背景遮罩的约定；海报内评分区的局部底色不属于全屏背景。
 - 每个新的 `exec_command` 都会启动独立 PowerShell，不保证继承其它会话设置的 `ANDROID_HOME`、`JAVA_HOME` 或 `PATH`。aapt2 与 apksigner 检查曾因这些变量缺失而未能完成；确认 APK/manifest/checksum 已生成后，必须在同一命令中从 `work/android-toolchain/paths.json` 读取 SDK/JDK 路径、设置环境并运行工具。捕获 apksigner 输出时先检查 `$LASTEXITCODE`，再筛选证书摘要；不要把 Select-String 无匹配误判为签名失败，也不要因环境缺失重建或替换发行资产。
 - PowerShell 不要把长输出的原生工具直接管道到 `Select-Object -First`；提前关闭 stdout 可能使工具返回非零，即使已打印有效头部。先完整捕获输出，检查 `$LASTEXITCODE`，再从变量截取显示内容。
 - PowerShell 调用 Gradle 时，将带点号的完整 `-P` 属性作为单个引号参数，例如 `'-Pandroid.testInstrumentationRunnerArguments.class=xyz.etkn.tv.HomeFocusTest'`。未引用时曾被拆为任务名，构建在测试前失败、未改发行资产；确认状态后用完整引用参数重跑，模拟器仪器测试通过。
@@ -61,3 +61,9 @@
 - Java 仪器测试调用 Kotlin API 时，若返回类型只在 runtime 依赖中，不直接调用该签名；诊断可反射读取对象字段，不为测试扩大应用依赖。首次编译失败无 APK 更新，修正后重新构建测试 APK。
 - 发布新增原生依赖时保留原始版权/许可与固定源码、子模块及构建脚本，检查 GPL 组合许可、APK 内许可入口和 Release 对应源码包。普通 Gradle 构建使用已核验的 JNI 库；修改 JNI 后必须用脚本重建四 ABI 并重复原生解码回归。
 - 新增原始 FriBidi/libvpx 许可时，暂存后的 diff --check 会报告上游空白行和行尾空格；首次失败后确认只完成暂存、未提交，再用 .gitattributes 对这两个原始许可限定 -whitespace，保持正文原字节。已验证暂存检查通过且 APK 许可与源码相同，业务源码继续使用正常空白检查。
+
+## APK 静态分析工具核查（2026-10-29）
+
+- `D:\work\jadx-cli\lib\jadx-1.5.6-all.jar` 的 Manifest 主类为 `jadx.gui.JadxGUI`。直接 `java -jar` 虽能显示帮助，带 APK 后会进入 GUI、无输出源码。首次发现未输出后，用线程状态、Manifest 和官方 `bin/jadx.bat` 核对入口；只终止已核验属于本轮的进程，改用 `java -cp <jar> jadx.cli.JadxCLI ...`。已得到本轮 APK 的源码输出，不对其他 jadx 实例操作。
+- R8/Kotlin/Compose APK 的 JADX 完整恢复可因复杂控制流返回非零，同时保留大量有效源码。本轮返回 432 个方法错误；不得把整份输出称为可编译原始源码。先核对输出与具体失败方法，对关键路径交叉检查 simple 模式、常量和调用点；simple 模式输出了播放器创建路径，但关联的 Compose 方法仍有类型推断错误。只能据已核验指令形成静态结论，运行性能须另做设备对照测试。
+- 本轮 `multi_get(pattern="#28fdd0")` 返回 No files matched，未写入文件或改变索引；核对 MCP 实际接口后使用 `get(file="#28fdd0")` 成功读取全文。docid 单页用 get，批量 multi_get 使用已验证的实际路径；不要在相同错误参数上重复试探。

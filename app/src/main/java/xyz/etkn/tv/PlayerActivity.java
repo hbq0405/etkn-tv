@@ -16,6 +16,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.ui.PlayerView;
+import androidx.media3.ui.DefaultTimeBar;
 import io.github.peerless2012.ass.media.AssHandlerConfig;
 import io.github.peerless2012.ass.media.kt.AssPlayerKt;
 import io.github.peerless2012.ass.media.type.AssRenderType;
@@ -29,6 +30,7 @@ import java.util.concurrent.Executors;
 public final class PlayerActivity extends TvActivity {
     private ExoPlayer player;
     private PlayerView video;
+    private DefaultTimeBar seekProgress;
     private LinearLayout controls;
     private Button audioButton,subtitleButton,decoderButton,skipButton;
     private AlertDialog trackDialog;
@@ -47,6 +49,11 @@ public final class PlayerActivity extends TvActivity {
     private boolean seekKeys;
     private int audioIndex=PlaybackSelection.AUTO,subtitleIndex=PlaybackSelection.AUTO;
     private final Handler timer=new Handler(Looper.getMainLooper());
+    private final Runnable seekProgressHide=this::hideSeekProgress;
+    private final Runnable seekProgressUpdate=new Runnable(){@Override public void run(){
+        if(player==null||!seekKeys)return;
+        seekProgress.setDuration(Math.max(0,player.getDuration()));seekProgress.setPosition(player.getCurrentPosition());seekProgress.setBufferedPosition(player.getBufferedPosition());timer.postDelayed(this,200);
+    }};
     private final ExecutorService reports=Executors.newSingleThreadExecutor();
     private final Runnable progress=new Runnable(){@Override public void run(){if(player!=null){report("Progress");timer.postDelayed(this,10000);}}};
     private final Runnable skipCheck=new Runnable(){@Override public void run(){if(player!=null){updateSkip();timer.postDelayed(this,400);}}};
@@ -69,6 +76,8 @@ public final class PlayerActivity extends TvActivity {
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
         video=new PlayerView(this);video.setUseController(true);video.setControllerAutoShow(false);video.setControllerShowTimeoutMs(5000);video.setKeepContentOnPlayerReset(true);video.setShowSubtitleButton(false);video.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
+        seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setVisibility(View.GONE);
+        FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.BOTTOM);seekLayout.setMargins(dp(28),0,dp(28),dp(28));stage.addView(seekProgress,seekLayout);
         controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(android.graphics.Color.argb(205,0,0,0));
         controls.addView(text(getIntent().getStringExtra("title"),18,android.graphics.Color.WHITE));
         videoInfo=text("",12,MUTED);controls.addView(videoInfo);
@@ -159,7 +168,7 @@ public final class PlayerActivity extends TvActivity {
         SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
         skipTarget=segment==null?-1:segment.end;
         if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){player.seekTo(segment.end);skipTarget=-1;segment=null;}
-        if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
+        if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
     }
     private void skipSegment(){if(player!=null&&skipTarget>=0){player.seekTo(skipTarget);updateSkip();}}
     private static final class TrackRef{
@@ -217,7 +226,12 @@ public final class PlayerActivity extends TvActivity {
         return PlaybackSelection.selectionLabel(source,subtitles?subtitleIndex:audioIndex,subtitles);
     }
     private void updateTrackButtons(){audioButton.setText("音轨 · "+currentTrackTitle(false));subtitleButton.setText("字幕 · "+currentTrackTitle(true));decoderButton.setText(softwareVideo?"解码 · 软件兼容":"解码 · 自动");}
-    private void showControls(){video.showController();controls.setVisibility(View.VISIBLE);}
+    private void showSeekProgress(){
+        seekKeys=true;video.hideController();controls.setVisibility(View.GONE);skipButton.setVisibility(View.GONE);seekProgress.setVisibility(View.VISIBLE);
+        timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgressUpdate.run();timer.postDelayed(seekProgressHide,5000);video.requestFocus();
+    }
+    private void hideSeekProgress(){seekKeys=false;timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgress.setVisibility(View.GONE);}
+    private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);}
     private void chooseDecoder(){
         if(player==null)return;video.setControllerShowTimeoutMs(0);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("视频解码").setSingleChoiceItems(new String[]{"自动：硬解优先，失败回退","软件兼容：高分辨率可能较慢"},softwareVideo?1:0,(choice,index)->{if(softwareVideo!=(index==1)){stopPlayer();softwareVideo=index==1;startSource();}choice.dismiss();}).setNegativeButton("取消",null).create();
@@ -229,17 +243,18 @@ public final class PlayerActivity extends TvActivity {
             reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
-    private void stopPlayer(){timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;if(video.getSubtitleView()!=null)for(int i=video.getSubtitleView().getChildCount()-1;i>=0;i--)if(video.getSubtitleView().getChildAt(i) instanceof AssSubtitleView)video.getSubtitleView().removeViewAt(i);}}
+    private void stopPlayer(){hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;if(video.getSubtitleView()!=null)for(int i=video.getSubtitleView().getChildCount()-1;i>=0;i--)if(video.getSubtitleView().getChildAt(i) instanceof AssSubtitleView)video.getSubtitleView().removeViewAt(i);}}
     @Override protected void onStart(){super.onStart();foreground=true;if(info!=null&&player==null)startSource();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
-        if(key==KeyEvent.KEYCODE_BACK&&controls.getVisibility()==View.VISIBLE){if(down){seekKeys=false;video.hideController();video.requestFocus();}return true;}
+        if(key==KeyEvent.KEYCODE_BACK&&(controls.getVisibility()==View.VISIBLE||seekKeys)){if(down){hideSeekProgress();video.hideController();video.requestFocus();}return true;}
         if(key==KeyEvent.KEYCODE_MENU){if(down)chooseTrack(C.TRACK_TYPE_TEXT);return true;}
-        if((key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT)&&video!=null&&(!video.isControllerFullyVisible()||seekKeys)){
-            if(down&&player!=null){seekKeys=true;long end=player.getDuration();long target=Math.max(0,player.getCurrentPosition()+(key==KeyEvent.KEYCODE_DPAD_RIGHT?10000:-10000));player.seekTo(end>0?Math.min(target,end):target);showControls();video.requestFocus();}return true;
+        boolean mediaSeek=key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD||key==KeyEvent.KEYCODE_MEDIA_REWIND;
+        if((key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT||mediaSeek)&&video!=null&&(mediaSeek||!video.isControllerFullyVisible()||seekKeys)){
+            if(down&&player!=null){long end=player.getDuration();long target=Math.max(0,player.getCurrentPosition()+(key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD?10000:-10000));player.seekTo(end>0?Math.min(target,end):target);showSeekProgress();}return true;
         }
         if(key==KeyEvent.KEYCODE_DPAD_DOWN&&seekKeys){if(down){seekKeys=false;showControls();audioButton.requestFocus();}return true;}
         if((key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER)&&video!=null&&(!video.isControllerFullyVisible()||seekKeys)){

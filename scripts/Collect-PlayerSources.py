@@ -61,7 +61,7 @@ with zipfile.ZipFile(args.output, "w", compression=zipfile.ZIP_STORED) as bundle
     for name in manifest:
         bundle.write(args.cache / name, name)
     bundle.writestr("sources.json", json.dumps(manifest, indent=2) + "\n")
-    bundle.writestr("README.txt", """Native-player corresponding sources for ETKN TV 0.1.12.
+    bundle.writestr("README.txt", """Native-player corresponding sources for ETKN TV 0.1.13.
 The app and modified JNI sources are in the matching ETKN TV source tag.
 ETKN builds FFmpeg 6.0 decoders statically with scripts/Build-PlayerNative.py.
 NextLib Java/JNI changes are included in the matching ETKN source tag.
