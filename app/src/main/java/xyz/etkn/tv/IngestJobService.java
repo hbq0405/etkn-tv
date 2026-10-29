@@ -7,7 +7,7 @@ import android.os.Looper;
 
 public final class IngestJobService extends JobService {
     @Override public boolean onStartJob(JobParameters parameters){
-        TvActivity.IO.execute(()->{boolean retry=false;try{IngestNotifications.poll(getApplicationContext());}catch(Exception error){retry=true;}boolean again=retry;new Handler(Looper.getMainLooper()).post(()->jobFinished(parameters,again));});
+        TvActivity.IO.execute(()->{boolean retry=false;try{IngestNotifications.check(getApplicationContext());}catch(Exception error){retry=true;}boolean again=retry;new Handler(Looper.getMainLooper()).post(()->jobFinished(parameters,again));});
         return true;
     }
     @Override public boolean onStopJob(JobParameters parameters){return true;}

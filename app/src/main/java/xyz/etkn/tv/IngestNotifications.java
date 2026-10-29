@@ -39,7 +39,8 @@ final class IngestNotifications {
     }
     static void resumed(Activity activity){foreground=new WeakReference<>(activity);schedule(activity);}
     static void paused(Activity activity){if(foreground.get()==activity)foreground.clear();}
-    static void check(Context context){Context app=context.getApplicationContext();TvActivity.IO.execute(()->{try{poll(app);}catch(Exception ignored){}});}
+    static void check(Context context){Context app=context.getApplicationContext();TvActivity.IO.execute(()->{try{AcquireTracker.poll(app);}catch(Exception ignored){}try{poll(app);}catch(Exception ignored){}});}
+    static Activity foregroundActivity(){return foreground.get();}
     static void logout(Context context){
         ((JobScheduler)context.getSystemService(Context.JOB_SCHEDULER_SERVICE)).cancel(JOB);
         NotificationManagerCompat.from(context).cancelAll();foreground.clear();

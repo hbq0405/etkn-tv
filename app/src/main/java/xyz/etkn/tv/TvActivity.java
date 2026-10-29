@@ -20,6 +20,7 @@ abstract class TvActivity extends Activity {
     static final ExecutorService IO = Executors.newFixedThreadPool(6);
     LinearLayout root, content, nav;
     TextView status;
+    ScrollView screenScroll;
     EtknApi api;
     int dp(float value) { return Math.round(getResources().getDisplayMetrics().density*value); }
     @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); }
@@ -34,7 +35,7 @@ abstract class TvActivity extends Activity {
         if (!subtitle.isEmpty()) root.addView(text(subtitle, 13, MUTED));
         nav = row(); root.addView(nav); status = text("", 13, MUTED); root.addView(status);
         ScrollView scroll = new FocusScroll.Vertical(this); scroll.setFillViewport(true);
-        content = column(); scroll.addView(content); root.addView(scroll, new LinearLayout.LayoutParams(-1,0,1)); setContentView(root);
+        content = column(); scroll.addView(content); root.addView(scroll, new LinearLayout.LayoutParams(-1,0,1)); screenScroll = scroll; setContentView(root);
     }
     LinearLayout row() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.HORIZONTAL); return view; }
     LinearLayout column() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.VERTICAL); return view; }
@@ -117,7 +118,7 @@ abstract class TvActivity extends Activity {
         canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("M12 1 15.4 8.2 23 9.2 17.5 14.6 18.8 22.2 12 18.6 5.2 22.2 6.5 14.6 1 9.2 8.6 8.2Z"),paint);
         return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
     }
-    private android.graphics.drawable.Drawable focusOutline(){return new FocusPulse(dp(9),dp(2),ACCENT);}
+    android.graphics.drawable.Drawable focusOutline(){return new FocusPulse(dp(9),dp(2),ACCENT);}
     GridLayout grid() { return grid(content); }
     GridLayout grid(LinearLayout target) { GridLayout grid=new GridLayout(this); int width=getResources().getConfiguration().screenWidthDp; grid.setColumnCount(Math.max(3,(width-72)/144)); target.addView(grid); return grid; }
     void loadAvatar(ImageView view) {

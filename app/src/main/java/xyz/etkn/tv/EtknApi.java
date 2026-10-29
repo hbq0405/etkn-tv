@@ -22,6 +22,7 @@ final class EtknApi {
     final java.io.File cacheDir;
     EtknApi(Context context) { session = new SessionStore(context); server = session.server(); token = session.token(); cacheDir=new java.io.File(context.getCacheDir(),"artwork"); }
     static String encode(Object value) { try { return URLEncoder.encode(String.valueOf(value), "UTF-8"); } catch(java.io.UnsupportedEncodingException impossible) { throw new AssertionError(impossible); } }
+    static String tmdbImage(String path, String size) { return path == null || path.isEmpty() ? "" : "https://image.tmdb.org/t/p/" + size + path; }
     static String normalizeServer(String input) throws Exception {
         String value = input.trim();
         if (!value.contains("://")) value = "http://" + value;
