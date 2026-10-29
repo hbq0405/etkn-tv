@@ -39,18 +39,13 @@ final class CrashLog {
                 for(int count;(count=input.read(buffer))!=-1;)bytes.write(buffer,0,count);
             }
             file.delete();
-            String[] lines=new String(bytes.toByteArray(),StandardCharsets.UTF_8).split("\n");
-            StringBuilder summary=new StringBuilder();
-            for(int i=0;i<lines.length;i++){
-                if(lines[i].isEmpty())continue;
-                if(summary.length()>0)summary.append('\n');
-                summary.append(lines[i]);
-                if(summary.length()>600||i>=5)break;
-            }
-            String report=summary.toString();
+            String report="ETKN TV "+BuildConfig.VERSION_NAME+" · Android "+android.os.Build.VERSION.RELEASE+"\n"+new String(bytes.toByteArray(),StandardCharsets.UTF_8);
             new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
                 if(activity.isFinishing()||activity.isDestroyed())return;
-                try{new AlertDialog.Builder(activity).setTitle("上次异常退出").setMessage(report+"\n\n如反复出现，请把以上信息反馈给开发者。").setPositiveButton("知道了",null).show();}catch(Throwable ignored){}
+                try{new AlertDialog.Builder(activity).setTitle("上次异常退出").setMessage(report+"\n\n如反复出现，请把以上信息反馈给开发者。").setPositiveButton("知道了",null).setNeutralButton("复制报错",(dialog,which)->{
+                    android.content.ClipboardManager clipboard=(android.content.ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if(clipboard!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("ETKN TV 异常",report));
+                }).show();}catch(Throwable ignored){}
             });
         }catch(Throwable ignored){}
     }

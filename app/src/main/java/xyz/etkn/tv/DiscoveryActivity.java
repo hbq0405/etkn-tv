@@ -13,7 +13,7 @@ import java.util.*;
 
 public final class DiscoveryActivity extends TvActivity {
     private String kind="movie",query="";
-    private int page=1,totalPages=1,revision,browseRevision,cloudRevision,eraIndex;
+    private int page=1,totalPages=1,revision,browseRevision,eraIndex;
     private boolean allowed,loadingMore,hasMore;
     private GridLayout posterGrid;
     private TextView posterStatus,detailOverview;
@@ -106,6 +106,7 @@ public final class DiscoveryActivity extends TvActivity {
     // ---------- 海报墙（焦点背景 + 无限滚动） ----------
     private void browse(){browse(true);}
     private void browse(boolean reload){
+        ++revision;
         back.clear();selected=null;person=null;personPayload=null;season=null;seasonList=null;detailBackdrop=null;detailOverview=null;
         if(browseView==null)buildBrowseView();
         content.removeAllViews();content.addView(browseView,new LinearLayout.LayoutParams(-1,-2));
@@ -367,7 +368,7 @@ public final class DiscoveryActivity extends TvActivity {
         row.addView(text(entry.optInt("episode_count")+" 集"+(air.isEmpty()?"":" · 首播 "+air),12,MUTED));
         row.setOnClickListener(v->enterSeason(selected,number));
         LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(-1,-2);bounds.topMargin=dp(6);
-        content.addView(row,bounds);
+        row.setLayoutParams(bounds);
         return row;
     }
     private void loadCast(JSONObject item,String mediaType){
@@ -436,6 +437,7 @@ public final class DiscoveryActivity extends TvActivity {
         showDetail(work,null);
     }
     private void renderPerson(JSONObject payload){
+        ++revision;
         content.removeAllViews();status.setText("");detailBackdrop=null;detailOverview=null;
         JSONObject personInfo=payload.optJSONObject("person");
         JSONArray works=payload.optJSONArray("works");
@@ -565,7 +567,7 @@ public final class DiscoveryActivity extends TvActivity {
 
     // ---------- 云资源搜索 ----------
     private void showCloud(){
-        ++cloudRevision;
+        int request=++revision;
         final JSONObject item=selected;final Integer wantedSeason=season;
         if(item==null)return;
         content.removeAllViews();detailBackdrop=null;detailOverview=null;
@@ -588,19 +590,18 @@ public final class DiscoveryActivity extends TvActivity {
             head.addView(sourceStatus,statusBounds);
             area.addView(head);
             final LinearLayout target=area;final TextView counter=sourceStatus;
-            int request=cloudRevision;
             IO.execute(()->{
                 try{
                     List<CloudResources.Resource> rows=CloudResources.parse(provider,api.get(path),wantedSeason);
                     runOnUiThread(()->{
-                        if(isDestroyed()||request!=cloudRevision)return;
+                        if(isFinishing()||isDestroyed()||request!=revision)return;
                         counter.setText(rows.isEmpty()?"暂无匹配资源":rows.size()+" 个版本");
                         for(CloudResources.Resource row:rows)resourceCard(target,row,item,wantedSeason,type);
                         if(--pending[0]==0)status.setText("搜索完成，选择资源版本并确认获取。");
                     });
                 }catch(Exception error){
                     runOnUiThread(()->{
-                        if(isDestroyed()||request!=cloudRevision)return;
+                        if(isFinishing()||isDestroyed()||request!=revision)return;
                         counter.setText(error instanceof EtknApi.AuthException?"登录已失效":(error.getMessage()==null?"搜索失败":error.getMessage()));
                         if(--pending[0]==0)status.setText("搜索完成，部分来源暂不可用。");
                     });
