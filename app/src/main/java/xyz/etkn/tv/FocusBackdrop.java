@@ -4,6 +4,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -15,6 +16,9 @@ final class FocusBackdrop extends FrameLayout {
     private final ImageView backdrop,logo;
     private final TextView title,metadata,overview;
     private final LinearLayout copy;
+    private final Button action;
+    private JSONObject current;
+    private boolean actionVisible;
 
     FocusBackdrop(TvActivity activity){
         super(activity);this.activity=activity;setBackgroundColor(TvActivity.INK);
@@ -27,11 +31,13 @@ final class FocusBackdrop extends FrameLayout {
         logo=new ImageView(activity);logo.setScaleType(ImageView.ScaleType.FIT_START);Images.rounded(logo,activity.dp(7));logo.setVisibility(GONE);identity.addView(logo,new LayoutParams(activity.dp(340),activity.dp(82),Gravity.CENTER_VERTICAL));
         metadata=activity.text("",14,Color.rgb(207,222,231));copy.addView(metadata);
         overview=activity.text("",15,Color.rgb(226,232,238));overview.setMaxLines(2);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(overview);
+        action=activity.button("查看详情",()->{if(current!=null)activity.detail(current);});action.setVisibility(GONE);copy.addView(action);
     }
 
     void show(JSONObject item,boolean library,boolean showDetails){
+        current=item;
         String itemTitle=library?EtknApi.title(item):EtknApi.resumeTitle(item);
-        copy.setVisibility(showDetails?VISIBLE:GONE);title.setText(itemTitle);title.setVisibility(VISIBLE);logo.setVisibility(GONE);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());backdrop.setImageDrawable(null);
+        copy.setVisibility(showDetails?VISIBLE:GONE);action.setVisibility(actionVisible&&showDetails?VISIBLE:GONE);title.setText(itemTitle);title.setVisibility(VISIBLE);logo.setVisibility(GONE);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());backdrop.setImageDrawable(null);
         String type=library?"媒体库":"Episode".equals(item.optString("Type"))||"Series".equals(item.optString("Type"))?"剧集":"电影";
         String rating=item.optString("OfficialRating"),score=item.optDouble("CommunityRating",0)>0?"★ "+item.optString("CommunityRating"):"";
         metadata.setText(join(type,item.optString("ProductionYear"),rating,score,genres(item)));overview.setText(item.optString("Overview"));
@@ -44,7 +50,11 @@ final class FocusBackdrop extends FrameLayout {
         }
     }
 
-    void clear(){backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");copy.setVisibility(GONE);}
+    void clear(){backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");action.setVisibility(GONE);copy.setVisibility(GONE);}
+
+    /** 轮播模式下展示“查看详情”按钮作为焦点目标；普通联动背景保持隐藏。 */
+    void actionVisible(boolean on){actionVisible=on;action.setVisibility(on&&copy.getVisibility()==VISIBLE?VISIBLE:GONE);}
+    View actionView(){return action;}
 
     private String genres(JSONObject item){org.json.JSONArray values=item.optJSONArray("Genres");if(values==null)return "";StringBuilder result=new StringBuilder();for(int index=0;index<values.length();index++){String value=values.optString(index);if(value.isEmpty())continue;if(result.length()>0)result.append(" / ");result.append(value);}return result.toString();}
     private String join(String...parts){StringBuilder result=new StringBuilder();for(String part:parts)if(part!=null&&!part.isEmpty()){if(result.length()>0)result.append("  ·  ");result.append(part);}return result.toString();}

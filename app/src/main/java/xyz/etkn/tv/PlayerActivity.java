@@ -184,22 +184,22 @@ public final class PlayerActivity extends TvActivity {
         if(player==null||videoInfo==null)return;Format format=player.getVideoFormat();
         if(format==null){for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_VIDEO&&group.length>0){format=group.getTrackFormat(0);break;}}
         String label=format==null?"尚未解析视频":format.sampleMimeType+"  "+format.width+"×"+format.height;
-        videoInfo.setText(label+"  ·  "+videoDecoder+"  ·  "+(videoFrameSeen?"已输出画面":"等待画面"));
+        videoInfo.setText(label+"  ·  "+videoDecoder+"  ·  "+(videoFrameSeen?"已输出画面":"等待画面")+(TvExtractorsFactory.videoRotation!=0?"  ·  旋转"+TvExtractorsFactory.videoRotation+"°":""));
     }
-    /** PlayerView（media3 1.8.0）不处理 rotationDegrees：修正画面框比例并旋转 SurfaceView 像素。 */
+    /** PlayerView（media3 1.8.0）不处理旋转；渲染链路可能把旋转标记为已应用，容器旋转值以提取器捕获为准。 */
     private void applyVideoRotation(VideoSize size){
         View surface=video.getVideoSurfaceView();
         androidx.media3.ui.AspectRatioFrameLayout frame=video.findViewById(androidx.media3.ui.R.id.exo_content_frame);
-        int rotation=size==null?0:((size.unappliedRotationDegrees%360)+360)%360;
+        int rotation=TvExtractorsFactory.videoRotation,rawW=TvExtractorsFactory.videoRawWidth,rawH=TvExtractorsFactory.videoRawHeight;
         boolean swap=rotation==90||rotation==270;
         if(surface!=null){
-            surface.setRotation((360-rotation)%360);
+            surface.setRotation(rotation);
             if(!swap){surface.setScaleX(1);surface.setScaleY(1);}
             else surface.post(()->{int w=surface.getWidth(),h=surface.getHeight();if(w>0&&h>0){surface.setScaleX((float)h/w);surface.setScaleY((float)w/h);}});
         }
-        if(frame!=null&&size!=null&&size.width>0&&size.height>0){
-            float par=size.pixelWidthHeightRatio;
-            frame.setAspectRatio(swap?size.height*par/size.width:size.width*par/size.height);
+        if(frame!=null&&rawW>0&&rawH>0){
+            float par=size==null?1f:size.pixelWidthHeightRatio;
+            frame.setAspectRatio(swap?rawH*par/rawW:rawW*par/rawH);
         }
     }
     private void updateSkip(){

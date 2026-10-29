@@ -62,7 +62,7 @@ public final class HomeActivity extends TvActivity {
     private final List<JSONObject> carouselItems=new java.util.ArrayList<>();
     private int carouselIndex;
     private ImageView carouselPrefetch;
-    private final Runnable carouselRotate=new Runnable(){@Override public void run(){if(!carouselActive||!"home".equals(mode))return;if(heroSpacer==null||!heroSpacer.hasFocus())showCarouselItem(carouselIndex+1);homeTimer.postDelayed(this,8000);}};
+    private final Runnable carouselRotate=new Runnable(){@Override public void run(){if(!carouselActive||!"home".equals(mode))return;if(!homeBackdrop.actionView().hasFocus())showCarouselItem(carouselIndex+1);homeTimer.postDelayed(this,8000);}};
     private static boolean autoPlayDone,updateChecked;
     private Updater.Release pendingUpdate;
     private java.io.File pendingApk;
@@ -71,6 +71,12 @@ public final class HomeActivity extends TvActivity {
         super.onCreate(state);
         homeCache=new HomeCache(this,api);
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);homeBackdrop=new FocusBackdrop(this);stage.addView(homeBackdrop,new FrameLayout.LayoutParams(-1,-1));
+        homeBackdrop.actionView().setOnKeyListener((view,key,event)->{
+            if(!carouselActive)return false;
+            if(key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT)return false;
+            if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){showCarouselItem(carouselIndex+(key==KeyEvent.KEYCODE_DPAD_RIGHT?1:-1));homeTimer.removeCallbacks(carouselRotate);homeTimer.postDelayed(carouselRotate,8000);}
+            return true;
+        });
         homeScroll=new FocusScroll.Vertical(this);homeScroll.setFillViewport(true);homeScroll.setClipToPadding(false);
         content=column();homeScroll.addView(content);stage.addView(homeScroll,new FrameLayout.LayoutParams(-1,-1));
         homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{if("items".equals(mode)&&posterGrid!=null&&hasMore&&!loadingMore&&homeScroll.getChildAt(0)!=null&&y+homeScroll.getHeight()>=homeScroll.getChildAt(0).getHeight()-dp(420))loadPosterPage(false);});
@@ -240,22 +246,12 @@ public final class HomeActivity extends TvActivity {
         carouselItems.clear();carouselItems.addAll(items);carouselIndex=0;
         carouselActive=carouselEnabled&&"home".equals(mode)&&!carouselItems.isEmpty();
         homeTimer.removeCallbacks(carouselRotate);
-        if(heroSpacer!=null){
-            heroSpacer.setFocusable(carouselActive);heroSpacer.setClickable(carouselActive);
-            heroSpacer.setBackground(carouselActive?transparentFocusBackground():null);
-            heroSpacer.setContentDescription(carouselActive?"智能推荐轮播：左右键切换，按确定查看详情":null);
-            heroSpacer.setOnClickListener(carouselActive?view->{if(carouselIndex<carouselItems.size())detail(carouselItems.get(carouselIndex));}:null);
-            heroSpacer.setOnKeyListener(!carouselActive?null:(view,key,event)->{
-                if(key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT)return false;
-                if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){showCarouselItem(carouselIndex+(key==KeyEvent.KEYCODE_DPAD_RIGHT?1:-1));homeTimer.removeCallbacks(carouselRotate);homeTimer.postDelayed(carouselRotate,8000);}
-                return true;
-            });
-        }
+        homeBackdrop.actionVisible(carouselActive);
         if(!carouselActive)return;
         showCarouselItem(0);
         if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);
     }
-    private void stopCarousel(){carouselActive=false;carouselItems.clear();homeTimer.removeCallbacks(carouselRotate);}
+    private void stopCarousel(){carouselActive=false;carouselItems.clear();homeTimer.removeCallbacks(carouselRotate);homeBackdrop.actionVisible(false);}
     private void showCarouselItem(int target){
         if(carouselItems.isEmpty())return;
         carouselIndex=(target%carouselItems.size()+carouselItems.size())%carouselItems.size();
