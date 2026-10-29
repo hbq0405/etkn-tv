@@ -161,6 +161,7 @@ public final class PlayerActivity extends TvActivity {
             });
             player.addListener(new Player.Listener(){
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
+                @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
                 @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){report("Stopped");message("播放完成");if(pendingSeekPosition<0)showControls();}}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
@@ -184,6 +185,22 @@ public final class PlayerActivity extends TvActivity {
         if(format==null){for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_VIDEO&&group.length>0){format=group.getTrackFormat(0);break;}}
         String label=format==null?"尚未解析视频":format.sampleMimeType+"  "+format.width+"×"+format.height;
         videoInfo.setText(label+"  ·  "+videoDecoder+"  ·  "+(videoFrameSeen?"已输出画面":"等待画面"));
+    }
+    /** PlayerView（media3 1.8.0）不处理 rotationDegrees：修正画面框比例并旋转 SurfaceView 像素。 */
+    private void applyVideoRotation(VideoSize size){
+        View surface=video.getVideoSurfaceView();
+        androidx.media3.ui.AspectRatioFrameLayout frame=video.findViewById(androidx.media3.ui.R.id.exo_content_frame);
+        int rotation=size==null?0:((size.unappliedRotationDegrees%360)+360)%360;
+        boolean swap=rotation==90||rotation==270;
+        if(surface!=null){
+            surface.setRotation((360-rotation)%360);
+            if(!swap){surface.setScaleX(1);surface.setScaleY(1);}
+            else surface.post(()->{int w=surface.getWidth(),h=surface.getHeight();if(w>0&&h>0){surface.setScaleX((float)h/w);surface.setScaleY((float)w/h);}});
+        }
+        if(frame!=null&&size!=null&&size.width>0&&size.height>0){
+            float par=size.pixelWidthHeightRatio;
+            frame.setAspectRatio(swap?size.height*par/size.width:size.width*par/size.height);
+        }
     }
     private void updateSkip(){
         SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||pendingSeekPosition>=0||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());

@@ -1,12 +1,16 @@
 package xyz.etkn.tv;
 
+import android.os.Build;
 import android.os.Bundle;
+import android.net.Uri;
+import android.provider.Settings;
 import android.view.View;
 import android.view.KeyEvent;
 import android.view.Gravity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.widget.*;
+import androidx.core.content.FileProvider;
 import org.json.JSONObject;
 import java.util.List;
 
@@ -58,7 +62,11 @@ public final class HomeActivity extends TvActivity {
     private final List<JSONObject> carouselItems=new java.util.ArrayList<>();
     private int carouselIndex;
     private ImageView carouselPrefetch;
-    private final Runnable carouselRotate=new Runnable(){@Override public void run(){if(!carouselActive||!"home".equals(mode))return;showCarouselItem(carouselIndex+1);homeTimer.postDelayed(this,8000);}};
+    private final Runnable carouselRotate=new Runnable(){@Override public void run(){if(!carouselActive||!"home".equals(mode))return;if(heroSpacer==null||!heroSpacer.hasFocus())showCarouselItem(carouselIndex+1);homeTimer.postDelayed(this,8000);}};
+    private static boolean autoPlayDone,updateChecked;
+    private Updater.Release pendingUpdate;
+    private java.io.File pendingApk;
+    private boolean installing;
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         homeCache=new HomeCache(this,api);
@@ -71,7 +79,7 @@ public final class HomeActivity extends TvActivity {
         stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(76),Gravity.TOP));
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);stage.addView(status,notice);
-        setContentView(stage);refreshNavigation();loadHome();
+        setContentView(stage);refreshNavigation();loadHome();checkUpdateOnce();
     }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
     private void showMenu(){previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
@@ -95,6 +103,8 @@ public final class HomeActivity extends TvActivity {
         createdHome=false;
         if(carouselActive&&"home".equals(mode)){homeTimer.removeCallbacks(carouselRotate);showCarouselItem(carouselIndex);if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);}
         homeTimer.postDelayed(fallbackRefresh,60000);
+        showUpdatePrompt();
+        if(installing){installing=false;if(Build.VERSION.SDK_INT<26||getPackageManager().canRequestPackageInstalls())installUpdate();else status.setText("尚未允许安装更新，可授权后重试。");}
         homeUpdates=new HomeUpdates(api,value->runOnUiThread(()->{
             if(!foreground||isFinishing())return;
             String previous=homeCache.revision();homeCache.revision(value);
@@ -191,6 +201,7 @@ public final class HomeActivity extends TvActivity {
         homeRequest(path,request,result->{
             if(request!=revision)return;String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
             if(libraries)loadLatestByLibrary(latestSections,request,items);
+            if(resumeShelf&&!autoPlayDone){autoPlayDone=true;if(!items.isEmpty())resumePlayback(items.get(0));}
             if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);return;}
             HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
@@ -229,6 +240,17 @@ public final class HomeActivity extends TvActivity {
         carouselItems.clear();carouselItems.addAll(items);carouselIndex=0;
         carouselActive=carouselEnabled&&"home".equals(mode)&&!carouselItems.isEmpty();
         homeTimer.removeCallbacks(carouselRotate);
+        if(heroSpacer!=null){
+            heroSpacer.setFocusable(carouselActive);heroSpacer.setClickable(carouselActive);
+            heroSpacer.setBackground(carouselActive?transparentFocusBackground():null);
+            heroSpacer.setContentDescription(carouselActive?"智能推荐轮播：左右键切换，按确定查看详情":null);
+            heroSpacer.setOnClickListener(carouselActive?view->{if(carouselIndex<carouselItems.size())detail(carouselItems.get(carouselIndex));}:null);
+            heroSpacer.setOnKeyListener(!carouselActive?null:(view,key,event)->{
+                if(key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT)return false;
+                if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){showCarouselItem(carouselIndex+(key==KeyEvent.KEYCODE_DPAD_RIGHT?1:-1));homeTimer.removeCallbacks(carouselRotate);homeTimer.postDelayed(carouselRotate,8000);}
+                return true;
+            });
+        }
         if(!carouselActive)return;
         showCarouselItem(0);
         if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);
@@ -281,5 +303,20 @@ public final class HomeActivity extends TvActivity {
     private String sortLabel(){String label=sortBy;for(String[] item:SORTS)if(item[1].equalsIgnoreCase(sortBy)){label=item[0];break;}return "排序 · "+label+(sortBy.equalsIgnoreCase("Random")?"":" "+("Descending".equals(sortOrder)?"降序":"升序"));}
     private void setSort(String field,String direction){sortBy=field;sortOrder=direction;new TvPreferences(this,api).saveLibrarySort(parent,field,direction);loadPosterPage(true);}
     private void chooseSort(){String[] labels=new String[SORTS.length];int selected=0;for(int i=0;i<SORTS.length;i++){labels[i]=SORTS[i][0];if(SORTS[i][1].equalsIgnoreCase(sortBy))selected=i;}new AlertDialog.Builder(this).setTitle("排序方式").setSingleChoiceItems(labels,selected,(dialog,index)->{dialog.dismiss();String field=SORTS[index][1];if(field.equals("Random")){setSort(field,"Ascending");return;}String[] directions={"降序","升序"};int direction="Descending".equals(sortOrder)?0:1;new AlertDialog.Builder(this).setTitle(labels[index]).setSingleChoiceItems(directions,direction,(choice,value)->{choice.dismiss();setSort(field,value==0?"Descending":"Ascending");}).setNegativeButton("取消",null).show();}).setNegativeButton("取消",null).show();}
+    private void checkUpdateOnce(){
+        if(updateChecked)return;updateChecked=true;
+        async(()->{try{return Updater.check();}catch(Exception error){return null;}},release->{if(release==null||release.code<=BuildConfig.VERSION_CODE)return;pendingUpdate=release;showUpdatePrompt();});
+    }
+    private void showUpdatePrompt(){
+        if(pendingUpdate==null||!foreground||isFinishing())return;
+        Updater.Release release=pendingUpdate;pendingUpdate=null;
+        new AlertDialog.Builder(this).setTitle("发现新版本 "+release.version).setMessage(release.notes+"\n\n大小："+(release.size/1024/1024)+" MB").setPositiveButton("下载更新",(dialog,index)->{status.setText("开始下载…");async(()->Updater.download(this,release,percent->runOnUiThread(()->{if(!isDestroyed())status.setText("正在下载更新 "+percent+"%");})),apk->{pendingApk=apk;status.setText("签名和文件校验通过，可以安装。");installUpdate();});}).setNegativeButton("暂不",null).show();
+    }
+    private void installUpdate(){
+        if(pendingApk==null)return;
+        if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){installing=true;startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}
+        installing=false;
+        try{Uri uri=FileProvider.getUriForFile(this,getPackageName()+".files",pendingApk);startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));}catch(Exception error){status.setText("此电视未提供安装器，请从下载目录手动安装。");}
+    }
     @Override public void onBackPressed(){if(menu.getVisibility()==View.VISIBLE){hideMenu();return;}if("items".equals(mode)&&selectedLibrary!=null){pendingLibraryFocus=parent;if("library".equals(libraryOrigin))loadLibraries();else loadHome();return;}if(!mode.equals("home")){loadHome();return;}super.onBackPressed();}
 }
