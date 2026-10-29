@@ -89,7 +89,7 @@ public final class DetailActivity extends TvActivity {
         new AlertDialog.Builder(this).setTitle("版本").setSingleChoiceItems(labels,sourceIndex,(dialog,index)->{sourceIndex=index;audio=subtitle=PlaybackSelection.AUTO;updateChoices();dialog.dismiss();}).setNegativeButton("取消",null).show();
     }
     private void chooseStream(boolean subtitles){
-        List<JSONObject> streams=PlaybackSelection.streams(selectedSource(),subtitles);List<String> labels=new ArrayList<>();List<Integer> indices=new ArrayList<>();labels.add("默认 · "+PlaybackSelection.selectionLabel(selectedSource(),PlaybackSelection.AUTO,subtitles));indices.add(PlaybackSelection.AUTO);
+        List<JSONObject> streams=PlaybackSelection.streams(selectedSource(),subtitles);List<String> labels=new ArrayList<>();List<Integer> indices=new ArrayList<>();labels.add(PlaybackSelection.selectionLabel(selectedSource(),PlaybackSelection.AUTO,subtitles));indices.add(PlaybackSelection.AUTO);
         if(subtitles){labels.add("关闭字幕");indices.add(-1);}
         for(JSONObject stream:streams){labels.add(PlaybackSelection.streamLabel(stream));indices.add(stream.optInt("Index"));}
         int current=indices.indexOf(subtitles?subtitle:audio);

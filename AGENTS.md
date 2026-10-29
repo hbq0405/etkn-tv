@@ -10,5 +10,7 @@
 - ExoPlayer 的 NextLib/libass 原生扩展固定版本；TrueHD 修复使用 third_party/nextlib_compat 和四 ABI JNI 库。发布遵循 GPL-3.0，附原始许可、对应源码与重建信息；不能以支持列表代替真实解码输出验证。
 - 最小修改、真实构建验证；明确区分源码完成、APK构建、设备实测和GitHub发布。
 - 首页轮播、焦点背景和详情背景共用加深的灰色遮罩。播放快进/快退只显示独立进度条，按下键才打开完整控制栏；验证方向键、媒体快进/快退键、返回和自动隐藏。
+- 音轨和字幕名称优先使用服务端 Title（副标题），为空再用 DisplayTitle；自动选择只追加一次“默认”。播放器策略由 TvPlayerFactory 统一组装，PGS 统一经过 TvSubtitleParserFactory；音频、视频和字幕错误独立恢复，保留播放位置和轨道选择。
+- 杜比视界 P7 在提取器输出格式阶段声明 HEVC 基底层；P5/P8 不在此处改写。固定 Media3/NextLib/libass JNI 版本，升级依赖前核对二进制兼容并重复真实输出回归。模拟器格式验证不代表电视实际杜比视界解码通过。
 - 默认仅本地提交；不得顺带推送 ETKvNext 私有仓库。
 - 任务归档遵循用户全局 QMD/Obsidian流程，原始JSONL只读，工具链故障核实后再修复。

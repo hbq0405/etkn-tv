@@ -69,14 +69,14 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
-    @Test public void playerUsesNormalizedTitlesExactDefaultsAndPreservesUnavailableTracks()throws Exception{
+    @Test public void playerUsesSubtitleTitlesExactDefaultsAndPreservesUnavailableTracks()throws Exception{
         try(Fixture server=new Fixture()){
             server.preferSecond=true;open(server,"movie-single");assertTrue(button("音轨").getText().toString().contains("音轨二"));assertTrue(button("字幕").getText().toString().contains("内封二"));play();
             await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO))&&"4".equals(selected(C.TRACK_TYPE_TEXT)));
             assertTrue(((Button)field(playback,"audioButton")).getText().toString().contains("音轨二"));clickTrack(false,1);await(()->"1".equals(selected(C.TRACK_TYPE_AUDIO)));
             assertTrue(((Button)field(playback,"audioButton")).getText().toString().contains("音轨一"));
             onMain(()->((Button)field(playback,"subtitleButton")).performClick());settle();
-            onMain(()->{ListView list=((AlertDialog)field(playback,"trackDialog")).getListView();assertEquals(5,list.getCount());assertEquals("内封一",list.getAdapter().getItem(2));((AlertDialog)field(playback,"trackDialog")).dismiss();});closePlayer();
+            onMain(()->{ListView list=((AlertDialog)field(playback,"trackDialog")).getListView();assertEquals(5,list.getCount());assertEquals("内封二 · 副标题（默认）",list.getAdapter().getItem(0));assertEquals("内封一 · 副标题",list.getAdapter().getItem(2));((AlertDialog)field(playback,"trackDialog")).dismiss();});closePlayer();
             server.extraTrack=true;play();onMain(()->((Button)field(playback,"audioButton")).performClick());settle();
             onMain(()->{AlertDialog dialog=(AlertDialog)field(playback,"trackDialog");ListView list=dialog.getListView();assertEquals("全部服务端音轨必须保留",4,list.getCount());assertTrue(list.getAdapter().getItem(3).toString().contains("未解析音轨"));list.performItemClick(null,3,3);assertTrue("无法可靠对应的轨道不可静默选错",dialog.isShowing());assertEquals(PlaybackSelection.AUTO,field(playback,"audioIndex"));dialog.dismiss();});
         }finally{cleanup();}
@@ -138,7 +138,7 @@ public class DetailFlowTest {
             for(int i=0;i<3;i++){onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(1000);player.play();});await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>1300);}
             onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(4000);player.play();});
             await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.isPlaying()&&player.getCurrentPosition()>4300;});
-            await(()->{for(View view:descendants((View)field(playback,"video")))if(view instanceof TextureView&&view.getClass().getSimpleName().contains("AssSubtitle")){Bitmap image=((TextureView)view).getBitmap();if(image==null)return false;boolean pixels=false;for(int y=0;y<image.getHeight()&&!pixels;y+=3)for(int x=0;x<image.getWidth();x+=3)if(Color.alpha(image.getPixel(x,y))>100){pixels=true;break;}image.recycle();return pixels;}return false;});screenshot("hevc-native-audio-ass.png");
+            await(()->{for(View view:descendants((View)field(playback,"video")))if(view.getClass().getSimpleName().equals("AssSubtitleCanvasView")&&view.getWidth()>0&&view.getHeight()>0){Bitmap image=Bitmap.createBitmap(view.getWidth(),view.getHeight(),Bitmap.Config.ARGB_8888);view.draw(new Canvas(image));boolean pixels=false;for(int y=0;y<image.getHeight()&&!pixels;y+=3)for(int x=0;x<image.getWidth();x+=3)if(Color.alpha(image.getPixel(x,y))>100){pixels=true;break;}image.recycle();return pixels;}return false;});screenshot("hevc-native-audio-ass.png");
             assertVisibleVideoPixels();
         }finally{cleanup();}
     }
@@ -152,11 +152,38 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
+    @Test public void pgsObjectsSurviveTheRealPlayerPipelineSeekAndSubtitleFallback()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.pgsSubtitle=true;open(server,"movie-single");play();clickTrack(true,3);
+            onMain(()->assertTrue("恢复位置验证需要有跳转索引的媒体",((ExoPlayer)field(playback,"player")).isCurrentMediaItemSeekable()));
+            await(()->((ExoPlayer)field(playback,"player")).getCurrentCues().cues.size()==2);
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(5000);player.play();});
+            await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>5300);
+            injectTextFailure(MimeTypes.APPLICATION_PGS);
+            await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return !Boolean.TRUE.equals(field(playback,"enhancedSubtitles"))&&player.getPlaybackState()==Player.STATE_READY&&player.getCurrentCues().cues.size()==2;});
+            await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.isPlaying()&&player.getCurrentPosition()>5700&&player.getCurrentCues().cues.size()==2;});
+            onMain(()->{assertEquals(12,field(playback,"subtitleIndex"));assertFalse(Boolean.TRUE.equals(field(playback,"softwareVideo")));long resumed=((ExoPlayer)field(playback,"player")).getCurrentPosition();assertTrue("恢复位置="+resumed+"，保存位置="+field(playback,"position"),resumed>=5000);});screenshot("pgs-multiple-objects.png");
+        }finally{cleanup();}
+    }
+    private void injectTextFailure(String mime){onMain(()->{try{
+        java.lang.reflect.Method method=PlayerActivity.class.getDeclaredMethod("handlePlayerError",PlaybackException.class);method.setAccessible(true);
+        method.invoke(playback,androidx.media3.exoplayer.ExoPlaybackException.createForRenderer(new IllegalStateException("synthetic subtitle failure"),"TextRenderer",0,new Format.Builder().setSampleMimeType(mime).build(),C.FORMAT_HANDLED,false,PlaybackException.ERROR_CODE_DECODING_FAILED));
+    }catch(ReflectiveOperationException error){throw new AssertionError(error);}});}
+    @Test public void assRuntimeFailureFallsBackToTextWithoutChangingVideoDecoder()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");play();onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(4000);player.play();});
+            await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>4300);injectTextFailure(MimeTypes.TEXT_SSA);
+            await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return !Boolean.TRUE.equals(field(playback,"enhancedSubtitles"))&&player.getPlaybackState()==Player.STATE_READY&&!player.getCurrentCues().cues.isEmpty();});
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");assertFalse(Boolean.TRUE.equals(field(playback,"softwareVideo")));assertTrue(player.getCurrentPosition()>=4000);assertNotNull(player.getCurrentCues().cues.get(0).text);assertNull(player.getPlayerError());});
+        }finally{cleanup();}
+    }
+
     private void assertVisibleVideoPixels() throws Exception{
         Bitmap image=instrumentation.getUiAutomation().takeScreenshot();int colored=0,total=0,greenDominant=0;
         java.util.HashSet<Integer> colors=new java.util.HashSet<>();
         int minRed=255,maxRed=0,minGreen=255,maxGreen=0,minBlue=255,maxBlue=0;
-        for(int y=image.getHeight()/3;y<image.getHeight()*2/3;y+=10)for(int x=image.getWidth()/3;x<image.getWidth()*2/3;x+=10){
+        // Sample across the color bars; the middle third can contain no red in a valid frame.
+        for(int y=image.getHeight()/4;y<image.getHeight()*3/4;y+=10)for(int x=image.getWidth()/8;x<image.getWidth()*7/8;x+=10){
             int color=image.getPixel(x,y),red=Color.red(color),green=Color.green(color),blue=Color.blue(color);total++;
             if(Math.max(red,Math.max(green,blue))>35)colored++;
             if(green>red*1.25f&&green>blue*1.25f)greenDominant++;
@@ -165,7 +192,7 @@ public class DetailFlowTest {
         }
         image.recycle();
         assertTrue("字幕显示时，中央视频区域必须有实际画面像素",colored>total/5);
-        assertTrue("视频画面不能退化成单色平面",colors.size()>=8&&maxRed-minRed>=24&&maxGreen-minGreen>=24&&maxBlue-minBlue>=24);
+        assertTrue("视频画面不能退化成单色平面：colors="+colors.size()+" RGB ranges="+(maxRed-minRed)+","+(maxGreen-minGreen)+","+(maxBlue-minBlue),colors.size()>=8&&maxRed-minRed>=24&&maxGreen-minGreen>=24&&maxBlue-minBlue>=24);
         assertTrue("视频画面不能是纯绿色错误输出",greenDominant<total*0.9f);
     }
     @Test public void compatibleDolbyProfilesUseHevcAndProfileFiveRemainsDolby()throws Exception{
@@ -199,7 +226,7 @@ public class DetailFlowTest {
             await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player!=null&&player.getVideoFormat()!=null&&mime.equals(player.getVideoFormat().sampleMimeType)&&player.getVideoDecoderCounters()!=null&&player.getVideoDecoderCounters().renderedOutputBufferCount>2&&Boolean.TRUE.equals(field(playback,"videoFrameSeen"));});
             onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");assertNull(player.getPlayerError());assertTrue(Boolean.TRUE.equals(field(playback,"softwareVideo")));player.seekTo(4000);});
             await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.getPlaybackState()==Player.STATE_READY&&player.getCurrentPosition()>4300;});
-            onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());settle();assertVisibleVideoPixels();screenshot(file+".png");
+            onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());settle();screenshot(file+".png");assertVisibleVideoPixels();
         }finally{cleanup();}
     }
 
@@ -275,7 +302,7 @@ public class DetailFlowTest {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image,media;
         final List<String> imagePaths=Collections.synchronizedList(new ArrayList<>());
-        volatile boolean closed,preferSecond,extraTrack;volatile String unexpectedPath;volatile int reports;
+        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle;volatile String unexpectedPath;volatile int reports;
         final boolean codecMedia;
         final JSONObject personal=new JSONObject();
         Fixture()throws Exception{this(false);}
@@ -288,10 +315,13 @@ public class DetailFlowTest {
             Thread thread=new Thread(()->{while(!closed)try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception error){if(!closed)android.util.Log.e("DetailFixture","request",error);}});worker.setDaemon(true);worker.start();}catch(IOException ignored){if(closed)return;}},"detail-fixture");thread.setDaemon(true);thread.start();
         }
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
-        JSONObject stream(String type,int index,String title)throws Exception{return new JSONObject().put("Type",type).put("Index",index).put("DisplayTitle",title).put("Title","raw-title-"+index).put("Language","chi").put("Codec",type.equals("Audio")?"pcm_s16le":"subrip");}
+        JSONObject stream(String type,int index,String title)throws Exception{return new JSONObject().put("Type",type).put("Index",index).put("DisplayTitle",title+" · 主标题 (默认)").put("Title",title+" · 副标题").put("Language","chi").put("Codec",type.equals("Audio")?"pcm_s16le":"subrip");}
         JSONArray sources(boolean multi)throws Exception{
-            if(codecMedia){JSONArray streams=new JSONArray();String[] codecs={"aac","ac3","eac3","dts","truehd"};for(int i=0;i<codecs.length;i++)streams.put(stream("Audio",i+1,"归一化 "+codecs[i]).put("Title","raw-"+codecs[i]).put("Codec",codecs[i]));streams.put(stream("Subtitle",6,"特效字幕 ASS").put("Title","raw-effect").put("Codec","ass"));JSONArray chapters=new JSONArray();String[] types={"IntroStart","IntroEnd","CreditsStart"};long[] ticks={10000000,30000000,100000000};for(int i=0;i<types.length;i++)chapters.put(new JSONObject().put("MarkerType",types[i]).put("StartPositionTicks",ticks[i]));return new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","HEVC 多编码").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",1).put("DefaultSubtitleStreamIndex",6).put("Chapters",chapters));}
+            if(codecMedia){JSONArray streams=new JSONArray();String[] codecs={"aac","ac3","eac3","dts","truehd"};for(int i=0;i<codecs.length;i++)streams.put(stream("Audio",i+1,"归一化 "+codecs[i]).put("Title","raw-"+codecs[i]).put("Codec",codecs[i]));streams.put(stream("Subtitle",6,"特效字幕 ASS").put("Title","raw-effect").put("Codec","ass"));
+                if(pgsSubtitle)streams.put(stream("Subtitle",12,"外挂 PGS").put("IsExternal",true).put("Codec","pgs").put("DeliveryUrl","/api/tv/subtitle.vtt"));
+                JSONArray chapters=new JSONArray();String[] types={"IntroStart","IntroEnd","CreditsStart"};long[] ticks={10000000,30000000,100000000};for(int i=0;i<types.length;i++)chapters.put(new JSONObject().put("MarkerType",types[i]).put("StartPositionTicks",ticks[i]));return new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","HEVC 多编码").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",1).put("DefaultSubtitleStreamIndex",6).put("Chapters",chapters));}
             JSONArray streams=new JSONArray().put(stream("Audio",0,"音轨一").put("IsDefault",true)).put(stream("Audio",4,"音轨二")).put(stream("Subtitle",7,"内封一")).put(stream("Subtitle",8,"内封二")).put(stream("Subtitle",12,"外挂字幕").put("IsExternal",true).put("Codec","webvtt").put("DeliveryUrl","/api/tv/subtitle.vtt"));
+            if(pgsSubtitle)streams.getJSONObject(4).put("Codec","pgs");
             if(extraTrack)streams.put(stream("Audio",100,"未解析音轨"));
             JSONArray sources=new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","1080P").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",preferSecond?4:0).put("DefaultSubtitleStreamIndex",preferSecond?8:-1));
             if(multi)sources.put(new JSONObject(sources.getJSONObject(0).toString()).put("Id","source-b").put("Name","4K 版本"));return sources;
@@ -313,7 +343,7 @@ public class DetailFlowTest {
                 if(post&&path.contains("/PlaybackPreferences")){char[] body=new char[length];int received=0,n;while(received<length&&(n=reader.read(body,received,length-received))>0)received+=n;JSONObject changes=new JSONObject(new String(body));for(String key:new String[]{"audio_lang_priority","subtitle_priority"})if(changes.has(key))personal.put(key,changes.get(key));}
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path;
                 boolean picture=path.contains("/Images/"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single");if(picture)imagePaths.add(path);
-                byte[] body=video?media:subtitle?"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8):picture?image:response(path).toString().getBytes(StandardCharsets.UTF_8);
+                byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?image:response(path).toString().getBytes(StandardCharsets.UTF_8);
                 String code=missing?"404 Not Found":range>0?"206 Partial Content":"200 OK";int start=video?range:0;
                 String headers="HTTP/1.1 "+code+"\r\nContent-Type: "+(video?"video/x-matroska":subtitle?"text/vtt":picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+(body.length-start)+"\r\n"+(range>0?"Content-Range: bytes "+start+"-"+(body.length-1)+"/"+body.length+"\r\n":"")+"Connection: close\r\n\r\n";
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);

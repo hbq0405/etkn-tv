@@ -15,17 +15,21 @@ import java.util.ArrayList;
 /** Keep hardware video by default; decode audio to PCM rather than relying on TV passthrough. */
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 final class TvRenderersFactory extends DefaultRenderersFactory {
-    private final boolean softwareVideo;
     TvRenderersFactory(Context context,boolean softwareVideo){
+        this(context,softwareVideo,true);
+    }
+    private final boolean softwareVideo,softwareAudio;
+    TvRenderersFactory(Context context,boolean softwareVideo,boolean softwareAudio){
         super(context);
         this.softwareVideo=softwareVideo;
+        this.softwareAudio=softwareAudio;
         setEnableDecoderFallback(true);
         setExtensionRendererMode(softwareVideo?EXTENSION_RENDERER_MODE_PREFER:EXTENSION_RENDERER_MODE_ON);
     }
     @Override protected void buildAudioRenderers(Context context,int mode,MediaCodecSelector selector,
             boolean fallback,AudioSink sink,Handler handler,AudioRendererEventListener listener,ArrayList<Renderer> out){
         int first=out.size();super.buildAudioRenderers(context,EXTENSION_RENDERER_MODE_OFF,selector,fallback,sink,handler,listener,out);
-        out.add(first,new FfmpegAudioRenderer(handler,listener,sink));
+        out.add(softwareAudio?first:out.size(),new FfmpegAudioRenderer(handler,listener,sink));
     }
     @Override protected void buildVideoRenderers(Context context,int mode,MediaCodecSelector selector,
             boolean fallback,Handler handler,VideoRendererEventListener listener,long joining,ArrayList<Renderer> out){

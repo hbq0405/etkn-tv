@@ -11,16 +11,9 @@ import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.*;
 import androidx.media3.common.*;
-import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
-import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.DefaultTimeBar;
-import io.github.peerless2012.ass.media.AssHandlerConfig;
-import io.github.peerless2012.ass.media.kt.AssPlayerKt;
-import io.github.peerless2012.ass.media.type.AssRenderType;
-import io.github.peerless2012.ass.media.widget.AssSubtitleView;
 import org.json.*;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
@@ -40,6 +33,7 @@ public final class PlayerActivity extends TvActivity {
     private int selected;
     private boolean foreground,reportedStart,versionConfirmed,audioPending,subtitlePending;
     private boolean softwareVideo,playWhenReady=true;
+    private boolean softwareAudio=true,enhancedSubtitles=true;
     private boolean videoFrameSeen;
     private long videoReadySince;
     private String videoDecoder="等待解码器";
@@ -70,6 +64,7 @@ public final class PlayerActivity extends TvActivity {
         super.onCreate(state);itemId=getIntent().getStringExtra("id");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
         audioIndex=state==null?getIntent().getIntExtra("audioIndex",PlaybackSelection.AUTO):state.getInt("audioIndex",PlaybackSelection.AUTO);subtitleIndex=state==null?getIntent().getIntExtra("subtitleIndex",PlaybackSelection.AUTO):state.getInt("subtitleIndex",PlaybackSelection.AUTO);
         softwareVideo=state!=null&&state.getBoolean("softwareVideo");
+        softwareAudio=state==null||state.getBoolean("softwareAudio",true);enhancedSubtitles=state==null||state.getBoolean("enhancedSubtitles",true);
         playWhenReady=state==null||state.getBoolean("playWhenReady",true);skipMode=new TvPreferences(this,api).skipMode();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -111,13 +106,9 @@ public final class PlayerActivity extends TvActivity {
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
             String address=source.getString("DirectStreamUrl");if(address.startsWith("/"))address=api.server+address;
             if(!Http.sameOrigin(address,api.server))throw new Exception("服务器返回了无效播放地址");
-            // The authenticated ETKN URL carries its token in the query. No auth header is
-            // attached to Media3, so a remote CDN redirect cannot receive ETKN credentials.
-            DefaultHttpDataSource.Factory http=new DefaultHttpDataSource.Factory().setUserAgent(EtknApi.USER_AGENT).setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(30000);
-            // Keep the authenticated URL in the URI only, including external subtitles.
-            // The native extensions receive no ETKN Authorization/Cookie headers on CDN redirects.
-            player=AssPlayerKt.buildWithAssSupport(new ExoPlayer.Builder(this),this,AssRenderType.OVERLAY_OPEN_GL,
-                new AssHandlerConfig(10000,64,1920*1080),video.getSubtitleView(),http,new DefaultExtractorsFactory(),new TvRenderersFactory(this,softwareVideo));video.setPlayer(player);
+            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles);}
+            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
+            video.setPlayer(player);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
             TrackSelectionParameters.Builder preferences=player.getTrackSelectionParameters().buildUpon();
             preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,source.optInt("DefaultSubtitleStreamIndex",-1)<0);
@@ -128,7 +119,7 @@ public final class PlayerActivity extends TvActivity {
                 String delivery=stream.optString("DeliveryUrl");if(delivery.startsWith("/"))delivery=api.server+delivery;if(!Http.sameOrigin(delivery,api.server))continue;
                 Uri uri=Uri.parse(delivery).buildUpon().appendQueryParameter("X-Emby-Token",api.token).appendQueryParameter("UserId",api.session.userId()).build();
                 String codec=stream.optString("Codec").toLowerCase(Locale.ROOT);
-                String mime=codec.contains("ass")||codec.contains("ssa")?MimeTypes.TEXT_SSA:codec.contains("vtt")?MimeTypes.TEXT_VTT:MimeTypes.APPLICATION_SUBRIP;
+                String mime=codec.contains("pgs")?MimeTypes.APPLICATION_PGS:codec.contains("ass")||codec.contains("ssa")?MimeTypes.TEXT_SSA:codec.contains("vtt")?MimeTypes.TEXT_VTT:MimeTypes.APPLICATION_SUBRIP;
                 subtitles.add(new MediaItem.SubtitleConfiguration.Builder(uri).setId(PlaybackSelection.externalId(stream.optInt("Index"))).setMimeType(mime).setLanguage(stream.optString("Language")).setLabel(PlaybackSelection.streamLabel(stream)).setSelectionFlags(stream.optBoolean("IsDefault")?C.SELECTION_FLAG_DEFAULT:0).build());
             }
             audioPending=subtitlePending=true;
@@ -145,15 +136,18 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
                 @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){report("Stopped");message("播放完成");showControls();}}
-                @Override public void onPlayerError(PlaybackException error){
-                    if(!softwareVideo&&error.errorCode>=4001&&error.errorCode<=4005){recoverVideo();return;}
-                    message("播放失败："+error.getErrorCodeName()+"。可切换解码模式或播放版本。");report("Stopped");showControls();
-                }
+                @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
             player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();video.requestFocus();updateTrackButtons();
         }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
     }
     private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}
+    private void handlePlayerError(PlaybackException error){
+        if(enhancedSubtitles&&TvPlayerFactory.subtitleFailure(error)){stopPlayer();enhancedSubtitles=false;Toast.makeText(this,"特效字幕异常，已切换兼容字幕",Toast.LENGTH_LONG).show();startSource();return;}
+        if(softwareAudio&&TvPlayerFactory.rendererFailure(error,C.TRACK_TYPE_AUDIO)){stopPlayer();softwareAudio=false;message("音频解码失败，正在尝试系统解码…");startSource();return;}
+        if(!softwareVideo&&TvPlayerFactory.rendererFailure(error,C.TRACK_TYPE_VIDEO)){recoverVideo();return;}
+        message("播放失败："+error.getErrorCodeName()+"。可切换解码模式或播放版本。");report("Stopped");showControls();
+    }
     private void recoverVideo(){
         if(!softwareVideo){stopPlayer();softwareVideo=true;message("视频未正常输出，正在尝试软件兼容模式…");startSource();}
         else{message("视频仍未输出画面，请切换版本或解码模式。");showControls();updateVideoInfo();}
@@ -202,7 +196,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void chooseTrack(int type){
         if(player==null)return;boolean subtitles=type==C.TRACK_TYPE_TEXT;List<Integer> indices=new ArrayList<>();List<String> labels=new ArrayList<>();
-        indices.add(PlaybackSelection.AUTO);labels.add("默认 · "+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles));
+        indices.add(PlaybackSelection.AUTO);labels.add(PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles));
         if(subtitles){indices.add(-1);labels.add("关闭字幕");}
         for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){
             indices.add(stream.optInt("Index"));TrackRef ref=findTrack(stream,type);
@@ -243,11 +237,11 @@ public final class PlayerActivity extends TvActivity {
             reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
-    private void stopPlayer(){hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;if(video.getSubtitleView()!=null)for(int i=video.getSubtitleView().getChildCount()-1;i>=0;i--)if(video.getSubtitleView().getChildAt(i) instanceof AssSubtitleView)video.getSubtitleView().removeViewAt(i);}}
+    private void stopPlayer(){hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}}
     @Override protected void onStart(){super.onStart();foreground=true;if(info!=null&&player==null)startSource();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
-    @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
+    @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("softwareAudio",softwareAudio);state.putBoolean("enhancedSubtitles",enhancedSubtitles);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
         if(key==KeyEvent.KEYCODE_BACK&&(controls.getVisibility()==View.VISIBLE||seekKeys)){if(down){hideSeekProgress();video.hideController();video.requestFocus();}return true;}

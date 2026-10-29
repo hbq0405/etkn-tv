@@ -14,7 +14,7 @@ final class PlaybackSelection {
         if(streams!=null)for(int i=0;i<streams.length();i++){JSONObject stream=streams.optJSONObject(i);if(stream!=null&&stream.optString("Type").equalsIgnoreCase(subtitles?"Subtitle":"Audio"))result.add(stream);}return result;
     }
     static JSONObject stream(JSONObject source,int index,boolean subtitles){for(JSONObject stream:streams(source,subtitles))if(stream.optInt("Index",-1)==index)return stream;return null;}
-    static String streamLabel(JSONObject stream){String title=stream.optString("DisplayTitle");if(title.isEmpty())title=stream.optString("Title");if(title.isEmpty())title=stream.optString("Language","未知语言")+" · "+stream.optString("Codec");return title;}
+    static String streamLabel(JSONObject stream){String title=stream.optString("Title").trim();if(title.isEmpty())title=stream.optString("DisplayTitle").trim();title=title.replaceAll("\\s*[（(]默认(?:\\s+[^)）]*)?[)）]","").trim();if(title.isEmpty())title=stream.optString("Language","未知语言")+" · "+stream.optString("Codec");return title;}
     static int defaultIndex(JSONObject source,boolean subtitles){
         if(source==null)return AUTO;
         String field=subtitles?"DefaultSubtitleStreamIndex":"DefaultAudioStreamIndex";
@@ -25,7 +25,7 @@ final class PlaybackSelection {
     }
     static String selectionLabel(JSONObject source,int index,boolean subtitles){
         boolean automatic=index==AUTO;if(automatic)index=defaultIndex(source,subtitles);
-        if(subtitles&&index==-1)return "关闭";
+        if(subtitles&&index==-1)return automatic?"关闭（默认）":"关闭";
         JSONObject stream=stream(source,index,subtitles);
         return stream==null?"默认":streamLabel(stream)+(automatic?"（默认）":"");
     }

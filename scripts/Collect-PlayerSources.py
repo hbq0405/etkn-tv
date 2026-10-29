@@ -32,6 +32,8 @@ urls = {name + ".zip": f"https://codeload.github.com/{repo}/zip/{ref}"
         for name, (repo, ref) in sources.items()}
 urls["ffmpeg-6.0.tar.xz"] = "https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz"
 urls["kotlin-stdlib-2.2.0-sources.jar"] = "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.2.0/kotlin-stdlib-2.2.0-sources.jar"
+urls["okhttp-4.12.0-sources.jar"] = "https://repo.maven.apache.org/maven2/com/squareup/okhttp3/okhttp/4.12.0/okhttp-4.12.0-sources.jar"
+urls["okio-jvm-3.6.0-sources.jar"] = "https://repo.maven.apache.org/maven2/com/squareup/okio/okio-jvm/3.6.0/okio-jvm-3.6.0-sources.jar"
 
 def fetch(item):
     name, url = item
@@ -61,7 +63,7 @@ with zipfile.ZipFile(args.output, "w", compression=zipfile.ZIP_STORED) as bundle
     for name in manifest:
         bundle.write(args.cache / name, name)
     bundle.writestr("sources.json", json.dumps(manifest, indent=2) + "\n")
-    bundle.writestr("README.txt", """Native-player corresponding sources for ETKN TV 0.1.13.
+    bundle.writestr("README.txt", """Native-player corresponding sources for ETKN TV 0.1.14.
 The app and modified JNI sources are in the matching ETKN TV source tag.
 ETKN builds FFmpeg 6.0 decoders statically with scripts/Build-PlayerNative.py.
 NextLib Java/JNI changes are included in the matching ETKN source tag.

@@ -1,0 +1,9 @@
+OkHttp 4.12.0
+Copyright 2012 Square, Inc.
+
+Okio JVM 3.6.0
+Copyright 2014 Square, Inc.
+
+These libraries are licensed under the Apache License, Version 2.0.
+The full license is included in AndroidX-Apache-2.0.txt in this directory.
+Corresponding source artifacts are included in the matching release source bundle.

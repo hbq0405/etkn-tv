@@ -32,15 +32,24 @@ public class DetailPresentationTest {
             .put(new JSONObject().put("Type","Subtitle").put("Index",8).put("IsExternal",true))
             .put(new JSONObject().put("Type","Subtitle").put("Index",9)));
         assertEquals(1,PlaybackSelection.embeddedOrdinal(source,4,false));assertEquals(0,PlaybackSelection.embeddedOrdinal(source,9,true));assertEquals(-1,PlaybackSelection.embeddedOrdinal(source,8,true));
-        assertEquals("etkn-subtitle-8",PlaybackSelection.externalId(8));assertEquals("etkn-subtitle-8",PlaybackSelection.localTrackId("1:etkn-subtitle-8"));assertEquals("关闭",PlaybackSelection.selectionLabel(source,-2,true));assertEquals("关闭",PlaybackSelection.selectionLabel(source,-1,true));
+        assertEquals("etkn-subtitle-8",PlaybackSelection.externalId(8));assertEquals("etkn-subtitle-8",PlaybackSelection.localTrackId("1:etkn-subtitle-8"));assertEquals("关闭（默认）",PlaybackSelection.selectionLabel(source,-2,true));assertEquals("关闭",PlaybackSelection.selectionLabel(source,-1,true));
     }
     @Test public void automaticLabelsResolveTheServersExactDefaultTrack()throws Exception{
         JSONObject source=new JSONObject().put("DefaultAudioStreamIndex",4).put("DefaultSubtitleStreamIndex",9).put("MediaStreams",new JSONArray()
             .put(new JSONObject().put("Type","Audio").put("Index",1).put("IsDefault",true).put("DisplayTitle","原声"))
-            .put(new JSONObject().put("Type","Audio").put("Index",4).put("DisplayTitle","国语 DTS 5.1"))
-            .put(new JSONObject().put("Type","Subtitle").put("Index",9).put("DisplayTitle","简体中文 ASS")));
+            .put(new JSONObject().put("Type","Audio").put("Index",4).put("DisplayTitle","国语 DTS 5.1 (默认)"))
+            .put(new JSONObject().put("Type","Subtitle").put("Index",9).put("DisplayTitle","简体中文 ASS (默认 ass)")));
         assertEquals("国语 DTS 5.1（默认）",PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,false));
         assertEquals("简体中文 ASS（默认）",PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,true));
         assertEquals("原声",PlaybackSelection.selectionLabel(source,1,false));
+        assertEquals("默认",PlaybackSelection.selectionLabel(null,PlaybackSelection.AUTO,false));
+    }
+    @Test public void trackLabelsPreferSubtitlesAndOnlyRemoveDefaultBadges()throws Exception{
+        JSONObject stream=new JSONObject().put("Title","国语配音[CH-CSD]").put("DisplayTitle","国语 TrueHD 5.1 (默认)");
+        assertEquals("国语配音[CH-CSD]",PlaybackSelection.streamLabel(stream));
+        stream.put("Title","   ");assertEquals("国语 TrueHD 5.1",PlaybackSelection.streamLabel(stream));
+        stream.put("Title",JSONObject.NULL);assertEquals("国语 TrueHD 5.1",PlaybackSelection.streamLabel(stream));
+        stream.put("Title","双语特效（导演剪辑）（默认）");assertEquals("双语特效（导演剪辑）",PlaybackSelection.streamLabel(stream));
+        stream.remove("Title");stream.remove("DisplayTitle");stream.put("Language","chi").put("Codec","PGS");assertEquals("chi · PGS",PlaybackSelection.streamLabel(stream));
     }
 }

@@ -67,3 +67,14 @@
 - `D:\work\jadx-cli\lib\jadx-1.5.6-all.jar` 的 Manifest 主类为 `jadx.gui.JadxGUI`。直接 `java -jar` 虽能显示帮助，带 APK 后会进入 GUI、无输出源码。首次发现未输出后，用线程状态、Manifest 和官方 `bin/jadx.bat` 核对入口；只终止已核验属于本轮的进程，改用 `java -cp <jar> jadx.cli.JadxCLI ...`。已得到本轮 APK 的源码输出，不对其他 jadx 实例操作。
 - R8/Kotlin/Compose APK 的 JADX 完整恢复可因复杂控制流返回非零，同时保留大量有效源码。本轮返回 432 个方法错误；不得把整份输出称为可编译原始源码。先核对输出与具体失败方法，对关键路径交叉检查 simple 模式、常量和调用点；simple 模式输出了播放器创建路径，但关联的 Compose 方法仍有类型推断错误。只能据已核验指令形成静态结论，运行性能须另做设备对照测试。
 - 本轮 `multi_get(pattern="#28fdd0")` 返回 No files matched，未写入文件或改变索引；核对 MCP 实际接口后使用 `get(file="#28fdd0")` 成功读取全文。docid 单页用 get，批量 multi_get 使用已验证的实际路径；不要在相同错误参数上重复试探。
+
+## 播放器策略迁移与字幕回归（2026-10-29）
+
+- 柴柴 APK 反编译仅提供策略和调用顺序证据，不等于可直接编译的原始工程。ETKN 保留固定 Media3 1.8.0、NextLib 和 libass JNI；迁移 OkHttp 超时/连接池、缓冲、ASS Canvas 与失败降级、多对象 PGS、提取阶段 P7 基底层声明，改动必须有本项目管线回归。
+- 服务端 Title 是副标题，DisplayTitle 可能附带“(默认 ass)”等格式信息。优先 Title，去除已有默认标记后仅在自动选择项追加一次“默认”；详情和播放菜单使用同一规则。
+- PGS 内封数据依赖容器时间戳；外挂 SUP 有 PG 标识、90kHz PTS/DTS 头。最初把不带时间戳的内封样本直接当外挂文件，真实播放器 Cue 超时；确认解析器单测通过、管线未通过后，补 SUP 时间戳解析和带清屏事件的 SUP 测试。不能以单独解析成功替代真实显示和 seek 验证。
+- detail-tracks.mkv 是无 Cues/SeekHead 的简化音轨素材，重建时请求 5.3 秒但会从 0 开始。已检查二进制确认无索引；恢复位置验收使用带索引的 player-codecs.mkv，并先断言 isCurrentMediaItemSeekable。不要通过放宽位置断言掩盖测试素材限制。
+- adb shell am instrument 的进程返回码不能单独说明 JUnit 通过；曾返回 0 但正文有 FAILURES。检查最终 OK、失败/跳过状态；VC-1 私有素材缺失按 assumption 跳过，单独记录，不宣称已实播。
+- Media3 1.8.0 的 ExoPlaybackException 没有 rendererType 字段，先核对固定版本 API，使用 rendererFormat MIME 与 rendererName 判断轨道；首次编译失败未生成新版 APK。PGS 像素 Y=235/Cr=Cb=128 按现用转换输出 RGB235，单测不得误期望 RGB255。
+- 文件读取前先用 rg --files/命中位置核对真实类名。许可入口实际在 SettingsActivity，读取不存在的 LicensesActivity 失败未改源码；已确认 getAssets().list("licenses") 自动列出新增 NOTICE。目录搜索禁止 docs\\*.md 路径通配符；本轮误用后核实未写入，改用 rg 关键词 docs -g '*.md' 完成检索。
+- 4K 色条的画面检查曾在中央三分之一裁区误报“单色”：实际采到 13 色、RGB 范围 0/23/231，失败截图有完整色条和 ASS，红色色条在裁区外。保留亮度、颜色数、各通道范围与非纯绿门槛，改为横跨色条的居中宽区域采样；断言输出具体范围，先存截图再断言。不得仅凭单次像素失败改动 JNI 或直接删除检查。
