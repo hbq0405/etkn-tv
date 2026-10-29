@@ -2,10 +2,22 @@ package xyz.etkn.tv;
 
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Typeface;
+import android.graphics.Color;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.SpannableStringBuilder;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.*;
 import androidx.core.content.FileProvider;
 import java.io.File;
@@ -26,23 +38,83 @@ public final class SettingsActivity extends TvActivity {
     @Override public void onCreate(Bundle state){
         super.onCreate(state);screen("设置","ETKN TV  "+BuildConfig.VERSION_NAME);nav("返回",this::finish);
         if(!api.token.isEmpty()){
-            ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(36));content.addView(avatar,new LinearLayout.LayoutParams(dp(72),dp(72)));loadAvatar(avatar);
-            content.addView(text(api.session.name(),24,android.graphics.Color.WHITE));content.addView(text(api.server,13,MUTED));
-            defaultAudio=button("默认音轨 · 正在读取…",()->editPreference(false));defaultSubtitle=button("默认字幕 · 正在读取…",()->editPreference(true));
-            defaultAudio.setEnabled(false);defaultSubtitle.setEnabled(false);for(Button preference:new Button[]{defaultAudio,defaultSubtitle}){LinearLayout.LayoutParams layout=(LinearLayout.LayoutParams)preference.getLayoutParams();layout.width=-1;layout.height=-2;content.addView(preference,layout);}
-            content.addView(text("与个人中心同步；个人配置覆盖全局，未配置时跟随全局。按添加顺序确定优先级。",13,MUTED));
-            skipButton=button("",this::chooseSkipMode);content.addView(skipButton);showSkipMode();
-            content.addView(text("仅对有片头片尾标记的影片生效，保存到此电视当前账号。",13,MUTED));
-            Switch notice=new Switch(this);notice.setText("我的订阅 / 追更入库通知");notice.setTextSize(17);notice.setTextColor(android.graphics.Color.WHITE);notice.setPadding(dp(12),dp(14),dp(12),dp(14));notice.setFocusable(true);notice.setBackground(focusBackground());notice.setChecked(IngestNotifications.enabled(this));content.addView(notice);
-            content.addView(text("只提醒本账号订阅内容的入库与更新。后台检查受电视系统调度影响。",13,MUTED));
-            notice.setOnCheckedChangeListener((button,on)->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);});
+            LinearLayout account=section("账号");
+            LinearLayout identity=row();identity.setPadding(dp(2),dp(4),dp(2),dp(6));
+            ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(36));identity.addView(avatar,new LinearLayout.LayoutParams(dp(72),dp(72)));loadAvatar(avatar);
+            LinearLayout who=column();who.setPadding(dp(18),dp(8),0,0);
+            TextView name=text(api.session.name(),21,Color.WHITE);name.setTypeface(null,Typeface.BOLD);who.addView(name);
+            TextView server=text(api.server,13,MUTED);who.addView(server);
+            identity.addView(who,new LinearLayout.LayoutParams(0,-2,1));account.addView(identity);
+            LinearLayout playback=section("播放偏好");
+            defaultAudio=settingRow(Color.WHITE);defaultAudio.setOnClickListener(view->editPreference(false));defaultAudio.setText(rowText("默认音轨","正在读取…"));
+            defaultSubtitle=settingRow(Color.WHITE);defaultSubtitle.setOnClickListener(view->editPreference(true));defaultSubtitle.setText(rowText("默认字幕","正在读取…"));
+            defaultAudio.setEnabled(false);defaultSubtitle.setEnabled(false);playback.addView(defaultAudio);playback.addView(defaultSubtitle);
+            skipButton=settingRow(Color.WHITE);skipButton.setOnClickListener(view->chooseSkipMode());playback.addView(skipButton);showSkipMode();
+            playback.addView(note("音轨与字幕和个人中心同步：个人配置覆盖全局，未配置时跟随全局；按添加顺序确定优先级。"));
+            playback.addView(note("片头片尾仅对有片头片尾标记的影片生效，保存到此电视当前账号。"));
+            LinearLayout notices=section("通知");
+            notices.addView(switchRow("我的订阅 / 追更入库通知","只提醒本账号订阅内容的入库与更新。后台检查受电视系统调度影响。"));
         }
-        content.addView(button("检查 App 更新",this::checkUpdate));
-        content.addView(text("更新通过 GitHub Releases 获取；安装需要系统确认。",13,MUTED));
-        content.addView(button("开源许可",this::showLicenses));
-        if(!api.token.isEmpty())content.addView(button("退出当前账号",()->new AlertDialog.Builder(this).setTitle("退出当前账号？").setPositiveButton("退出",(dialog,index)->{IngestNotifications.logout(this);Images.clear();IO.execute(()->{try{api.post("/api/tv/Sessions/Logout",new org.json.JSONObject());}catch(Exception ignored){}});api.session.clear();startActivity(new Intent(this,SetupActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));finish();}).setNegativeButton("取消",null).show()));
+        LinearLayout app=section("应用");
+        Button update=settingRow(Color.WHITE);update.setText(rowText("检查更新","当前版本 "+BuildConfig.VERSION_NAME));update.setOnClickListener(view->checkUpdate());app.addView(update);
+        Button licenses=settingRow(Color.WHITE);licenses.setText(rowText("开源许可","GPL-3.0 及第三方组件"));licenses.setOnClickListener(view->showLicenses());app.addView(licenses);
+        app.addView(note("更新通过 GitHub Releases 获取；安装需要系统确认。"));
+        if(!api.token.isEmpty()){
+            LinearLayout danger=section(null);
+            Button logout=settingRow(Color.rgb(235,124,139));logout.setText("退出当前账号");logout.setOnClickListener(view->new AlertDialog.Builder(this).setTitle("退出当前账号？").setPositiveButton("退出",(dialog,index)->{IngestNotifications.logout(this);Images.clear();IO.execute(()->{try{api.post("/api/tv/Sessions/Logout",new org.json.JSONObject());}catch(Exception ignored){}});api.session.clear();startActivity(new Intent(this,SetupActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));finish();}).setNegativeButton("取消",null).show());
+            danger.addView(logout);
+        }
     }
-    private void showSkipMode(){skipButton.setText("片头片尾 · "+TvPreferences.SKIP_LABELS[new TvPreferences(this,api).skipMode()]);}
+    /** 设置分区卡片：圆角面板 + 可选 ACCENT 竖条标题。 */
+    private LinearLayout section(String title){
+        LinearLayout panel=column();panel.setBackground(shape(PANEL,0));panel.setPadding(dp(20),dp(14),dp(20),dp(10));
+        LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,-2);layout.setMargins(0,dp(10),0,0);content.addView(panel,layout);
+        if(title!=null){
+            LinearLayout head=row();head.setPadding(dp(2),dp(4),dp(2),dp(8));
+            View bar=new View(this);bar.setBackground(shape(ACCENT,0));head.addView(bar,new LinearLayout.LayoutParams(dp(3),dp(14)));
+            TextView label=text(title,13,ACCENT);label.setTypeface(null,Typeface.BOLD);label.setPadding(dp(9),0,0,0);head.addView(label,new LinearLayout.LayoutParams(-2,-2));
+            panel.addView(head);
+        }
+        return panel;
+    }
+    /** 全宽设置行：左侧主标题 + 弱化摘要，右侧箭头，遥控器整行聚焦。 */
+    private Button settingRow(int textColor){
+        Button view=new Button(this);view.setAllCaps(false);view.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+        view.setTextColor(textColor);view.setTextSize(16);view.setBackground(focusBackground());view.setMinHeight(dp(52));
+        view.setSingleLine(true);view.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        view.setPadding(dp(18),dp(6),dp(16),dp(6));view.setCompoundDrawablesRelativeWithIntrinsicBounds(null,null,chevron(),null);view.setCompoundDrawablePadding(dp(10));
+        LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,dp(52));layout.setMargins(0,0,0,dp(10));view.setLayoutParams(layout);
+        return view;
+    }
+    /** 行文字：主标题白色 + 摘要弱化缩小。 */
+    private CharSequence rowText(String title,String summary){
+        SpannableStringBuilder builder=new SpannableStringBuilder();builder.append(title);int split=builder.length();builder.append("   ").append(summary);
+        builder.setSpan(new ForegroundColorSpan(MUTED),split,builder.length(),0);builder.setSpan(new RelativeSizeSpan(0.8f),split,builder.length(),0);
+        return builder;
+    }
+    /** 整行可聚焦的开关行：左标题副文本、右 Switch，确认键切换。 */
+    private LinearLayout switchRow(String title,String summary){
+        final Switch toggle=new Switch(this);toggle.setChecked(IngestNotifications.enabled(this));
+        toggle.setOnCheckedChangeListener((button,on)->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);});
+        LinearLayout line=row();line.setFocusable(true);line.setClickable(true);line.setBackground(focusBackground());line.setPadding(dp(18),dp(12),dp(20),dp(12));
+        LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,-2);layout.setMargins(0,0,0,dp(10));line.setLayoutParams(layout);
+        LinearLayout label=column();
+        TextView head=text(title,16,Color.WHITE);head.setPadding(0,0,0,0);label.addView(head);
+        TextView detail=text(summary,12,MUTED);detail.setPadding(0,0,0,dp(10));label.addView(detail);
+        line.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout.LayoutParams toggleLayout=new LinearLayout.LayoutParams(-2,-2);toggleLayout.gravity=Gravity.CENTER_VERTICAL;
+        toggle.setFocusable(false);toggle.setClickable(false);line.addView(toggle,toggleLayout);
+        line.setOnClickListener(view->toggle.setChecked(!toggle.isChecked()));
+        return line;
+    }
+    private TextView note(String value){TextView view=text(value,12,MUTED);view.setPadding(dp(2),dp(2),dp(2),dp(8));return view;}
+    private Drawable chevron(){
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(dp(12),dp(18),android.graphics.Bitmap.Config.ARGB_8888);
+        Canvas canvas=new Canvas(bitmap);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(2));paint.setStrokeCap(Paint.Cap.ROUND);paint.setColor(MUTED);
+        Path path=new Path();path.moveTo(dp(4),dp(4));path.lineTo(dp(9),dp(9));path.lineTo(dp(4),dp(14));canvas.drawPath(path,paint);
+        return new BitmapDrawable(getResources(),bitmap);
+    }
+    private void showSkipMode(){skipButton.setText(rowText("片头片尾",TvPreferences.SKIP_LABELS[new TvPreferences(this,api).skipMode()]));}
     private void showLicenses(){
         try{String[] names=getAssets().list("licenses");if(names==null)return;Arrays.sort(names);new AlertDialog.Builder(this).setTitle("开源许可 · GPL-3.0").setItems(names,(choice,index)->{
             try(java.io.InputStream stream=getAssets().open("licenses/"+names[index]);java.io.ByteArrayOutputStream data=new java.io.ByteArrayOutputStream()){byte[] buffer=new byte[8192];int count;while((count=stream.read(buffer))!=-1)data.write(buffer,0,count);new AlertDialog.Builder(this).setTitle(names[index]).setMessage(data.toString("UTF-8")).setPositiveButton("关闭",null).show();}catch(java.io.IOException error){status.setText("无法读取许可文件");}
@@ -51,7 +123,7 @@ public final class SettingsActivity extends TvActivity {
     private void chooseSkipMode(){TvPreferences preferences=new TvPreferences(this,api);preferenceDialog=new AlertDialog.Builder(this).setTitle("片头片尾").setSingleChoiceItems(TvPreferences.SKIP_LABELS,preferences.skipMode(),(dialog,index)->{preferences.setSkipMode(index);showSkipMode();dialog.dismiss();}).setNegativeButton("取消",null).create();preferenceDialog.show();}
     private void showPreferences(JSONObject value){
         playbackPreferences=value;defaultAudio.setEnabled(true);defaultSubtitle.setEnabled(true);
-        defaultAudio.setText("默认音轨 · "+preferenceSummary(false));defaultSubtitle.setText("默认字幕 · "+preferenceSummary(true));
+        defaultAudio.setText(rowText("默认音轨",preferenceSummary(false)));defaultSubtitle.setText(rowText("默认字幕",preferenceSummary(true)));
     }
     private String preferenceSummary(boolean subtitles){
         String key=subtitles?"subtitle_priority":"audio_lang_priority";JSONObject personal=playbackPreferences.optJSONObject("preferences"),global=playbackPreferences.optJSONObject("global_preferences");JSONArray values=personal==null?null:personal.optJSONArray(key);boolean own=values!=null&&values.length()>0;
