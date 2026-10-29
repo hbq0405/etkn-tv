@@ -42,7 +42,9 @@ final class TvPlayerFactory {
             .setBackBuffer(12000,false).setTargetBufferBytes(bufferMb*1024*1024).build());
         RenderersFactory renderers=new TvRenderersFactory(context,softwareVideo,softwareAudio);
         AssHandler ass=enhancedSubtitles?new AssHandler(AssRenderType.OVERLAY_CANVAS,new AssHandlerConfig(10000,64,1920*1080)):null;
-        SubtitleParser.Factory parsers=new TvSubtitleParserFactory(ass==null?new DefaultSubtitleParserFactory():new AssSubtitleParserFactory(ass));
+        // Keep embedded PGS raw for the decoder worker; external SUP still needs extraction parsing.
+        SubtitleParser.Factory delegate=ass==null?new DefaultSubtitleParserFactory():new AssSubtitleParserFactory(ass);
+        SubtitleParser.Factory parsers=new TvSubtitleParserFactory(delegate,false);
         DefaultExtractorsFactory defaults=new DefaultExtractorsFactory().setSubtitleParserFactory(parsers);
         ExtractorsFactory extractors=defaults;
         if(ass!=null){
@@ -53,7 +55,7 @@ final class TvPlayerFactory {
             };
             renderers=new AssRenderersFactory(ass,renderers);
         }
-        ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new DefaultMediaSourceFactory(data,new TvExtractorsFactory(extractors)).setSubtitleParserFactory(parsers)).build();
+        ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new DefaultMediaSourceFactory(data,new TvExtractorsFactory(extractors)).setSubtitleParserFactory(new TvSubtitleParserFactory(delegate))).build();
         try{
             if(ass!=null){ass.init(player);if(subtitleView!=null)subtitleView.addView(new AssSubtitleView(context,ass));}
             return player;

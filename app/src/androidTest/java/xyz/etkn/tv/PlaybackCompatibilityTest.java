@@ -36,6 +36,41 @@ public class PlaybackCompatibilityTest {
         return output.toByteArray();
     }
     private static List<Cue> parse(SubtitleParser parser,byte[] data){List<Cue> result=new ArrayList<>();parser.parse(data,SubtitleParser.OutputOptions.allCues(),value->result.addAll(value.cues));return result;}
+    private static SubtitleOutputBuffer decode(SubtitleDecoder decoder,byte[] data,long timeUs)throws Exception{
+        long deadline=System.nanoTime()+5000000000L;SubtitleInputBuffer input;
+        while((input=decoder.dequeueInputBuffer())==null&&System.nanoTime()<deadline)Thread.sleep(1);
+        assertNotNull("PGS input buffer timeout",input);
+        input.timeUs=timeUs;input.subsampleOffsetUs=Format.OFFSET_SAMPLE_RELATIVE;
+        input.ensureSpaceForWrite(data.length);input.data.put(data);input.flip();decoder.queueInputBuffer(input);
+        SubtitleOutputBuffer output;
+        while((output=decoder.dequeueOutputBuffer())==null&&System.nanoTime()<deadline)Thread.sleep(1);
+        assertNotNull("PGS worker output timeout",output);return output;
+    }
+    @Test public void embeddedPgsUsesWorkerWhileExternalSupAndOtherFormatsKeepParsing()throws Exception{
+        SubtitleParser.Factory delegate=new DefaultSubtitleParserFactory();
+        SubtitleParser.Factory embedded=new TvSubtitleParserFactory(delegate,false),external=new TvSubtitleParserFactory(delegate);
+        Format pgs=new Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_PGS).build();
+        assertFalse(embedded.supportsFormat(pgs));assertTrue(external.supportsFormat(pgs));
+        for(String mime:new String[]{MimeTypes.TEXT_SSA,MimeTypes.APPLICATION_SUBRIP,MimeTypes.TEXT_VTT}){
+            Format format=new Format.Builder().setSampleMimeType(mime).build();
+            assertEquals(delegate.supportsFormat(format),embedded.supportsFormat(format));
+        }
+        List<CuesWithTiming> events=new ArrayList<>();external.create(pgs).parse(supSample(),SubtitleParser.OutputOptions.allCues(),events::add);
+        assertEquals(15000000,events.get(0).durationUs);assertTrue(events.get(1).cues.isEmpty());
+        SubtitleDecoder decoder=new TvSubtitleDecoderFactory().createDecoder(pgs);
+        try{
+            assertEquals("TvPgsDecoder",decoder.getName());
+            SubtitleOutputBuffer output=decode(decoder,sample(),5000000);
+            try{assertEquals(5000000,output.getEventTime(0));assertTrue(output.getCues(4999999).isEmpty());
+                assertEquals(2,output.getCues(5000000).size());assertEquals(2,output.getCues(5000000).get(0).bitmap.getWidth());
+                assertEquals(Color.rgb(235,235,235),output.getCues(5000000).get(0).bitmap.getPixel(0,0));
+            }finally{output.release();}
+            byte[] reused=join(composition(0,2),section(0x80,bytes()));
+            output=decode(decoder,reused,6000000);try{assertEquals(2,output.getCues(6000000).size());}finally{output.release();}
+            decoder.flush();
+            output=decode(decoder,reused,7000000);try{assertTrue(output.getCues(7000000).isEmpty());}finally{output.release();}
+        }finally{decoder.release();}
+    }
     @Test public void multipleObjectsArePreservedWhereStockPgsOnlyReturnsOne()throws Exception{
         Format format=new Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_PGS).build();
         assertEquals("确认旧解析器只保留一个对象",1,parse(new DefaultSubtitleParserFactory().create(format),sample()).size());

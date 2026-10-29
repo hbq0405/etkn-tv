@@ -2,6 +2,9 @@ package xyz.etkn.tv;
 
 import android.content.Context;
 import android.os.Handler;
+import android.os.Looper;
+import androidx.media3.exoplayer.text.TextOutput;
+import androidx.media3.exoplayer.text.TextRenderer;
 import androidx.media3.exoplayer.Renderer;
 import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
@@ -25,6 +28,13 @@ final class TvRenderersFactory extends DefaultRenderersFactory {
         this.softwareAudio=softwareAudio;
         setEnableDecoderFallback(true);
         setExtensionRendererMode(softwareVideo?EXTENSION_RENDERER_MODE_PREFER:EXTENSION_RENDERER_MODE_ON);
+    }
+    @SuppressWarnings("deprecation")
+    @Override protected void buildTextRenderers(Context context,TextOutput output,Looper outputLooper,
+            int mode,ArrayList<Renderer> out){
+        TextRenderer renderer=new TextRenderer(output,outputLooper,new TvSubtitleDecoderFactory());
+        renderer.experimentalSetLegacyDecodingEnabled(true);
+        out.add(renderer);
     }
     @Override protected void buildAudioRenderers(Context context,int mode,MediaCodecSelector selector,
             boolean fallback,AudioSink sink,Handler handler,AudioRendererEventListener listener,ArrayList<Renderer> out){

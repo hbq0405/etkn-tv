@@ -219,10 +219,15 @@ public final class PlayerActivity extends TvActivity {
     private void chooseTrack(int type){
         if(player==null)return;boolean subtitles=type==C.TRACK_TYPE_TEXT;List<Integer> indices=new ArrayList<>();List<String> labels=new ArrayList<>();
         indices.add(PlaybackSelection.AUTO);labels.add((subtitles?"":seasonKey==null||seasonKey.isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles));
-        if(subtitles){indices.add(-1);labels.add("关闭字幕");}
+        if(subtitles){
+            indices.add(-1);
+            boolean disabled=player.getTrackSelectionParameters().disabledTrackTypes.contains(type);
+            labels.add("关闭字幕"+(disabled?" ✓":""));
+        }
         for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){
             indices.add(stream.optInt("Index"));TrackRef ref=findTrack(stream,type);
-            labels.add((subtitles?"":"第 "+(PlaybackSelection.audioOrdinal(source,stream.optInt("Index"))+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream)+(ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持"));
+            boolean active=ref!=null&&ref.group.isTrackSelected(ref.index);
+            labels.add((subtitles?"":"第 "+(PlaybackSelection.audioOrdinal(source,stream.optInt("Index"))+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream)+(ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持")+(active?" ✓":""));
         }
         int selectedIndex=indices.indexOf(subtitles?subtitleIndex:audioIndex);
         video.setControllerShowTimeoutMs(0);
