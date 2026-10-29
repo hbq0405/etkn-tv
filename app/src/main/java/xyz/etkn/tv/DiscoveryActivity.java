@@ -16,10 +16,12 @@ public final class DiscoveryActivity extends TvActivity {
     private int page=1,totalPages=1,revision,browseRevision,cloudRevision,eraIndex;
     private boolean allowed,loadingMore,hasMore;
     private GridLayout posterGrid;
-    private TextView posterStatus,detailOverview,heroTitle,heroMeta,heroOverview;
-    private ImageView heroBackdrop,detailBackdrop;
+    private TextView posterStatus,detailOverview;
+    private ImageView detailBackdrop;
     private LinearLayout browseView;
     private View browseFocus;
+    private HorizontalScrollView menu;
+    private View previousFocus;
     private JSONObject selected,person,personPayload;
     private Integer season;
     private JSONArray seasonList;
@@ -41,7 +43,18 @@ public final class DiscoveryActivity extends TvActivity {
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
-        screen("影视探索","从 TMDb 探索影视，订阅并获取云资源");
+        // 顶部标题与导航收纳为上方向键唤出的菜单；海报墙直接顶到最上方。
+        FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);
+        screenScroll=new FocusScroll.Vertical(this);screenScroll.setFillViewport(true);screenScroll.setClipToPadding(false);
+        content=column();screenScroll.addView(content);
+        stage.addView(screenScroll,new FrameLayout.LayoutParams(-1,-1));
+        nav=row();nav.setPadding(dp(28),dp(10),dp(18),dp(10));
+        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackgroundColor(Color.argb(245,11,17,26));menu.addView(nav);menu.setVisibility(View.GONE);
+        stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(64),Gravity.TOP));
+        status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
+        FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);
+        stage.addView(status,notice);
+        setContentView(stage);
         status.setText("正在检查访问权限…");
         screenScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{
             if(browseView!=null&&posterGrid!=null&&hasMore&&!loadingMore&&screenScroll.getChildAt(0)!=null&&y+screenScroll.getHeight()>=screenScroll.getChildAt(0).getHeight()-dp(420))loadPage(page+1);
@@ -58,12 +71,30 @@ public final class DiscoveryActivity extends TvActivity {
     }
     private void navigation(){
         nav.removeAllViews();
-        nav("返回",this::finish);
+        TextView brand=text("影视探索",14,ACCENT);brand.setPadding(dp(18),0,dp(18),0);
+        LinearLayout.LayoutParams brandBounds=new LinearLayout.LayoutParams(-2,dp(44));brandBounds.setMargins(0,dp(6),dp(6),0);
+        nav.addView(brand,brandBounds);
         nav("电影",()->switchKind("movie"));
         nav("剧集",()->switchKind("series"));
         nav("搜索",this::searchMedia);
         nav("筛选",this::openFilters);
         nav("重置",this::resetFilters);
+    }
+    @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
+    private void showMenu(){
+        previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);
+        for(int i=0;i<nav.getChildCount();i++){View child=nav.getChildAt(i);if(child.isFocusable()){child.requestFocus();break;}}
+    }
+    private void hideMenu(){menu.setVisibility(View.GONE);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
+        if(event.getAction()==android.view.KeyEvent.ACTION_DOWN){
+            if(event.getKeyCode()==android.view.KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()!=View.VISIBLE){
+                View focused=getCurrentFocus();
+                if(focused==null||focused.focusSearch(View.FOCUS_UP)==null){showMenu();return true;}
+            }
+            if(event.getKeyCode()==android.view.KeyEvent.KEYCODE_DPAD_DOWN&&menu.getVisibility()==View.VISIBLE){hideMenu();return true;}
+        }
+        return super.dispatchKeyEvent(event);
     }
     private void switchKind(String target){
         if(kind.equals(target))return;
@@ -84,17 +115,6 @@ public final class DiscoveryActivity extends TvActivity {
     }
     private void buildBrowseView(){
         browseView=column();
-        FrameLayout hero=new FrameLayout(this);
-        heroBackdrop=new ImageView(this);heroBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        hero.addView(heroBackdrop,new FrameLayout.LayoutParams(-1,-1));
-        hero.addView(backdropShade(),new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout copy=column();copy.setPadding(dp(24),0,dp(24),dp(10));
-        heroTitle=text("",20,Color.WHITE);heroTitle.setTypeface(null,Typeface.BOLD);heroTitle.setMaxLines(1);heroTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        heroMeta=text("",12,Color.rgb(207,222,231));heroMeta.setMaxLines(1);heroMeta.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        heroOverview=text("",11,Color.rgb(226,232,238));heroOverview.setMaxLines(2);heroOverview.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        copy.addView(heroTitle);copy.addView(heroMeta);copy.addView(heroOverview);
-        hero.addView(copy,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
-        browseView.addView(hero,new LinearLayout.LayoutParams(-1,dp(190)));
         posterGrid=new GridLayout(this);
         posterGrid.setColumnCount(Math.max(3,(getResources().getConfiguration().screenWidthDp-72)/144));
         posterGrid.setClipChildren(false);posterGrid.setClipToPadding(false);
@@ -103,25 +123,6 @@ public final class DiscoveryActivity extends TvActivity {
         browseView.addView(posterGrid,gridBounds);
         posterStatus=text("",13,MUTED);posterStatus.setGravity(Gravity.CENTER);
         browseView.addView(posterStatus,new LinearLayout.LayoutParams(-1,dp(36)));
-    }
-    private void showHero(JSONObject item){
-        if(item==null){heroBackdrop.setImageDrawable(null);heroTitle.setText("");heroMeta.setText("");heroOverview.setText("");return;}
-        heroTitle.setText(EtknApi.title(item));
-        heroMeta.setText(heroMetaLine(item));
-        heroOverview.setText(item.optString("overview"));
-        String image=EtknApi.tmdbImage(item.optString("backdrop_path"),"w780");
-        if(image.isEmpty())image=EtknApi.tmdbImage(item.optString("poster_path"),"w780");
-        heroBackdrop.setImageDrawable(null);
-        if(!image.isEmpty())Images.backdrop(api,image,heroBackdrop,success->{});
-    }
-    private String heroMetaLine(JSONObject item){
-        List<String> parts=new ArrayList<>();
-        String year=yearOf(item);if(!year.isEmpty())parts.add(year);
-        double vote=item.optDouble("vote_average",0);
-        if(vote>0)parts.add("★ "+String.format(Locale.ROOT,"%.1f",vote));
-        String ribbon=statusLabel(item);if(ribbon!=null)parts.add(ribbon);
-        String genres=genreNames(item);if(!genres.isEmpty())parts.add(genres);
-        return String.join("  ·  ",parts);
     }
     private String genreNames(JSONObject item){
         JSONArray ids=item.optJSONArray("genre_ids");JSONObject options=optionsCache.get(kind);
@@ -162,7 +163,7 @@ public final class DiscoveryActivity extends TvActivity {
         card.setOnFocusChangeListener((view,hasFocus)->{
             card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);
             artwork.setForeground(hasFocus?focusOutline():null);
-            if(hasFocus){browseFocus=card;showHero(item);}
+            if(hasFocus)browseFocus=card;
         });
         return card;
     }
@@ -193,7 +194,7 @@ public final class DiscoveryActivity extends TvActivity {
         if(append)loadingMore=true;
         int request=++browseRevision;
         if(!append){
-            posterGrid.removeAllViews();ribbons.clear();artworks.clear();ribbonItems.clear();showHero(null);
+            posterGrid.removeAllViews();ribbons.clear();artworks.clear();ribbonItems.clear();
             posterStatus.setText("正在探索…");
         }else posterStatus.setText("正在加载更多…");
         async(()->{try{return api.post("/api/tv/discover/query/"+kind,queryPayload(target));}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{
@@ -241,7 +242,6 @@ public final class DiscoveryActivity extends TvActivity {
         back.push(()->showDetail(item,fromSeason));
         showCloud();
     }
-    private void goBack(){if(!back.isEmpty())back.pop().run();}
     private void showDetail(JSONObject item,Integer seasonNumber){
         selected=item;season=seasonNumber;++revision;
         content.removeAllViews();
@@ -289,7 +289,6 @@ public final class DiscoveryActivity extends TvActivity {
         actions.addView(button("搜索云资源",this::enterCloud));
         if(item.optBoolean("in_library")&&!item.optString("media_item_id").isEmpty())actions.addView(button("在片库中观看",()->openLibrary(item)));
         if(series&&seasonNumber==null)actions.addView(button("订阅全部缺失季",this::subscribeAllSeasons));
-        actions.addView(button("返回",this::goBack));
         content.addView(actions);
         View first=actions.getChildAt(0);if(first!=null)first.requestFocus();
         if(series){
@@ -546,7 +545,6 @@ public final class DiscoveryActivity extends TvActivity {
         async(()->api.get(api.userPath()+"/Items?Recursive=true&IncludeItemTypes=Movie,Series&Limit=60&Fields=ProviderIds&SearchTerm="+EtknApi.encode(EtknApi.title(item))),result->{
             if(request!=revision)return;
             content.removeAllViews();
-            content.addView(button("返回",this::goBack));
             GridLayout grid=new GridLayout(this);
             grid.setColumnCount(Math.max(3,(getResources().getConfiguration().screenWidthDp-72)/144));
             content.addView(grid);
@@ -566,7 +564,6 @@ public final class DiscoveryActivity extends TvActivity {
         final JSONObject item=selected;final Integer wantedSeason=season;
         if(item==null)return;
         content.removeAllViews();detailBackdrop=null;detailOverview=null;
-        content.addView(button("返回影片",this::goBack));
         content.addView(text(EtknApi.title(item)+(wantedSeason==null?"":" · 第 "+wantedSeason+" 季"),24,Color.WHITE));
         status.setText("正在搜索共享池、re0 和频道…");
         String tmdb=EtknApi.encode(item.optString("id")),title=EtknApi.encode(EtknApi.title(item)),type=mediaTypeOf(item,kind);
@@ -795,7 +792,11 @@ public final class DiscoveryActivity extends TvActivity {
         new AlertDialog.Builder(this).setTitle("搜索影视").setView(search).setPositiveButton("搜索",(dialog,which)->{query=search.getText().toString().trim();browse();}).setNegativeButton("取消",null).show();
     }
 
-    @Override public void onBackPressed(){if(!back.isEmpty()){back.pop().run();return;}super.onBackPressed();}
+    @Override public void onBackPressed(){
+        if(menu.getVisibility()==View.VISIBLE){hideMenu();return;}
+        if(!back.isEmpty()){back.pop().run();return;}
+        super.onBackPressed();
+    }
 
     // ---------- 纯展示助手（实现见 DiscoveryPresentation，可离线测试） ----------
     static String yearOf(JSONObject item){return DiscoveryPresentation.yearOf(item);}
