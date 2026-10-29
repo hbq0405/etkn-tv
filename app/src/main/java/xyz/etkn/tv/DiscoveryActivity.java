@@ -57,7 +57,7 @@ public final class DiscoveryActivity extends TvActivity {
         setContentView(stage);
         status.setText("正在检查访问权限…");
         screenScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{
-            if(browseView!=null&&posterGrid!=null&&hasMore&&!loadingMore&&screenScroll.getChildAt(0)!=null&&y+screenScroll.getHeight()>=screenScroll.getChildAt(0).getHeight()-dp(420))loadPage(page+1);
+            if(browseView!=null&&browseView.getParent()!=null&&posterGrid!=null&&hasMore&&!loadingMore&&screenScroll.getChildAt(0)!=null&&y+screenScroll.getHeight()>=screenScroll.getChildAt(0).getHeight()-dp(420))loadPage(page+1);
         });
     }
     @Override protected void onResume(){
@@ -138,6 +138,14 @@ public final class DiscoveryActivity extends TvActivity {
         FrameLayout artwork=new FrameLayout(this);
         ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));
         artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        // 网页版样式：片名与年份压在海报底部渐变区，不再占用卡片下方空间。
+        android.graphics.drawable.GradientDrawable fade=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(70,0,0,0),Color.argb(225,0,0,0)});
+        LinearLayout caption=column();caption.setBackground(fade);caption.setPadding(dp(6),dp(24),dp(6),dp(4));
+        TextView title=text(EtknApi.title(item),13,Color.WHITE);title.setTypeface(null,Typeface.BOLD);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setShadowLayer(3,0,1,Color.BLACK);title.setPadding(0,0,0,0);
+        caption.addView(title,new LinearLayout.LayoutParams(-1,dp(20)));
+        TextView year=text(yearOf(item),11,Color.rgb(207,222,231));year.setMaxLines(1);year.setShadowLayer(3,0,1,Color.BLACK);year.setPadding(0,0,0,0);
+        caption.addView(year,new LinearLayout.LayoutParams(-1,dp(16)));
+        artwork.addView(caption,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
         card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(198)));
         double vote=item.optDouble("vote_average",0);
         if(vote>0){
@@ -152,13 +160,10 @@ public final class DiscoveryActivity extends TvActivity {
             artwork.addView(tag,bounds);ribbons.put(id,tag);
         }
         if(!id.isEmpty()){artworks.put(id,artwork);ribbonItems.put(id,item);}
-        TextView title=text(EtknApi.title(item),14,Color.WHITE);title.setGravity(Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);
-        card.addView(title,new LinearLayout.LayoutParams(-1,dp(25)));
-        TextView year=text(yearOf(item),12,MUTED);year.setGravity(Gravity.CENTER);
-        card.addView(year,new LinearLayout.LayoutParams(-1,dp(20)));
-        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(132);layout.height=dp(255);layout.setMargins(dp(6),dp(6),dp(6),dp(6));
+        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(132);layout.height=dp(198);layout.setMargins(dp(6),dp(10),dp(6),dp(10));
         grid.addView(card,layout);
-        String image=EtknApi.tmdbImage(item.optString("poster_path"),"w342");
+        // 墙内卡片用 w185：无限滚动累积的解码位图约为 w342 的三分之一，避免长刷 OOM。
+        String image=EtknApi.tmdbImage(item.optString("poster_path"),"w185");
         if(image.isEmpty())poster.setBackgroundColor(PANEL);else Images.visible(api,image,poster,success->{});
         card.setOnFocusChangeListener((view,hasFocus)->{
             card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);
@@ -773,8 +778,10 @@ public final class DiscoveryActivity extends TvActivity {
         String current=ratingIndex==null?"":String.valueOf(ratingIndex);
         new AlertDialog.Builder(this).setTitle("分级").setSingleChoiceItems(labels.toArray(new String[0]),values.indexOf(current),(dialog,which)->{
             dialog.dismiss();
-            ratingIndex=which==0?null:Integer.valueOf(values.get(which).trim());
-            ratingLabel=which==0?"":labels.get(which);
+            Integer parsed=null;
+            String raw=values.get(which).trim();
+            if(raw.matches("\\d+"))parsed=Integer.valueOf(raw);
+            ratingIndex=parsed;ratingLabel=which==0?"":labels.get(which);
             browse();
         }).setNegativeButton("取消",null).show();
     }

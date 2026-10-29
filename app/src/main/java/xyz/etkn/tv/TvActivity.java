@@ -23,7 +23,7 @@ abstract class TvActivity extends Activity {
     ScrollView screenScroll;
     EtknApi api;
     int dp(float value) { return Math.round(getResources().getDisplayMetrics().density*value); }
-    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); }
+    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
     private final android.os.Handler noticeTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable noticePoll=new Runnable(){@Override public void run(){IngestNotifications.check(TvActivity.this);noticeTimer.postDelayed(this,60000);}};
     @Override protected void onResume(){super.onResume();IngestNotifications.resumed(this);noticeTimer.post(noticePoll);}
