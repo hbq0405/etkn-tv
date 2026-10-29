@@ -20,4 +20,6 @@ final class TvPreferences {
     void saveSeasonAudio(String season,int ordinal){if(season==null||season.isEmpty())return;SharedPreferences.Editor edit=prefs.edit();String key=scope+"season-audio/"+season;if(ordinal<0)edit.remove(key);else edit.putInt(key,ordinal);edit.apply();}
     String[] librarySort(String id){return new String[]{prefs.getString(scope+id+"/sort","SortName"),prefs.getString(scope+id+"/order","Ascending")};}
     void saveLibrarySort(String id,String field,String direction){prefs.edit().putString(scope+id+"/sort",field).putString(scope+id+"/order",direction).apply();}
+    boolean smartCarousel(){return prefs.getBoolean(scope+"smart-carousel",false);}
+    void setSmartCarousel(boolean on){prefs.edit().putBoolean(scope+"smart-carousel",on).apply();}
 }

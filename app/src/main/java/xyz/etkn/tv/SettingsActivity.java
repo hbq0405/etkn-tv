@@ -53,7 +53,10 @@ public final class SettingsActivity extends TvActivity {
             playback.addView(note("音轨与字幕和个人中心同步：个人配置覆盖全局，未配置时跟随全局；按添加顺序确定优先级。"));
             playback.addView(note("片头片尾仅对有片头片尾标记的影片生效，保存到此电视当前账号。"));
             LinearLayout notices=section("通知");
-            notices.addView(switchRow("我的订阅 / 追更入库通知","只提醒本账号订阅内容的入库与更新。后台检查受电视系统调度影响。"));
+            notices.addView(switchRow("我的订阅 / 追更入库通知","只提醒本账号订阅内容的入库与更新。后台检查受电视系统调度影响。",IngestNotifications.enabled(this),on->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);}));
+            TvPreferences preferences=new TvPreferences(this,api);
+            LinearLayout home=section("首页");
+            home.addView(switchRow("智能推荐轮播","首页背景按你的观影口味自动轮播推荐，不再跟随焦点联动。保存到此电视当前账号。",preferences.smartCarousel(),on->preferences.setSmartCarousel(on)));
         }
         LinearLayout app=section("应用");
         Button update=settingRow(Color.WHITE);update.setText(rowText("检查更新","当前版本 "+BuildConfig.VERSION_NAME));update.setOnClickListener(view->checkUpdate());app.addView(update);
@@ -93,9 +96,9 @@ public final class SettingsActivity extends TvActivity {
         return builder;
     }
     /** 整行可聚焦的开关行：左标题副文本、右 Switch，确认键切换。 */
-    private LinearLayout switchRow(String title,String summary){
-        final Switch toggle=new Switch(this);toggle.setChecked(IngestNotifications.enabled(this));
-        toggle.setOnCheckedChangeListener((button,on)->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);});
+    private LinearLayout switchRow(String title,String summary,boolean checked,java.util.function.Consumer<Boolean> onChange){
+        final Switch toggle=new Switch(this);toggle.setChecked(checked);
+        toggle.setOnCheckedChangeListener((button,on)->onChange.accept(on));
         LinearLayout line=row();line.setFocusable(true);line.setClickable(true);line.setBackground(focusBackground());line.setPadding(dp(18),dp(12),dp(20),dp(12));
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,-2);layout.setMargins(0,0,0,dp(10));line.setLayoutParams(layout);
         LinearLayout label=column();
