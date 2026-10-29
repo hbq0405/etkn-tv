@@ -52,7 +52,7 @@ public class DetailFlowTest {
     private void cleanup(){closePlayer();if(detail!=null){onMain(()->detail.finish());detail=null;}new SessionStore(instrumentation.getTargetContext()).clear();}
     private void screenshot(String name)throws Exception{File dir=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"detail-regression");assertTrue(dir.isDirectory()||dir.mkdirs());Bitmap image=instrumentation.getUiAutomation().takeScreenshot();try(FileOutputStream stream=new FileOutputStream(new File(dir,name))){image.compress(Bitmap.CompressFormat.PNG,100,stream);}image.recycle();}
 
-    @Test public void playbackUsesEntireViewportAndDownOpensControls()throws Exception{
+    @Test public void playbackUsesEntireViewportHasNoCenterControlsAndConfirmTogglesPlayback()throws Exception{
         try(Fixture server=new Fixture()){
             open(server,"movie-single");play();
             onMain(()->{
@@ -61,14 +61,15 @@ public class DetailFlowTest {
                 assertEquals("视频必须占满视口高度",decor.getHeight(),video.getHeight());
                 assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());
             });
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();
+            onMain(()->{assertTrue(((ExoPlayer)field(playback,"player")).getPlayWhenReady());assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();
+            onMain(()->{assertFalse(((ExoPlayer)field(playback,"player")).getPlayWhenReady());assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());});
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
             onMain(()->assertEquals(View.VISIBLE,((View)field(playback,"controls")).getVisibility()));
             onMain(()->{
-                Set<View> reachable=new HashSet<>();ArrayDeque<View> pending=new ArrayDeque<>();pending.add(playback.getCurrentFocus());
-                while(!pending.isEmpty()){View current=pending.remove();if(!reachable.add(current))continue;for(int direction:new int[]{View.FOCUS_UP,View.FOCUS_DOWN,View.FOCUS_LEFT,View.FOCUS_RIGHT}){View next=current.focusSearch(direction);if(next!=null&&!reachable.contains(next))pending.add(next);}}
                 View video=(View)field(playback,"video");
-                for(int id:new int[]{androidx.media3.ui.R.id.exo_prev,androidx.media3.ui.R.id.exo_next,androidx.media3.ui.R.id.exo_rew_with_amount,androidx.media3.ui.R.id.exo_ffwd_with_amount})assertFalse("中间四键必须隐藏",video.findViewById(id).isShown());
-                View pause=video.findViewById(androidx.media3.ui.R.id.exo_play_pause);assertTrue(pause.isShown());assertTrue(pause.isEnabled());assertTrue("播放暂停必须可通过方向键到达",reachable.contains(pause));
+                for(int id:new int[]{androidx.media3.ui.R.id.exo_center_controls,androidx.media3.ui.R.id.exo_play_pause,androidx.media3.ui.R.id.exo_prev,androidx.media3.ui.R.id.exo_next,androidx.media3.ui.R.id.exo_rew_with_amount,androidx.media3.ui.R.id.exo_ffwd_with_amount})assertNull("整组中间控件必须从视图中移除",video.findViewById(id));
                 assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());
             });
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
@@ -82,8 +83,6 @@ public class DetailFlowTest {
         PlayerActivity previous=playback;
         if(((View)field(playback,"controls")).getVisibility()==View.VISIBLE){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();}
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
-        assertSame(field(playback,"audioButton"),playback.getCurrentFocus());
-        for(int i=0;i<3;i++){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();}
         assertSame(field(playback,"nextButton"),playback.getCurrentFocus());screenshot("next-episode-controls.png");
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
         playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
@@ -100,6 +99,20 @@ public class DetailFlowTest {
             await(()->server.stopped.stream().anyMatch(event->"episode-1-2".equals(event.optString("ItemId"))));
             JSONObject stopped=server.stopped.stream().filter(event->"episode-1-2".equals(event.optString("ItemId"))).findFirst().get();assertTrue("切集必须保存旧集播放进度",stopped.optLong("PositionTicks")>=10000000);
             assertEquals(1,new TvPreferences(playback,playback.api).seasonAudio("season-1"));
+        }finally{cleanup();}
+    }
+    @Test public void delayedNextEpisodeDefaultsFocusUnlessUserAlreadyNavigated()throws Exception{
+        try(Fixture server=new Fixture()){
+            open(server,"episode-1-2");
+            for(boolean navigate:new boolean[]{false,true}){
+                server.nextRequested=new java.util.concurrent.CountDownLatch(1);server.nextGate=new java.util.concurrent.CountDownLatch(1);play();
+                assertTrue(server.nextRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertSame(field(playback,"audioButton"),playback.getCurrentFocus());
+                if(navigate){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT);settle();}
+                View selected=playback.getCurrentFocus();server.nextGate.countDown();
+                await(()->((View)field(playback,"nextButton")).getVisibility()==View.VISIBLE);settle();
+                assertSame(navigate?selected:field(playback,"nextButton"),playback.getCurrentFocus());closePlayer();
+            }
         }finally{cleanup();}
     }
     @Test public void nextEpisodeCrossesSeasonAndUsesTargetSeasonLockThenHidesAtSeriesEnd()throws Exception{
@@ -126,6 +139,7 @@ public class DetailFlowTest {
             await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);settle();
             assertEquals("series-one",playback.getIntent().getStringExtra("seriesId"));
             onMain(()->{assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());assertEquals(View.GONE,playback.status.getVisibility());assertNull(((ExoPlayer)field(playback,"player")).getPlayerError());});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertSame(field(playback,"audioButton"),playback.getCurrentFocus());
         }finally{cleanup();}
     }
 
@@ -403,6 +417,7 @@ public class DetailFlowTest {
         final byte[] image,media;
         final List<String> imagePaths=Collections.synchronizedList(new ArrayList<>());
         final List<JSONObject> stopped=Collections.synchronizedList(new ArrayList<>());
+        volatile java.util.concurrent.CountDownLatch nextRequested,nextGate;
         volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress,failNext;volatile int audioOffset;volatile String unexpectedPath;volatile int reports;
         final boolean codecMedia;
         final JSONObject personal=new JSONObject();
@@ -431,6 +446,7 @@ public class DetailFlowTest {
         }
         JSONObject base(String id,String type)throws Exception{return new JSONObject().put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演")));}
         JSONObject response(String path)throws Exception{
+            if(path.contains("/Episodes")&&!path.contains("Fields=")&&nextGate!=null){nextRequested.countDown();if(!nextGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic next-episode gate timed out");}
             if(path.contains("/Sessions/")){reports++;return new JSONObject();}
             if(path.contains("/PlaybackPreferences"))return new JSONObject().put("preferences",new JSONObject(personal.toString())).put("global_preferences",new JSONObject().put("audio_lang_priority",new JSONArray().put("chi").put("original").put("eng")).put("subtitle_priority",new JSONArray().put("effect").put("chs")));
             if(path.contains("/Similar"))return new JSONObject().put("Items",new JSONArray().put(base("movie-similar","Movie"))).put("TotalRecordCount",1);

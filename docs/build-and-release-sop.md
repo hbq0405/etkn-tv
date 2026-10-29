@@ -6,6 +6,7 @@
 - Media3 非稳定接口在调用类显式 OptIn，固定依赖版本并跑 Lint，不通过关闭错误来放行。
 - 补丁首次失败先检查 diff 确认无部分写入，再用锚点唯一的确定性文本替换。不得连换 heredoc/管道/编码尝试。
 - `apply_patch` 头必须为 `*** Update File: 路径`（冒号后有空格）。本轮格式校验失败前没有写入，核对 diff 只有此前诊断测试后，修正头格式即成功；不把补丁解析失败当作源码编译失败。
+- 多文件补丁任一锚点不匹配时先检查所有目标 diff。本轮文档锚点遗漏句首导致整份补丁未写入，源码中也没有待加焦点字段；核对实际行后重发完整锚点成功。不要假设前面文件已写入或盲目重复叠加。
 - 发行前运行单元测试、Lint、assembleRelease；核验 API 24、包名、递增版本和固定签名。
 - 发行私钥与密码只存 `.private/` 或指定私有目录，限制目录 ACL。不得输出密码、提交私钥或将凭据放入 Release。
 - Windows 新启动的 Gradle 终端如果未设置 `ETKN_TV_SIGNING_PROPERTIES`，单独运行 `assembleRelease` 仍可能成功，但只生成 `app-release-unsigned.apk`。先检查实际产物；设置签名配置后使用 `scripts/Build-Release.ps1`，并确认 `apksigner` 通过。v0.1.3 已验证该流程生成签名包且证书与此前发行版一致；Gradle 成功本身不代表 APK 已签名。
@@ -79,8 +80,9 @@
 - detail-tracks.mkv 是无 Cues/SeekHead 的简化音轨素材，重建时请求 5.3 秒但会从 0 开始。已检查二进制确认无索引；恢复位置验收使用带索引的 player-codecs.mkv，并先断言 isCurrentMediaItemSeekable。不要通过放宽位置断言掩盖测试素材限制。
 - adb shell am instrument 的进程返回码不能单独说明 JUnit 通过；曾返回 0 但正文有 FAILURES。检查最终 OK、失败/跳过状态；VC-1 私有素材缺失按 assumption 跳过，单独记录，不宣称已实播。
 - Media3 1.8.0 的 ExoPlaybackException 没有 rendererType 字段，先核对固定版本 API，使用 rendererFormat MIME 与 rendererName 判断轨道；首次编译失败未生成新版 APK。PGS 像素 Y=235/Cr=Cb=128 按现用转换输出 RGB235，单测不得误期望 RGB255。
-- 文件读取前先用 rg --files/命中位置核对真实类名。许可入口实际在 SettingsActivity，读取不存在的 LicensesActivity 失败未改源码；已确认 getAssets().list("licenses") 自动列出新增 NOTICE。目录搜索禁止 docs\\*.md 路径通配符；本轮误用后核实未写入，改用 rg 关键词 docs -g '*.md' 完成检索。
+- 文件读取前先用 rg --files/命中位置核对真实类名。许可入口实际在 SettingsActivity，读取不存在的 LicensesActivity 失败未改源码；已确认 getAssets().list("licenses") 自动列出新增 NOTICE。目录搜索禁止 docs\\*.md 路径通配符；本轮误用后核实未写入，改用 rg 关键词 docs -g '*.md' 完成检索。v0.1.16 的交付记录尚未生成时读取失败，前面的仓库状态和通知运行列表读取已成功，未发生写入；用 rg --files 核实交付目录后，按最终发布证据新建记录，不将计划中的文件当作已存在。
 - 文件读写使用绝对路径或先核对 `workdir`。本轮仓库没有 `release-notes/`，发行说明沿用聊天交付目录；误从仓库读聊天 `work/tv-controls/` 也只产生路径不存在错误，未写入。已检查真实目录后使用聊天绝对路径成功读取，不能混用两个工作区的相对路径。
+- 调用 Gradle 也必须显式仓库 `workdir`。本轮在聊天目录调用 `gradlew.bat` 未找到命令，只复制了本轮测试日志、未启动构建或安装；确认日志和真实 Wrapper 路径后，在仓库目录重跑成功。不得借错误目录里的 `$LASTEXITCODE` 判断 Gradle 已执行。
 - 4K 色条的画面检查曾在中央三分之一裁区误报“单色”：实际采到 13 色、RGB 范围 0/23/231，失败截图有完整色条和 ASS，红色色条在裁区外。保留亮度、颜色数、各通道范围与非纯绿门槛，改为横跨色条的居中宽区域采样；断言输出具体范围，先存截图再断言。不得仅凭单次像素失败改动 JNI 或直接删除检查。
 
 ## 首页缓存、分集状态与焦点验证

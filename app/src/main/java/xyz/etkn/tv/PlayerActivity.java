@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.net.Uri;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.*;
@@ -43,7 +44,7 @@ public final class PlayerActivity extends TvActivity {
     private TextView videoInfo;
     private int skipMode;
     private long skipTarget=-1;
-    private boolean seekKeys;
+    private boolean seekKeys,focusNextWhenLoaded;
     private int audioIndex=PlaybackSelection.AUTO,subtitleIndex=PlaybackSelection.AUTO;
     private final Handler timer=new Handler(Looper.getMainLooper());
     private final Runnable seekProgressHide=this::hideSeekProgress;
@@ -73,7 +74,7 @@ public final class PlayerActivity extends TvActivity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
         video=new PlayerView(this);video.setUseController(true);video.setControllerAutoShow(false);video.setControllerShowTimeoutMs(5000);video.setKeepContentOnPlayerReset(true);video.setShowSubtitleButton(false);video.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
-        video.setShowPreviousButton(false);video.setShowNextButton(false);video.setShowRewindButton(false);video.setShowFastForwardButton(false);
+        View centerControls=video.findViewById(androidx.media3.ui.R.id.exo_center_controls);((ViewGroup)centerControls.getParent()).removeView(centerControls);
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
         seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.BOTTOM);seekLayout.setMargins(dp(28),0,dp(28),dp(28));stage.addView(seekProgress,seekLayout);
@@ -86,7 +87,7 @@ public final class PlayerActivity extends TvActivity {
         nextButton=button("下一集",this::playNextEpisode);nextButton.setVisibility(View.GONE);actions.addView(nextButton);
         HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=dp(96);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
-        video.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{controls.setVisibility(visibility);if(visibility!=View.VISIBLE)video.requestFocus();});
+        video.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{controls.setVisibility(visibility);if(visibility!=View.VISIBLE){focusNextWhenLoaded=false;video.requestFocus();}});
         skipButton=button("跳过片头",this::skipSegment);skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
         status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
         setContentView(stage);video.hideController();video.requestFocus();
@@ -107,7 +108,7 @@ public final class PlayerActivity extends TvActivity {
             try{return PlaybackSelection.nextEpisode(EtknApi.rows(api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())+"&IsMissing=false")),itemId);}
             catch(EtknApi.AuthException error){throw error;}
             catch(Exception ignored){return null;}
-        },episode->{nextEpisode=episode;nextButton.setVisibility(episode==null?View.GONE:View.VISIBLE);});
+        },episode->{nextEpisode=episode;nextButton.setVisibility(episode==null?View.GONE:View.VISIBLE);if(episode!=null&&focusNextWhenLoaded&&controls.getVisibility()==View.VISIBLE)nextButton.requestFocus();focusNextWhenLoaded=false;});
     }
     private void playNextEpisode(){
         if(nextEpisode==null||isFinishing())return;
@@ -246,7 +247,7 @@ public final class PlayerActivity extends TvActivity {
         timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgressUpdate.run();timer.postDelayed(seekProgressHide,5000);video.requestFocus();
     }
     private void hideSeekProgress(){seekKeys=false;timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgress.setVisibility(View.GONE);}
-    private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);}
+    private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);focusNextWhenLoaded=nextEpisode==null;(nextEpisode==null?audioButton:nextButton).requestFocus();}
     private void chooseDecoder(){
         if(player==null)return;video.setControllerShowTimeoutMs(0);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("视频解码").setSingleChoiceItems(new String[]{"自动：硬解优先，失败回退","软件兼容：高分辨率可能较慢"},softwareVideo?1:0,(choice,index)->{if(softwareVideo!=(index==1)){stopPlayer();softwareVideo=index==1;startSource();}choice.dismiss();}).setNegativeButton("取消",null).create();
@@ -265,18 +266,19 @@ public final class PlayerActivity extends TvActivity {
     @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("softwareAudio",softwareAudio);state.putBoolean("enhancedSubtitles",enhancedSubtitles);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
+        if(down)focusNextWhenLoaded=false;
         if(key==KeyEvent.KEYCODE_BACK&&(controls.getVisibility()==View.VISIBLE||seekKeys)){if(down){hideSeekProgress();video.hideController();video.requestFocus();}return true;}
         if(key==KeyEvent.KEYCODE_MENU){if(down)chooseTrack(C.TRACK_TYPE_TEXT);return true;}
         boolean mediaSeek=key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD||key==KeyEvent.KEYCODE_MEDIA_REWIND;
         if((key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT||mediaSeek)&&video!=null&&(mediaSeek||!video.isControllerFullyVisible()||seekKeys)){
             if(down&&player!=null){long end=player.getDuration();long target=Math.max(0,player.getCurrentPosition()+(key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD?10000:-10000));player.seekTo(end>0?Math.min(target,end):target);showSeekProgress();}return true;
         }
-        if(key==KeyEvent.KEYCODE_DPAD_DOWN&&seekKeys){if(down){seekKeys=false;showControls();audioButton.requestFocus();}return true;}
+        if(key==KeyEvent.KEYCODE_DPAD_DOWN&&seekKeys){if(down){seekKeys=false;showControls();}return true;}
         if((key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER)&&video!=null&&(!video.isControllerFullyVisible()||seekKeys)){
             if(down&&event.getRepeatCount()==0&&player!=null){if(skipButton.getVisibility()==View.VISIBLE&&skipTarget>=0)skipSegment();else if(player.getPlayWhenReady())player.pause();else player.play();}return true;
         }
         if(video!=null&&!video.isControllerFullyVisible()){
-            if(key==KeyEvent.KEYCODE_DPAD_DOWN){if(down){showControls();audioButton.requestFocus();}return true;}
+            if(key==KeyEvent.KEYCODE_DPAD_DOWN){if(down)showControls();return true;}
             if(key==KeyEvent.KEYCODE_DPAD_UP)return true;
         }
         return video!=null&&video.dispatchMediaKeyEvent(event)||super.dispatchKeyEvent(event);
