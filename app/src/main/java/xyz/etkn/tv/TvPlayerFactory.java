@@ -36,7 +36,7 @@ final class TvPlayerFactory {
         // Authentication stays in same-origin media URIs; never attach ETKN headers to CDN requests.
         DefaultDataSource.Factory data=new DefaultDataSource.Factory(context,new OkHttpDataSource.Factory(HTTP).setUserAgent(EtknApi.USER_AGENT));
         ActivityManager memory=(ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE);
-        int bufferMb=memory!=null&&memory.isLowRamDevice()?32:64;
+        int bufferMb=memory!=null&&memory.isLowRamDevice()?128:256;
         ExoPlayer.Builder builder=new ExoPlayer.Builder(context).setLoadControl(new DefaultLoadControl.Builder()
             .setBufferDurationsMs(50000,120000,2000,5000).setPrioritizeTimeOverSizeThresholds(false)
             .setBackBuffer(12000,false).setTargetBufferBytes(bufferMb*1024*1024).build());
