@@ -23,6 +23,7 @@ import java.util.concurrent.Executors;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class PlayerActivity extends TvActivity {
+    private static final int BUFFERED=android.graphics.Color.rgb(90,178,230),BAR_IDLE=android.graphics.Color.rgb(72,82,92);
     private ExoPlayer player;
     private PlayerView video;
     private DefaultTimeBar seekProgress;
@@ -75,6 +76,8 @@ public final class PlayerActivity extends TvActivity {
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
         video=new PlayerView(this);video.setUseController(true);video.setControllerAutoShow(false);video.setControllerShowTimeoutMs(5000);video.setKeepContentOnPlayerReset(true);video.setShowSubtitleButton(false);video.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
         View centerControls=video.findViewById(androidx.media3.ui.R.id.exo_center_controls);((ViewGroup)centerControls.getParent()).removeView(centerControls);
+        DefaultTimeBar controllerTimeBar=video.findViewById(androidx.media3.ui.R.id.exo_progress);
+        if(controllerTimeBar!=null){controllerTimeBar.setPlayedColor(ACCENT);controllerTimeBar.setScrubberColor(ACCENT);controllerTimeBar.setBufferedColor(BUFFERED);controllerTimeBar.setUnplayedColor(BAR_IDLE);}
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
         seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.BOTTOM);seekLayout.setMargins(dp(28),0,dp(28),dp(28));stage.addView(seekProgress,seekLayout);
