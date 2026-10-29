@@ -73,15 +73,40 @@ public class DetailFlowTest {
                 assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());
             });
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
-            assertFalse(playback.isFinishing());
-            onMain(()->assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility()));
+            assertTrue("控制栏显示时也必须一次返回退出播放",playback.isFinishing());
+            await(()->field(playback,"player")==null&&server.stopped.size()==1&&detail.hasWindowFocus());
+        }finally{cleanup();}
+    }
+
+    @Test public void backExitsPlaybackImmediatelyAndReportsCurrentPosition()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
+            for(boolean seeking:new boolean[]{false,true}){
+                int stoppedBefore=server.stopped.size();play();
+                onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).isCurrentMediaItemSeekable()));
+                if(seeking){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();}
+                else onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(4000);player.play();});
+                await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.getCurrentPosition()>=1000&&(seeking||player.isPlaying());});
+                long[] position={0};onMain(()->{
+                    assertEquals(seeking,((View)field(playback,"seekProgress")).isShown());
+                    assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());
+                    position[0]=((ExoPlayer)field(playback,"player")).getCurrentPosition();
+                });
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
+                assertTrue("播放中或快进后都必须一次返回退出",playback.isFinishing());
+                await(()->field(playback,"player")==null&&server.stopped.size()==stoppedBefore+1&&detail.hasWindowFocus());
+                JSONObject stopped=server.stopped.get(stoppedBefore);
+                assertEquals("movie-single",stopped.getString("ItemId"));assertTrue(stopped.getLong("PositionTicks")>=position[0]*10000);
+                if(seeking)assertEquals(position[0]*10000,stopped.getLong("PositionTicks"));
+                closePlayer();
+            }
         }finally{cleanup();}
     }
 
     private void nextByRemote()throws Exception{
         Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
         PlayerActivity previous=playback;
-        if(((View)field(playback,"controls")).getVisibility()==View.VISIBLE){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();}
+        onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());settle();
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
         assertSame(field(playback,"nextButton"),playback.getCurrentFocus());screenshot("next-episode-controls.png");
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
@@ -344,18 +369,56 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
+    @Test public void heldSeekKeysPreviewLocallyAndCommitOnceAfterRelease()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            java.util.concurrent.atomic.AtomicInteger seeks=new java.util.concurrent.atomic.AtomicInteger();
+            onMain(()->((ExoPlayer)field(playback,"player")).addListener(new Player.Listener(){
+                @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK)seeks.incrementAndGet();}
+            }));
+            for(int key:new int[]{KeyEvent.KEYCODE_DPAD_RIGHT,KeyEvent.KEYCODE_DPAD_LEFT,KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,KeyEvent.KEYCODE_MEDIA_REWIND}){
+                boolean forward=key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD;
+                long start=forward?1000:11000;
+                onMain(()->((ExoPlayer)field(playback,"player")).seekTo(start));
+                await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.getPlaybackState()==Player.STATE_READY&&player.getCurrentPosition()==start;});
+                onMain(()->{((androidx.media3.ui.PlayerView)field(playback,"video")).hideController();seeks.set(0);});long pressed=SystemClock.uptimeMillis();
+                for(int repeat=0;repeat<6;repeat++)instrumentation.sendKeySync(new KeyEvent(pressed,SystemClock.uptimeMillis(),KeyEvent.ACTION_DOWN,key,repeat));
+                settle();
+                onMain(()->{
+                    ExoPlayer player=(ExoPlayer)field(playback,"player");assertEquals("长按期间不得实际跳转",0,seeks.get());assertEquals(start,player.getCurrentPosition());
+                    assertTrue(((View)field(playback,"seekProgress")).isShown());assertEquals(forward?player.getDuration():0L,field(field(playback,"seekProgress"),"position"));
+                });
+                instrumentation.sendKeySync(new KeyEvent(pressed,SystemClock.uptimeMillis(),KeyEvent.ACTION_UP,key,0));
+                await(()->seeks.get()==1);settle();assertEquals("松手后只执行一次跳转",1,seeks.get());
+            }
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(1000);});
+            await(()->((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
+            onMain(()->{
+                ((androidx.media3.ui.PlayerView)field(playback,"video")).hideController();seeks.set(0);long now=SystemClock.uptimeMillis();
+                for(int tap=0;tap<3;tap++){playback.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_RIGHT,0));playback.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_RIGHT,0));}
+                assertEquals("连续短按也应合并",0,seeks.get());
+            });
+            await(()->seeks.get()==1);settle();assertEquals(1,seeks.get());
+            onMain(()->{((androidx.media3.ui.PlayerView)field(playback,"video")).hideController();seeks.set(0);long now=SystemClock.uptimeMillis();playback.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_LEFT,0));playback.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_LEFT,0));});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
+            await(()->playback.isFinishing()&&field(playback,"player")==null&&detail.hasWindowFocus());assertEquals("退出必须取消待执行跳转",0,seeks.get());
+        }finally{cleanup();}
+    }
+
     @Test public void remoteSeekingOnlyShowsTimelineAndKeepsControlsNavigable()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
             onMain(()->{androidx.media3.ui.PlayerView view=(androidx.media3.ui.PlayerView)field(playback,"video");assertFalse("快进时不显示播放器控制栏",view.isControllerFullyVisible());assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());assertTrue(((View)field(playback,"seekProgress")).isShown());assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()>=10000);});screenshot("seek-progress-only.png");
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT);settle();onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()<3000));
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertFalse(playback.isFinishing());onMain(()->assertFalse(((View)field(playback,"seekProgress")).isShown()));
+            await(()->!((View)field(playback,"seekProgress")).isShown());
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD);settle();onMain(()->{assertFalse(((androidx.media3.ui.PlayerView)field(playback,"video")).isControllerFullyVisible());assertTrue(((View)field(playback,"seekProgress")).isShown());});
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_REWIND);settle();onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()<3000));
             await(()->!((View)field(playback,"seekProgress")).isShown());
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertEquals(field(playback,"audioButton"),playback.getCurrentFocus());onMain(()->{assertFalse(((View)field(playback,"seekProgress")).isShown());assertEquals(View.VISIBLE,((View)field(playback,"controls")).getVisibility());});
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getPlayWhenReady()));
+            onMain(()->assertTrue("松手后立即打开控制栏仍须执行目标跳转",((ExoPlayer)field(playback,"player")).getCurrentPosition()>=10000));
+            onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getPlayWhenReady()));
         }finally{cleanup();}
     }
 

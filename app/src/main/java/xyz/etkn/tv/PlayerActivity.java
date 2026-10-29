@@ -45,13 +45,15 @@ public final class PlayerActivity extends TvActivity {
     private TextView videoInfo;
     private int skipMode;
     private long skipTarget=-1;
+    private long pendingSeekPosition=-1;
     private boolean seekKeys,focusNextWhenLoaded;
     private int audioIndex=PlaybackSelection.AUTO,subtitleIndex=PlaybackSelection.AUTO;
     private final Handler timer=new Handler(Looper.getMainLooper());
+    private final Runnable seekCommit=this::commitSeek;
     private final Runnable seekProgressHide=this::hideSeekProgress;
     private final Runnable seekProgressUpdate=new Runnable(){@Override public void run(){
         if(player==null||!seekKeys)return;
-        seekProgress.setDuration(Math.max(0,player.getDuration()));seekProgress.setPosition(player.getCurrentPosition());seekProgress.setBufferedPosition(player.getBufferedPosition());timer.postDelayed(this,200);
+        seekProgress.setDuration(Math.max(0,player.getDuration()));seekProgress.setPosition(pendingSeekPosition>=0?pendingSeekPosition:player.getCurrentPosition());seekProgress.setBufferedPosition(player.getBufferedPosition());timer.postDelayed(this,200);
     }};
     private final ExecutorService reports=Executors.newSingleThreadExecutor();
     private final Runnable progress=new Runnable(){@Override public void run(){if(player!=null){report("Progress");timer.postDelayed(this,10000);}}};
@@ -160,7 +162,7 @@ public final class PlayerActivity extends TvActivity {
             player.addListener(new Player.Listener(){
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
-                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){report("Stopped");message("播放完成");showControls();}}
+                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){report("Stopped");message("播放完成");if(pendingSeekPosition<0)showControls();}}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
             player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();video.requestFocus();updateTrackButtons();
@@ -184,7 +186,7 @@ public final class PlayerActivity extends TvActivity {
         videoInfo.setText(label+"  ·  "+videoDecoder+"  ·  "+(videoFrameSeen?"已输出画面":"等待画面"));
     }
     private void updateSkip(){
-        SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
+        SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||pendingSeekPosition>=0||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
         skipTarget=segment==null?-1:segment.end;
         if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){player.seekTo(segment.end);skipTarget=-1;segment=null;}
         if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
@@ -252,9 +254,10 @@ public final class PlayerActivity extends TvActivity {
     private void updateTrackButtons(){audioButton.setText("音轨 · "+currentTrackTitle(false));subtitleButton.setText("字幕 · "+currentTrackTitle(true));decoderButton.setText(softwareVideo?"解码 · 软件兼容":"解码 · 自动");}
     private void showSeekProgress(){
         seekKeys=true;video.hideController();controls.setVisibility(View.GONE);skipButton.setVisibility(View.GONE);seekProgress.setVisibility(View.VISIBLE);
-        timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgressUpdate.run();timer.postDelayed(seekProgressHide,5000);video.requestFocus();
+        timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgressUpdate.run();if(pendingSeekPosition<0)timer.postDelayed(seekProgressHide,5000);video.requestFocus();
     }
-    private void hideSeekProgress(){seekKeys=false;timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgress.setVisibility(View.GONE);}
+    private void commitSeek(){if(player==null||pendingSeekPosition<0)return;long target=pendingSeekPosition;pendingSeekPosition=-1;player.seekTo(target);showSeekProgress();}
+    private void hideSeekProgress(){seekKeys=false;pendingSeekPosition=-1;timer.removeCallbacks(seekCommit);timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgress.setVisibility(View.GONE);}
     private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);focusNextWhenLoaded=nextEpisode==null;(nextEpisode==null?audioButton:nextButton).requestFocus();}
     private void chooseDecoder(){
         if(player==null)return;video.setControllerShowTimeoutMs(0);
@@ -269,19 +272,24 @@ public final class PlayerActivity extends TvActivity {
     }
     private void stopPlayer(){hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}}
     @Override protected void onStart(){super.onStart();foreground=true;if(info!=null&&player==null)startSource();}
+    @Override protected void onPause(){hideSeekProgress();super.onPause();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("softwareAudio",softwareAudio);state.putBoolean("enhancedSubtitles",enhancedSubtitles);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
         if(down)focusNextWhenLoaded=false;
-        if(key==KeyEvent.KEYCODE_BACK&&(controls.getVisibility()==View.VISIBLE||seekKeys)){if(down){hideSeekProgress();video.hideController();video.requestFocus();}return true;}
+        if(key==KeyEvent.KEYCODE_BACK){if(down&&event.getRepeatCount()==0){hideSeekProgress();finish();}return true;}
         if(key==KeyEvent.KEYCODE_MENU){if(down)chooseTrack(C.TRACK_TYPE_TEXT);return true;}
         boolean mediaSeek=key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD||key==KeyEvent.KEYCODE_MEDIA_REWIND;
         if((key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT||mediaSeek)&&video!=null&&(mediaSeek||!video.isControllerFullyVisible()||seekKeys)){
-            if(down&&player!=null){long end=player.getDuration();long target=Math.max(0,player.getCurrentPosition()+(key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD?10000:-10000));player.seekTo(end>0?Math.min(target,end):target);showSeekProgress();}return true;
+            if(player!=null){
+                timer.removeCallbacks(seekCommit);
+                if(down){long end=player.getDuration();long target=Math.max(0,(pendingSeekPosition>=0?pendingSeekPosition:player.getCurrentPosition())+(key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD?10000:-10000));pendingSeekPosition=end>0?Math.min(target,end):target;showSeekProgress();}
+                else if(event.getAction()==KeyEvent.ACTION_UP){if(event.isCanceled())hideSeekProgress();else if(pendingSeekPosition>=0)timer.postDelayed(seekCommit,250);}
+            }return true;
         }
-        if(key==KeyEvent.KEYCODE_DPAD_DOWN&&seekKeys){if(down){seekKeys=false;showControls();}return true;}
+        if(key==KeyEvent.KEYCODE_DPAD_DOWN&&seekKeys){if(down){commitSeek();showControls();}return true;}
         if((key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER)&&video!=null&&(!video.isControllerFullyVisible()||seekKeys)){
             if(down&&event.getRepeatCount()==0&&player!=null){if(skipButton.getVisibility()==View.VISIBLE&&skipTarget>=0)skipSegment();else if(player.getPlayWhenReady())player.pause();else player.play();}return true;
         }
