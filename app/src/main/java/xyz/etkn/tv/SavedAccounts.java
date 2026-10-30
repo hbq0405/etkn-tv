@@ -12,13 +12,17 @@ final class SavedAccounts {
         Account(String userId,String name){this.userId=userId;this.name=name;}
     }
     private SavedAccounts(){}
+    /** 新账号追加到末尾、已有账号原地更新：列表顺序即首次登录顺序，固定不变。 */
     static String upsert(String stored,String userId,String name,String encryptedToken){
-        JSONArray result=new JSONArray();
         JSONObject account=new JSONObject();
         try{account.put("userId",userId).put("name",name).put("token",encryptedToken);}
         catch(JSONException impossible){throw new IllegalStateException(impossible);}
-        result.put(account);
-        for(JSONObject entry:entries(stored))if(!entry.optString("userId").equals(userId))result.put(entry);
+        JSONArray result=new JSONArray();boolean replaced=false;
+        for(JSONObject entry:entries(stored)){
+            if(entry.optString("userId").equals(userId)){result.put(account);replaced=true;}
+            else result.put(entry);
+        }
+        if(!replaced)result.put(account);
         return result.toString();
     }
     static String remove(String stored,String userId){

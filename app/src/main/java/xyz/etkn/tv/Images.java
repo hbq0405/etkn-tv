@@ -30,6 +30,10 @@ final class Images {
     static void load(EtknApi api,String url,ImageView view,java.util.function.Consumer<Boolean> done) {
         load(api,url,view,done,IO);
     }
+    /** 用指定账号自己的令牌加载图片：用户选择框中非活动账号的头像按服务端按用户鉴权取图。 */
+    static void load(EtknApi api,String url,ImageView view,String token) {
+        load(api,url,view,success->{},IO,token);
+    }
     static void backdrop(EtknApi api,String url,ImageView view,java.util.function.Consumer<Boolean> done){load(api,url,view,done,HERO);}
     static void visible(EtknApi api,String url,ImageView view,java.util.function.Consumer<Boolean> done){
         ViewTreeObserver.OnPreDrawListener listener=new ViewTreeObserver.OnPreDrawListener(){
@@ -47,6 +51,9 @@ final class Images {
         catch(java.security.NoSuchAlgorithmException impossible){throw new AssertionError(impossible);}
     }
     private static void load(EtknApi api,String url,ImageView view,java.util.function.Consumer<Boolean> done,ExecutorService executor){
+        load(api,url,view,done,executor,api.token);
+    }
+    private static void load(EtknApi api,String url,ImageView view,java.util.function.Consumer<Boolean> done,ExecutorService executor,String token){
         String key=api.session.userId()+url; view.setTag(key); Bitmap cached=CACHE.get(key); if(cached!=null){view.setImageBitmap(cached);done.accept(true);return;}
         executor.execute(() -> {
             if(!key.equals(view.getTag()))return;
@@ -55,7 +62,7 @@ final class Images {
                 File file=new File(api.cacheDir,digest(key));
                 Bitmap stored=file.isFile()&&System.currentTimeMillis()-file.lastModified()<24*60*60*1000L?BitmapFactory.decodeFile(file.getPath()):null;
                 if(stored!=null){CACHE.put(key,stored);view.post(()->{if(key.equals(view.getTag())){view.setImageBitmap(stored);done.accept(true);}});return;}
-                conn=Http.image(url,api);
+                conn=Http.image(url,api,token);
                 try(java.io.InputStream stream=conn.getInputStream()) {
                     java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();byte[] buffer=new byte[8192];int count;while((count=stream.read(buffer))!=-1)bytes.write(buffer,0,count);byte[] payload=bytes.toByteArray();
                     Bitmap bitmap=BitmapFactory.decodeByteArray(payload,0,payload.length);

@@ -58,11 +58,18 @@ final class SessionStore {
         if (!prefs.getBoolean("mediaEntryVerified",false)) return "";
         String value = prefs.getString("token", "");
         if (value.isEmpty()) return "";
-        try {
-            String[] parts = value.split(":"); Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)));
-            return new String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), StandardCharsets.UTF_8);
-        } catch (Exception error) { clear(); return ""; }
+        try { return decrypt(value); } catch (Exception error) { clear(); return ""; }
+    }
+    /** 解密指定已保存账号的令牌，供用户选择框加载该账号自己的头像；失败只返回空串，不影响当前会话。 */
+    String accountToken(String userId) {
+        org.json.JSONObject account=SavedAccounts.find(prefs.getString("accounts","[]"),userId);
+        if(account==null)return "";
+        try{return decrypt(account.getString("token"));}catch(Exception error){return "";}
+    }
+    private String decrypt(String value) throws Exception {
+        String[] parts = value.split(":"); Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)));
+        return new String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), StandardCharsets.UTF_8);
     }
     void save(String server, String userId, String name, String token) throws Exception {
         ensureServer(server);

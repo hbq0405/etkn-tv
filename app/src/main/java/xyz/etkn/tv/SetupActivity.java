@@ -54,7 +54,7 @@ public final class SetupActivity extends TvActivity {
             LinearLayout card=pickerCard(account.name,avatar,()->{status.setText("正在登录…");try{api.session.activate(account.userId);openHome();}catch(Exception error){status.setText(error.getMessage());}});
             card.setContentDescription("登录用户 "+account.name);
             users.addView(card);
-            Images.load(api,api.server+"/api/tv/Users/"+EtknApi.encode(account.userId)+"/Images/Primary?maxWidth=160",avatar);
+            Images.load(api,api.server+"/api/tv/Users/"+EtknApi.encode(account.userId)+"/Images/Primary?maxWidth=160",avatar,api.session.accountToken(account.userId));
         }
         TextView plus=new TextView(this);plus.setText("+");plus.setTextSize(34);plus.setTextColor(MUTED);plus.setGravity(android.view.Gravity.CENTER);
         android.graphics.drawable.GradientDrawable circle=new android.graphics.drawable.GradientDrawable();circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);circle.setColor(PANEL);circle.setStroke(dp(2),MUTED);plus.setBackground(circle);
