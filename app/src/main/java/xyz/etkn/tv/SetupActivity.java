@@ -70,7 +70,7 @@ public final class SetupActivity extends TvActivity {
             users.addView(card);
             Images.load(api,api.server+"/api/tv/Users/"+EtknApi.encode(account.userId)+"/Images/Primary?maxWidth=160",avatar,api.session.accountToken(account.userId));
         }
-        panel.addView(scroll);
+        panel.addView(scroll,new LinearLayout.LayoutParams(-2,-2));
         panel.addView(newUser);
         content.addView(panel,new LinearLayout.LayoutParams(-2,-2));
         panel.post(()->{if(users.getChildCount()>0)users.getChildAt(0).requestFocus();});

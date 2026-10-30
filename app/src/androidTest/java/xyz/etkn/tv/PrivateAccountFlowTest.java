@@ -143,6 +143,35 @@ public class PrivateAccountFlowTest {
         device.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
         await(()->resumed instanceof SetupActivity&&resumed!=setup&&labels(resumed.getWindow().getDecorView()).contains("连接并登录"));
     }
+    @Test public void accountPickerShowsWholeCardsWithOneOrManyUsers()throws Exception{
+        File evidence=new File(context.getExternalFilesDir(null),"account-picker-width");assertTrue(evidence.isDirectory()||evidence.mkdirs());
+        for(int count:new int[]{1,3,8}){
+            context.getSharedPreferences("session",0).edit().clear().commit();session=new SessionStore(context);
+            for(int i=0;i<count;i++)session.save(server.origin(),"normal-"+i,"用户 "+(i+1),"token-normal-"+i);
+            LoginGate.reset();LoginGate.setMode(context,LoginGate.PICK_USER);
+            SetupActivity setup=start(SetupActivity.class);
+            await(()->{View name=findText(setup.getWindow().getDecorView(),"用户 1");return name!=null&&name.getWidth()>0&&setup.getCurrentFocus()==name.getParent();});
+            device.waitForIdleSync();
+            android.graphics.Bitmap screenshot=device.getUiAutomation().takeScreenshot();
+            try(FileOutputStream output=new FileOutputStream(new File(evidence,"users-"+count+".png"))){screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,output);}finally{screenshot.recycle();}
+            for(int i=0;i<count;i++){
+                String name="用户 "+(i+1);await(()->findText(setup.getWindow().getDecorView(),name).getParent()==setup.getCurrentFocus());
+                device.waitForIdleSync();Thread.sleep(150);
+                onMain(()->{
+                    View card=setup.getCurrentFocus();android.graphics.Rect visible=new android.graphics.Rect();assertTrue(card.getGlobalVisibleRect(visible));
+                    int width=Math.round(card.getWidth()*card.getScaleX()),height=Math.round(card.getHeight()*card.getScaleY());
+                    android.util.Log.i("AccountPickerWidth","count="+count+" card="+card.getWidth()+"x"+card.getHeight()+" scale="+card.getScaleX()+" visible="+visible);
+                    assertEquals("账号卡片不能只显示半个："+name,width,visible.width(),2);
+                    assertEquals("账号头像、名称和焦点框须完整显示："+name,height,visible.height(),2);
+                    View newUser=findText(setup.getWindow().getDecorView(),"登录新用户");int[] action=new int[2];newUser.getLocationOnScreen(action);
+                    assertTrue("新用户按钮应在账号列表下方",action[1]>=visible.bottom);
+                });
+                if(i+1<count)device.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);
+            }
+            device.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);await(()->setup.getCurrentFocus() instanceof Button&&"登录新用户".equals(((Button)setup.getCurrentFocus()).getText().toString()));
+            onMain(setup::finish);device.waitForIdleSync();
+        }
+    }
     @Test public void privateHotStartHidesIdentityAndRequiresFullLogin()throws Exception{
         session.saveSession(server.origin(),"private","private","token-private",SessionStore.PERSIST_NONE);LoginGate.satisfy();
         HomeActivity home=start(HomeActivity.class);
