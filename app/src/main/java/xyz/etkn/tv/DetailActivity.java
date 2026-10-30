@@ -79,6 +79,7 @@ public final class DetailActivity extends TvActivity {
         HorizontalScrollView selectionScroll=new FocusScroll.Row(this);selectionScroll.setHorizontalScrollBarEnabled(false);selectionScroll.addView(selections);content.addView(selectionScroll);
         TextView overview=text(item.optString("Overview","暂无简介"),15,Color.rgb(219,227,237));overview.setMaxLines(3);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);overview.setFocusable(true);overview.setBackground(transparentFocusBackground());overview.setPadding(dp(10),dp(5),dp(10),dp(5));overview.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(EtknApi.title(item)).setMessage(item.optString("Overview")).setPositiveButton("关闭",null).show());
         content.addView(overview,new LinearLayout.LayoutParams(dp(Math.min(650,getResources().getConfiguration().screenWidthDp-84)),-2));
+        renderChapters();
         status=text("",12,MUTED);content.addView(status);episodeArea=column();content.addView(episodeArea);updateChoices();
         String type=item.optString("Type");
         if(type.equals("Series")||type.equals("Season")||type.equals("Episode"))loadEpisodes();else{setPlayable(item);focusPlay();}
@@ -197,6 +198,26 @@ public final class DetailActivity extends TvActivity {
     private void updatePreview(JSONObject episode){
         episodeTitle.setText(DetailPresentation.episodeNumber(episode)+"  ·  "+EtknApi.title(episode));episodeOverview.setText(episode.optString("Overview").isEmpty()?"暂无分集简介":episode.optString("Overview"));
         episodeImage.setImageDrawable(null);Images.load(api,api.artwork(episode,"Primary",640),episodeImage);
+    }
+    private void renderChapters(){
+        JSONArray chapters=item.optJSONArray("Chapters");if(chapters==null||chapters.length()==0)return;
+        List<JSONObject> images=new ArrayList<>();for(int i=0;i<chapters.length();i++){JSONObject chapter=chapters.optJSONObject(i);if(chapter!=null&&(!chapter.optString("ImageTag").isEmpty()||!chapter.optString("ImagePath").isEmpty()))images.add(chapter);}
+        if(images.isEmpty())return;
+        content.addView(text("章节",20,Color.WHITE));
+        HorizontalScrollView rail=new FocusScroll.Row(this);rail.setHorizontalScrollBarEnabled(false);LinearLayout cards=row();rail.addView(cards);content.addView(rail);
+        for(int i=0;i<images.size();i++){
+            JSONObject chapter=images.get(i);LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackground(transparentFocusBackground());card.setPadding(dp(3),dp(3),dp(3),dp(3));
+            LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(224),dp(174));bounds.setMargins(0,dp(8),dp(14),dp(8));cards.addView(card,bounds);
+            ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(8));card.addView(image,new LinearLayout.LayoutParams(-1,dp(126)));Images.load(api,api.chapterArtwork(item,chapter,480),image);
+            String name=chapter.optString("Name");if(name.isEmpty())name="章节 "+(i+1);TextView label=text(name+"  ·  "+chapterTime(chapter.optLong("StartPositionTicks")),13,Color.WHITE);label.setMaxLines(1);label.setEllipsize(android.text.TextUtils.TruncateAt.END);label.setPadding(dp(3),dp(5),dp(3),0);card.addView(label);
+            card.setContentDescription(name);card.setOnClickListener(view->playChapter(chapter));
+        }
+    }
+    private String chapterTime(long ticks){long seconds=Math.max(0,ticks/10000000L),minutes=seconds/60;seconds%=60;return String.format(Locale.ROOT,"%02d:%02d",minutes,seconds);}
+    private void playChapter(JSONObject chapter){
+        if(playable==null)return;long position=Math.max(0,chapter.optLong("StartPositionTicks",0)/10000L);
+        Intent intent=new Intent(this,PlayerActivity.class).putExtra("id",playable.optString("Id")).putExtra("title",EtknApi.resumeTitle(playable)).putExtra("position",position).putExtra("seriesId",playable.optString("SeriesId",item.optString("Type").equals("Series")?item.optString("Id"):item.optString("SeriesId")));
+        if(selectedSource()!=null)intent.putExtra("sourceId",selectedSource().optString("Id"));intent.putExtra("seasonKey",PlaybackSelection.seasonKey(playable)).putExtra("audioIndex",audio).putExtra("subtitleIndex",subtitle);startActivity(intent);
     }
     private void renderCast(){
         JSONArray people=item.optJSONArray("People");if(people==null||people.length()==0)return;

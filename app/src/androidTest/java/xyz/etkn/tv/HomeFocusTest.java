@@ -92,39 +92,45 @@ public class HomeFocusTest {
                 await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable);
                 Bitmap sharp=((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap();
                 double sharpDetail=imageDetail(sharp);
-                saveScreenshot("initial-state-"+carousel+".png");assertTrue("继续观看须显示简介 carousel="+carousel+" focus="+home.getCurrentFocus()+" window="+home.hasWindowFocus()+" finishing="+home.isFinishing()+" copy="+((View)backdropField(hero,"copy")).getVisibility()+" information="+((View)backdropField(hero,"information")).getVisibility()+" resume="+backdropField(hero,"resumeFocused"),findText(hero,"背景简介").isShown());
+                saveScreenshot("initial-state-"+carousel+".png");assertTrue("继续观看须显示简介 carousel="+carousel+" focus="+home.getCurrentFocus()+" window="+home.hasWindowFocus()+" finishing="+home.isFinishing()+" copy="+((View)backdropField(hero,"copy")).getVisibility()+" information="+((View)backdropField(hero,"information")).getVisibility()+" resume="+backdropField(hero,"resumeFocused"),shownText(hero,"背景简介"));
                 assertEquals(carousel,hero.actionView().isShown());
                 saveScreenshot("resume-clear-"+carousel+".png");
                 instrumentation.runOnMainSync(()->library("library-0").requestFocus());settle();
                 await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&imageDetail(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap())<sharpDetail*0.6);
-                assertFalse("媒体库聚焦时隐藏简介",findText(hero,"背景简介").isShown());
+                assertFalse("媒体库聚焦时隐藏简介",shownText(hero,"背景简介"));
                 assertFalse("离开继续观看时隐藏查看详情",hero.actionView().isShown());
-                assertFalse("媒体库聚焦时隐藏年份等信息",findText(hero,"2026").isShown());
+                assertFalse("媒体库聚焦时隐藏年份等信息",shownText(hero,"2026"));
                 saveScreenshot("library-blurred-"+carousel+".png");
                 View latest=cards().stream().filter(card->!((java.util.List<?>)field(HomeActivity.class,"resumeCards")).contains(card)&&!((java.util.Map<?,?>)field(HomeActivity.class,"libraryCards")).containsValue(card)).findFirst().orElseThrow();
-                instrumentation.runOnMainSync(latest::requestFocus);settle();assertFalse("最新片架聚焦时隐藏简介",findText(hero,"背景简介").isShown());
+                instrumentation.runOnMainSync(latest::requestFocus);settle();assertFalse("最新片架聚焦时隐藏简介",shownText(hero,"背景简介"));
                 await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&imageDetail(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap())<sharpDetail*0.6);
                 instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
                 assertTrue("回到继续观看恢复清晰度",sharp.sameAs(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap()));
-                assertTrue("回到继续观看恢复简介",findText(hero,"背景简介").isShown());
+                assertTrue("回到继续观看恢复简介",shownText(hero,"背景简介"));
                 assertEquals(carousel,hero.actionView().isShown());
                 if(carousel){
                     instrumentation.runOnMainSync(()->assertTrue("轮播详情入口仍可聚焦",hero.actionView().requestFocus()));settle();
-                    assertTrue("轮播详情聚焦时显示简介",findText(hero,"背景简介").isShown());
+                    assertTrue("轮播详情聚焦时显示简介",shownText(hero,"背景简介"));
                     assertSame(backdropField(hero,"sharp"),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());
                     android.widget.ImageView outgoing=(android.widget.ImageView)backdropField(hero,"previousBackdrop");
-                    java.util.concurrent.atomic.AtomicInteger fadeFrames=new java.util.concurrent.atomic.AtomicInteger();
-                    android.view.ViewTreeObserver.OnPreDrawListener fade=()->{if(outgoing.getDrawable()!=null&&outgoing.getAlpha()>0&&outgoing.getAlpha()<1&&image.getAlpha()>0&&image.getAlpha()<1)fadeFrames.incrementAndGet();return true;};
-                    instrumentation.runOnMainSync(()->image.getViewTreeObserver().addOnPreDrawListener(fade));
-                    instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);await(()->backdropField(hero,"sharp")!=null);
-                    instrumentation.runOnMainSync(()->image.getViewTreeObserver().removeOnPreDrawListener(fade));
-                    assertTrue("轮播切图必须实际绘制交叉淡入淡出帧",fadeFrames.get()>0);assertNull(outgoing.getDrawable());
-                    assertTrue("轮播切图后保留简介",findText(hero,"背景简介").isShown());
-                    assertTrue(findText(hero,"2026").isShown());assertSame(backdropField(hero,"sharp"),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());
+                    android.widget.TextView heroTitle=(android.widget.TextView)backdropField(hero,"title");
+                    android.widget.LinearLayout copy=(android.widget.LinearLayout)backdropField(hero,"copy");
+                    String oldTitle=heroTitle.getText().toString(),nextTitle="切换后标题";
+                    java.util.concurrent.atomic.AtomicInteger oldFadeFrames=new java.util.concurrent.atomic.AtomicInteger(),newFadeFrames=new java.util.concurrent.atomic.AtomicInteger(),overlapFrames=new java.util.concurrent.atomic.AtomicInteger(),textMismatchFrames=new java.util.concurrent.atomic.AtomicInteger();
+                    JSONObject next=new JSONObject().put("Id","transition-next").put("Name",nextTitle).put("Type","Movie").put("Overview","切换后简介").put("ProductionYear",2026);
+                    instrumentation.runOnMainSync(()->hero.show(next,false,true));
+                    long transitionDeadline=System.currentTimeMillis()+3000;
+                    while(System.currentTimeMillis()<transitionDeadline){
+                        instrumentation.runOnMainSync(()->{boolean oldFading=outgoing.getDrawable()!=null&&outgoing.getAlpha()>0&&outgoing.getAlpha()<1;boolean newFading=image.getDrawable()!=null&&image.getAlpha()>0&&image.getAlpha()<1;if(oldFading){oldFadeFrames.incrementAndGet();if(!oldTitle.equals(heroTitle.getText().toString()))textMismatchFrames.incrementAndGet();}if(newFading){newFadeFrames.incrementAndGet();if(!nextTitle.equals(heroTitle.getText().toString()))textMismatchFrames.incrementAndGet();}if(outgoing.getDrawable()!=null&&outgoing.getAlpha()>0.01f&&image.getAlpha()>0.01f)overlapFrames.incrementAndGet();});
+                        boolean[] done={false};instrumentation.runOnMainSync(()->done[0]=!((Boolean)backdropField(hero,"pendingContent"))&&outgoing.getDrawable()==null&&image.getAlpha()>0.99f&&copy.getAlpha()>0.99f&&nextTitle.equals(heroTitle.getText().toString()));if(done[0])break;Thread.sleep(16);
+                    }
+                    assertTrue("切图必须先绘制旧图渐暗帧",oldFadeFrames.get()>0);assertTrue("切图必须再绘制新图渐亮帧",newFadeFrames.get()>0);assertEquals("顺序淡出淡入期间不能同时显示两张图",0,overlapFrames.get());assertEquals("文字必须和对应图片同步切换",0,textMismatchFrames.get());assertNull(outgoing.getDrawable());
+                    assertTrue("轮播切图后保留简介",shownText(hero,"切换后简介"));
+                    assertTrue(shownText(hero,"2026"));assertSame(backdropField(hero,"sharp"),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());assertEquals(1f,copy.getAlpha(),0.01f);
                     instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
                 }
-                call("showMenu",new Class<?>[]{});settle();assertFalse("菜单聚焦时隐藏简介",findText(hero,"背景简介").isShown());assertFalse(hero.actionView().isShown());
-                call("hideMenu",new Class<?>[]{});settle();assertTrue(findText(hero,"背景简介").isShown());
+                call("showMenu",new Class<?>[]{});settle();assertFalse("菜单聚焦时隐藏简介",shownText(hero,"背景简介"));assertFalse(hero.actionView().isShown());
+                call("hideMenu",new Class<?>[]{});settle();assertTrue("菜单退出后恢复简介",((View)backdropField(hero,"information")).isShown()&&((View)backdropField(hero,"overview")).isShown());
                 saveScreenshot("resume-restored-"+carousel+".png");
                 HomeActivity closing=home;instrumentation.runOnMainSync(closing::finish);await(closing::isDestroyed);home=null;
             }
@@ -159,6 +165,7 @@ public class HomeFocusTest {
     private Object backdropField(FocusBackdrop hero,String name){try{java.lang.reflect.Field field=FocusBackdrop.class.getDeclaredField(name);field.setAccessible(true);return field.get(hero);}catch(Exception error){throw new AssertionError(error);}}
 
     private View findText(View view,String value){if(view instanceof android.widget.TextView&&((android.widget.TextView)view).getText().toString().contains(value))return view;if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){View found=findText(((ViewGroup)view).getChildAt(i),value);if(found!=null)return found;}return null;}
+    private boolean shownText(View root,String value){View found=findText(root,value);return found!=null&&found.isShown();}
     private double imageDetail(Bitmap source){
         Bitmap sample=Bitmap.createScaledBitmap(source,256,144,true);long detail=0;
         for(int y=0;y<144;y++)for(int x=1;x<256;x++){int a=sample.getPixel(x-1,y),b=sample.getPixel(x,y);detail+=Math.abs(Color.red(a)-Color.red(b))+Math.abs(Color.green(a)-Color.green(b))+Math.abs(Color.blue(a)-Color.blue(b));}

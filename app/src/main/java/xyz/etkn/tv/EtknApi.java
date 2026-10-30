@@ -116,6 +116,16 @@ final class EtknApi {
         }
         return server+"/api/tv/Items/"+encode(id)+"/Images/"+type+"?maxWidth="+width+"&quality=90&tag="+encode(tag);
     }
+    String chapterArtwork(JSONObject media, JSONObject chapter, int width) {
+        String path=chapter.optString("ImagePath");
+        if(path.isEmpty()) {
+            int index=chapter.optInt("ChapterIndex",0);
+            path="/api/tv/Items/"+encode(media.optString("Id"))+"/Images/Chapter/"+index;
+        } else if(!path.startsWith("/api/")) {
+            path=path.startsWith("/")?"/api/tv"+path:"/api/tv/"+path;
+        }
+        return server+path+"?maxWidth="+width+"&quality=85&tag="+encode(chapter.optString("ImageTag"));
+    }
     static String resumeTitle(JSONObject item) {
         if(!"Episode".equals(item.optString("Type")))return title(item);
         String series=item.optString("SeriesName");
