@@ -28,7 +28,7 @@ public final class SettingsActivity extends TvActivity {
     private File downloaded;
     private boolean installing;
     private JSONObject playbackPreferences;
-    private Button defaultAudio,defaultSubtitle,skipButton;
+    private Button defaultAudio,defaultSubtitle,skipButton,loginModeButton;
     private boolean preferenceSaving;
     private AlertDialog preferenceDialog;
     private static final String[] AUDIO_KEYS={"chi","yue","original","eng","jpn","kor"};
@@ -58,6 +58,9 @@ public final class SettingsActivity extends TvActivity {
             LinearLayout home=section("首页");
             home.addView(switchRow("智能推荐轮播","首页背景按你的观影口味自动轮播推荐，不再跟随焦点联动。保存到此电视当前账号。",preferences.smartCarousel(),on->preferences.setSmartCarousel(on)));
         }
+        LinearLayout login=section("登录");
+        loginModeButton=settingRow(Color.WHITE);loginModeButton.setOnClickListener(view->chooseLoginMode());login.addView(loginModeButton);showLoginMode();
+        login.addView(note("“最后登录用户”启动后直接进入上次用户的首页；“选择登录用户”每次启动或从后台返回时先显示用户选择框，可点选已登录用户或登录新用户。按本设备保存，对全部用户生效。"));
         LinearLayout app=section("应用");
         Button update=settingRow(Color.WHITE);update.setText(rowText("检查更新","当前版本 "+BuildConfig.VERSION_NAME));update.setOnClickListener(view->checkUpdate());app.addView(update);
         Button licenses=settingRow(Color.WHITE);licenses.setText(rowText("开源许可","GPL-3.0 及第三方组件"));licenses.setOnClickListener(view->showLicenses());app.addView(licenses);
@@ -124,6 +127,8 @@ public final class SettingsActivity extends TvActivity {
         }).setNegativeButton("关闭",null).show();}catch(java.io.IOException error){status.setText("无法读取许可文件");}
     }
     private void chooseSkipMode(){TvPreferences preferences=new TvPreferences(this,api);preferenceDialog=new AlertDialog.Builder(this).setTitle("片头片尾").setSingleChoiceItems(TvPreferences.SKIP_LABELS,preferences.skipMode(),(dialog,index)->{preferences.setSkipMode(index);showSkipMode();dialog.dismiss();}).setNegativeButton("取消",null).create();preferenceDialog.show();}
+    private void showLoginMode(){loginModeButton.setText(rowText("登录方式",LoginGate.LABELS[LoginGate.mode(this)]));}
+    private void chooseLoginMode(){preferenceDialog=new AlertDialog.Builder(this).setTitle("登录方式").setSingleChoiceItems(LoginGate.LABELS,LoginGate.mode(this),(dialog,index)->{LoginGate.setMode(this,index);showLoginMode();dialog.dismiss();}).setNegativeButton("取消",null).create();preferenceDialog.show();}
     private void showPreferences(JSONObject value){
         playbackPreferences=value;defaultAudio.setEnabled(true);defaultSubtitle.setEnabled(true);
         defaultAudio.setText(rowText("默认音轨",preferenceSummary(false)));defaultSubtitle.setText(rowText("默认字幕",preferenceSummary(true)));

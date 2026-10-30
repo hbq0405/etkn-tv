@@ -26,7 +26,11 @@ abstract class TvActivity extends Activity {
     @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
     private final android.os.Handler noticeTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable noticePoll=new Runnable(){@Override public void run(){IngestNotifications.check(TvActivity.this);noticeTimer.postDelayed(this,60000);}};
-    @Override protected void onResume(){super.onResume();IngestNotifications.resumed(this);noticeTimer.post(noticePoll);}
+    /** 前台 Activity 计数：归零表示应用整体退到后台，按登录方式配置重置门禁。 */
+    private static int foregroundActivities;
+    @Override protected void onStart(){super.onStart();foregroundActivities++;}
+    @Override protected void onStop(){if(--foregroundActivities==0)LoginGate.reset();super.onStop();}
+    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&LoginGate.requiresPicker(this,api)){LoginGate.enter(this);return;}IngestNotifications.resumed(this);noticeTimer.post(noticePoll);}
     @Override protected void onPause(){noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
     void screen(String title, String subtitle) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(36),dp(20),dp(36),dp(18)); root.setBackgroundColor(INK);
