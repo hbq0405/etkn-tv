@@ -17,8 +17,17 @@ public final class SetupActivity extends TvActivity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         boolean addAccount=getIntent().getBooleanExtra(EXTRA_ADD_ACCOUNT,false);
-        if(!addAccount&&LoginGate.requiresPicker(this,api)){showPicker();return;}
-        if(!api.token.isEmpty()&&!addAccount){open(HomeActivity.class);finish();return;}
+        if(addAccount){showLogin(true);return;}
+        screen("连接你的 ETKN","正在检查已保存账号的登录规则…");
+        nav("重新检查",()->recreate());
+        IO.execute(()->{
+            try{api.refreshSavedAccounts();runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){api=new EtknApi(this);showLogin(false);}});}
+            catch(Exception error){runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){showLogin(true);status.setText("无法检查已保存账号，请重新登录或返回重试。");}});}
+        });
+    }
+    private void showLogin(boolean addAccount){
+        if(!addAccount&&(LoginGate.requiresPicker(this,api)||api.session.persist()==SessionStore.PERSIST_ACCOUNT&&!api.session.accounts().isEmpty())){showPicker();return;}
+        if(!api.token.isEmpty()&&!addAccount){openHome();return;}
         screen(addAccount?"登录新用户":"连接你的 ETKN",addAccount?"为当前 ETKN 媒体服务器添加登录用户。":"自动发现局域网 ETKN 媒体服务器，遥控器点选后登录。");
         if(!addAccount){nav("重新搜索",this::scan);nav("关于 / 检查更新",()->open(SettingsActivity.class));}
         if(!addAccount){
@@ -26,9 +35,7 @@ public final class SetupActivity extends TvActivity {
             List<SavedAccounts.Account> accounts=api.session.accounts();
             if(!accounts.isEmpty()){
                 content.addView(text("已登录用户",16,android.graphics.Color.WHITE));content.addView(savedUsers);
-                for(SavedAccounts.Account account:accounts)savedUsers.addView(button("使用："+account.name,()->{
-                    try{api.session.activate(account.userId);openHome();}catch(Exception error){status.setText(error.getMessage());}
-                }));
+                for(SavedAccounts.Account account:accounts)savedUsers.addView(button((account.needsPassword?"登录（需密码）：":"使用：")+account.name,()->loginWithPasswordIfNeeded(account)));
             }
         }
         servers=column();content.addView(servers);
@@ -37,7 +44,11 @@ public final class SetupActivity extends TvActivity {
         username=input("用户名",false);content.addView(username);password=input("密码",true);content.addView(password);
         content.addView(button("连接并登录",()->{
             status.setText("正在登录…");String address=server.getText().toString(),name=username.getText().toString(),pass=password.getText().toString();
-            async(()->{api.login(EtknApi.normalizeServer(address),name,pass);return true;},ok->{password.setText("");openHome();});
+            password.setText("");int generation=LoginGate.generation();
+            IO.execute(()->{
+                try{api.login(EtknApi.normalizeServer(address),name,pass);runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()&&generation==LoginGate.generation())openHome();});}
+                catch(Exception error){runOnUiThread(()->{if(!isFinishing()&&!isDestroyed())status.setText(error instanceof EtknApi.AuthException?"用户名或密码错误":error.getMessage());});}
+            });
         }));if(!addAccount)scan();
     }
     private void openHome(){LoginGate.satisfy();startActivity(new Intent(this,HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));finish();}
@@ -51,7 +62,7 @@ public final class SetupActivity extends TvActivity {
         List<SavedAccounts.Account> accounts=api.session.accounts();
         for(SavedAccounts.Account account:accounts){
             ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(44));avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
-            LinearLayout card=pickerCard(account.name,avatar,()->{status.setText("正在登录…");try{api.session.activate(account.userId);openHome();}catch(Exception error){status.setText(error.getMessage());}});
+            LinearLayout card=pickerCard(account.name,avatar,()->loginWithPasswordIfNeeded(account));
             card.setContentDescription("登录用户 "+account.name);
             users.addView(card);
             Images.load(api,api.server+"/api/tv/Users/"+EtknApi.encode(account.userId)+"/Images/Primary?maxWidth=160",avatar,api.session.accountToken(account.userId));
@@ -74,6 +85,40 @@ public final class SetupActivity extends TvActivity {
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-2,-2);layout.setMargins(dp(6),dp(6),dp(6),dp(6));card.setLayoutParams(layout);
         return card;
     }
+    /** 需要密码的账号（如管理员）选择时先输入密码完成完整登录，令牌不落盘。 */
+    private void loginWithPasswordIfNeeded(SavedAccounts.Account account){selectAccount(this,account,this::openHome);}
+    static void selectAccount(TvActivity host,SavedAccounts.Account account,Runnable onSuccess){
+        if(account.needsPassword){promptPassword(host,account,onSuccess);return;}
+        host.status.setText("正在检查账号…");
+        host.async(()->{
+            int persist=host.api.savedAccountPolicy(account.userId);
+            if(persist==SessionStore.PERSIST_FULL)host.api.session.activate(account.userId);
+            return persist;
+        },persist->{
+            if(persist==SessionStore.PERSIST_FULL)onSuccess.run();
+            else if(persist==SessionStore.PERSIST_ACCOUNT)promptPassword(host,account,onSuccess);
+            else host.startActivity(new Intent(host,SetupActivity.class).putExtra(EXTRA_ADD_ACCOUNT,true));
+        });
+    }
+    /** 密码输入弹窗：服务器固定为当前服务器，只输入密码；失败留在当前页面提示，不改变现有会话。 */
+    static void promptPassword(TvActivity host,SavedAccounts.Account account,Runnable onSuccess){
+        EditText input=host.input("输入 "+account.name+" 的密码",true);
+        input.setLayoutParams(new android.widget.FrameLayout.LayoutParams(-1,host.dp(48)));
+        android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(host).setTitle("登录 "+account.name).setView(input)
+                .setPositiveButton("登录",null).setNegativeButton("取消",null).create();
+        dialog.setOnShowListener(shown->dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(view->{
+            String password=input.getText().toString();input.setText("");input.setError(null);
+            if(password.isEmpty()){input.setError("请输入密码");return;}
+            int generation=LoginGate.generation();dialog.setCancelable(false);dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setEnabled(false);
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            host.status.setText("正在登录…");
+            TvActivity.IO.execute(()->{
+                try{host.api.login(host.api.session.server(),account.name,password);host.runOnUiThread(()->{if(!host.isFinishing()&&!host.isDestroyed()&&generation==LoginGate.generation()){dialog.dismiss();onSuccess.run();}});}
+                catch(Exception error){host.runOnUiThread(()->{if(!host.isFinishing()&&!host.isDestroyed()){dialog.setCancelable(true);dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setEnabled(true);dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setEnabled(true);input.setError(error instanceof EtknApi.AuthException?"用户名或密码错误":(error.getMessage()==null?"登录失败，请重试":error.getMessage()));}});}
+            });
+        }));
+        dialog.show();input.requestFocus();
+    }
     private void scan(){
         int revision=++scanRevision;if(discovery!=null)discovery.cancel();discovered.clear();if(servers==null)return;servers.removeAllViews();status.setText("正在搜索同网段 ETKN 媒体服务器…");
         discovery=new LanDiscovery();discovery.scan(this,item->runOnUiThread(()->{
@@ -83,4 +128,5 @@ public final class SetupActivity extends TvActivity {
         }),()->runOnUiThread(()->{if(!isDestroyed()&&revision==scanRevision)status.setText(discovered.isEmpty()?"未找到服务器。请确认电视与 ETKN 在同一局域网，或手动填写媒体服务器地址。":"找到 "+discovered.size()+" 台服务器，选择后登录。");}));
     }
     @Override protected void onDestroy(){if(discovery!=null)discovery.cancel();super.onDestroy();}
+    @Override protected void onStop(){if(password!=null)password.setText("");super.onStop();}
 }

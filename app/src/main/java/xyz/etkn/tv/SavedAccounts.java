@@ -9,7 +9,9 @@ import java.util.List;
 final class SavedAccounts {
     static final class Account {
         final String userId,name;
-        Account(String userId,String name){this.userId=userId;this.name=name;}
+        /** true 表示注册表只保存了账号信息（如管理员），选择时需要输入密码完成登录。 */
+        final boolean needsPassword;
+        Account(String userId,String name,boolean needsPassword){this.userId=userId;this.name=name;this.needsPassword=needsPassword;}
     }
     private SavedAccounts(){}
     /** 新账号追加到末尾、已有账号原地更新：列表顺序即首次登录顺序，固定不变。 */
@@ -38,7 +40,7 @@ final class SavedAccounts {
         List<Account> result=new ArrayList<>();
         for(JSONObject entry:entries(stored)){
             String userId=entry.optString("userId");
-            if(!userId.isEmpty()&&!entry.optString("token").isEmpty())result.add(new Account(userId,entry.optString("name")));
+            if(!userId.isEmpty())result.add(new Account(userId,entry.optString("name"),entry.optString("token").isEmpty()));
         }
         return result;
     }

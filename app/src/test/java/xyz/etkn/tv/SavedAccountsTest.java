@@ -16,6 +16,13 @@ public class SavedAccountsTest {
         assertEquals("Bob 2",users.get(1).name);
         assertEquals("new-iv:new-cipher",SavedAccounts.find(accounts,"user-2").optString("token"));
     }
+    @Test public void tokenlessAccountIsListedAsPasswordRequired(){
+        String accounts=SavedAccounts.upsert("[]","user-1","Alice","iv:cipher-a");
+        accounts=SavedAccounts.upsert(accounts,"user-9","Boss","");
+        List<SavedAccounts.Account> users=SavedAccounts.list(accounts);
+        assertEquals(2,users.size());assertFalse(users.get(0).needsPassword);
+        assertTrue(users.get(1).needsPassword);assertEquals("user-9",users.get(1).userId);
+    }
     @Test public void removingOneUserPreservesOtherAccounts(){
         String accounts=SavedAccounts.upsert("[]","user-1","Alice","iv:cipher-a");
         accounts=SavedAccounts.upsert(accounts,"user-2","Bob","iv:cipher-b");

@@ -23,14 +23,14 @@ abstract class TvActivity extends Activity {
     ScrollView screenScroll;
     EtknApi api;
     int dp(float value) { return Math.round(getResources().getDisplayMetrics().density*value); }
-    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
+    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
     private final android.os.Handler noticeTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable noticePoll=new Runnable(){@Override public void run(){IngestNotifications.check(TvActivity.this);noticeTimer.postDelayed(this,60000);}};
     /** 前台 Activity 计数：归零表示应用整体退到后台，按登录方式配置重置门禁。 */
     private static int foregroundActivities;
     @Override protected void onStart(){super.onStart();foregroundActivities++;}
-    @Override protected void onStop(){if(--foregroundActivities==0)LoginGate.reset();super.onStop();}
-    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&LoginGate.requiresPicker(this,api)){LoginGate.enter(this);return;}IngestNotifications.resumed(this);noticeTimer.post(noticePoll);}
+    @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
+    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);if(LoginGate.isSatisfied()){IngestNotifications.resumed(this);noticeTimer.post(noticePoll);}}
     @Override protected void onPause(){noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
     void screen(String title, String subtitle) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(36),dp(20),dp(36),dp(18)); root.setBackgroundColor(INK);
@@ -57,6 +57,7 @@ abstract class TvActivity extends Activity {
     EditText input(String hint, boolean password) {
         EditText view = new EditText(this); view.setSingleLine(true); view.setTextSize(17); view.setTextColor(Color.WHITE); view.setHintTextColor(MUTED); view.setHint(hint); view.setPadding(dp(12),dp(8),dp(12),dp(8));
         view.setInputType(password ? android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD : android.text.InputType.TYPE_CLASS_TEXT); view.setBackground(focusBackground());
+        if(password){view.setSaveEnabled(false);if(android.os.Build.VERSION.SDK_INT>=26)view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);}
         LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(dp(480),dp(48)); layout.setMargins(0,dp(8),0,dp(8)); view.setLayoutParams(layout); return view;
     }
     <T> void async(Callable<T> work, Consumer<T> done) {

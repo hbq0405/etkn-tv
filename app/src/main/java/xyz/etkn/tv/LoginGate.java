@@ -11,6 +11,7 @@ final class LoginGate {
     private static final String PREFS="tv_preferences",KEY="login-mode";
     /** 进程级标记：本次前台会话已通过用户选择或登录，离开后台后重置。 */
     private static boolean satisfied;
+    private static volatile int generation;
     private LoginGate(){}
     static int mode(Context context){return normalize(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getInt(KEY,LAST_USER));}
     static void setMode(Context context,int value){context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putInt(KEY,normalize(value)).apply();}
@@ -18,7 +19,9 @@ final class LoginGate {
     static boolean needsPicker(int mode,boolean satisfied,int accountCount){return mode==PICK_USER&&!satisfied&&accountCount>0;}
     static boolean requiresPicker(Context context,EtknApi api){return needsPicker(mode(context),satisfied,api.session.accounts().size());}
     static void satisfy(){satisfied=true;}
-    static void reset(){satisfied=false;}
+    static boolean isSatisfied(){return satisfied;}
+    static int generation(){return generation;}
+    static void reset(){satisfied=false;generation++;}
     /** 交回 SetupActivity，由它按当前配置展示用户选择框或登录表单。 */
     static void enter(Activity activity){activity.startActivity(new Intent(activity,SetupActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));activity.finish();}
 }

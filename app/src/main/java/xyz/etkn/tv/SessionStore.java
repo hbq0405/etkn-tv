@@ -15,15 +15,22 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class SessionStore {
+    static final int PERSIST_FULL=0,PERSIST_ACCOUNT=1,PERSIST_NONE=2;
+    /** 进程级临时会话：私密账号与管理员账号的令牌只保存在内存中，进程结束后必须重新登录。 */
+    private static String memoryToken,memoryUserId,memoryName;
     private final SharedPreferences prefs;
     private static final String KEY = "etkn-tv-session";
     SessionStore(Context context) { prefs = context.getSharedPreferences("session", Context.MODE_PRIVATE); }
+    /** 登录响应决定令牌持久化策略：私密账号不落盘、管理员账号只保留账号信息、普通账号保存加密令牌。 */
+    static int persistPolicy(boolean privateAccount,boolean isAdmin){return privateAccount?PERSIST_NONE:isAdmin?PERSIST_ACCOUNT:PERSIST_FULL;}
     String server() { return prefs.getString("server", ""); }
-    String userId() { return prefs.getString("userId", ""); }
-    String name() { return prefs.getString("name", ""); }
+    String userId() { return persist()==PERSIST_NONE ? (memoryUserId==null?"":memoryUserId) : prefs.getString("userId", ""); }
+    String name() { return persist()==PERSIST_NONE ? (memoryName==null?"":memoryName) : prefs.getString("name", ""); }
+    /** 当前会话的令牌持久化策略；旧版本没有该键时按完整保存处理。 */
+    int persist(){int value=prefs.getInt("persist",PERSIST_FULL);return value>=PERSIST_FULL&&value<=PERSIST_NONE?value:PERSIST_FULL;}
     List<SavedAccounts.Account> accounts(){
         String currentId=userId(),currentToken=prefs.getString("token","");
-        if(prefs.getBoolean("mediaEntryVerified",false)&&!currentId.isEmpty()&&!currentToken.isEmpty()){
+        if(persist()==PERSIST_FULL&&prefs.getBoolean("mediaEntryVerified",false)&&!currentId.isEmpty()&&!currentToken.isEmpty()){
             String stored=prefs.getString("accounts","[]"),updated=SavedAccounts.upsert(stored,currentId,name(),currentToken);
             if(!updated.equals(stored))prefs.edit().putString("accounts",updated).apply();
         }
@@ -36,8 +43,10 @@ final class SessionStore {
         accounts();
         org.json.JSONObject account=SavedAccounts.find(prefs.getString("accounts","[]"),targetUserId);
         if(account==null)throw new Exception("该用户的登录信息不可用，请重新登录");
+        if(account.optString("token").isEmpty())throw new Exception("该账号需要输入密码登录");
+        endTemporarySession();
         prefs.edit().putString("userId",targetUserId).putString("name",account.optString("name"))
-                .putString("token",account.getString("token")).putBoolean("mediaEntryVerified",true).apply();
+                .putString("token",account.getString("token")).putInt("persist",PERSIST_FULL).putBoolean("mediaEntryVerified",true).apply();
     }
     String deviceId() {
         String value = prefs.getString("deviceId", "");
@@ -55,6 +64,8 @@ final class SessionStore {
         return (SecretKey) store.getKey(KEY, null);
     }
     String token() {
+        String id=userId();
+        if(persist()!=PERSIST_FULL)return !id.isEmpty()&&id.equals(memoryUserId)&&memoryToken!=null?memoryToken:"";
         if (!prefs.getBoolean("mediaEntryVerified",false)) return "";
         String value = prefs.getString("token", "");
         if (value.isEmpty()) return "";
@@ -76,10 +87,41 @@ final class SessionStore {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key());
         String encrypted = Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP) + ":" + Base64.encodeToString(cipher.doFinal(token.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP);
         String registry=SavedAccounts.upsert(prefs.getString("accounts","[]"),userId,name,encrypted);
-        prefs.edit().putString("accounts",registry).putString("server", server).putString("userId", userId).putString("name", name).putString("token", encrypted).putBoolean("mediaEntryVerified",true).apply();
+        prefs.edit().putString("accounts",registry).putString("server", server).putString("userId", userId).putString("name", name).putString("token", encrypted).putInt("persist",PERSIST_FULL).putBoolean("mediaEntryVerified",true).apply();
+        endTemporarySession();
+        LoginGate.satisfy();
     }
+    /** 按持久化策略保存登录会话：私密账号不进入注册表也不留凭据，管理员账号注册表只保留账号信息；两者的令牌只存内存。 */
+    void saveSession(String server, String userId, String name, String token, int persist) throws Exception {
+        if(persist==PERSIST_FULL){save(server,userId,name,token);return;}
+        ensureServer(server);
+        String registry=persist==PERSIST_ACCOUNT
+                ?SavedAccounts.upsert(prefs.getString("accounts","[]"),userId,name,"")
+                :SavedAccounts.remove(prefs.getString("accounts","[]"),userId);
+        SharedPreferences.Editor edit=prefs.edit().putString("accounts",registry).putString("server",server).putInt("persist",persist).remove("token").putBoolean("mediaEntryVerified",true);
+        if(persist==PERSIST_NONE)edit.remove("userId").remove("name");
+        else edit.putString("userId",userId).putString("name",name);
+        if(!edit.commit())throw new Exception("无法清除已保存的登录凭据，请重试");
+        memoryUserId=userId;memoryName=name;memoryToken=token;
+    }
+    /** 恢复旧账号前清理受限账号的历史令牌，也覆盖非当前账号。 */
+    void restrictSavedAccount(String userId,int persist)throws Exception{
+        org.json.JSONObject account=SavedAccounts.find(prefs.getString("accounts","[]"),userId);
+        if(account==null)return;
+        String registry=persist==PERSIST_NONE?SavedAccounts.remove(prefs.getString("accounts","[]"),userId)
+                :SavedAccounts.upsert(prefs.getString("accounts","[]"),userId,account.optString("name"),"");
+        SharedPreferences.Editor edit=prefs.edit().putString("accounts",registry);
+        if(userId.equals(userId())){
+            edit.remove("token").putInt("persist",persist);
+            if(persist==PERSIST_NONE)edit.remove("userId").remove("name");
+            endTemporarySession();
+        }
+        if(!edit.commit())throw new Exception("无法清除已保存的登录凭据，请重试");
+    }
+    static void endTemporarySession(){memoryToken=null;memoryUserId=null;memoryName=null;}
     void clear() {
         String currentId=userId(),registry=currentId.isEmpty()?prefs.getString("accounts","[]"):SavedAccounts.remove(prefs.getString("accounts","[]"),currentId);
-        prefs.edit().putString("accounts",registry).remove("token").remove("userId").remove("name").remove("mediaEntryVerified").apply();
+        endTemporarySession();
+        prefs.edit().putString("accounts",registry).remove("token").remove("userId").remove("name").remove("mediaEntryVerified").remove("persist").apply();
     }
 }

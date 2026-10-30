@@ -71,11 +71,36 @@ final class EtknApi {
         }
     }
     void login(String address, String username, String password) throws Exception {
+        int generation=LoginGate.generation();
         address = LanDiscovery.resolve(address,7000).getString("url");
         session.ensureServer(address);
         JSONObject result = request(address, "", "POST", "/api/tv/Users/AuthenticateByName", new JSONObject().put("Username", username).put("Pw", password));
         String access = result.getString("AccessToken"); JSONObject user = result.getJSONObject("User");
-        session.save(address, user.getString("Id"), user.optString("Name"), access);
+        JSONObject policy=user.optJSONObject("Policy");
+        boolean isAdmin=policy!=null&&policy.optBoolean("IsAdministrator");
+        int persist=SessionStore.persistPolicy(result.optBoolean("PrivateAccount"),isAdmin);
+        if(persist!=SessionStore.PERSIST_FULL&&password.isEmpty())throw new Exception("请先为该账号设置密码，再输入密码登录");
+        if(generation!=LoginGate.generation())throw new Exception("应用已离开前台，请重新登录");
+        session.saveSession(address, user.getString("Id"), user.optString("Name"), access, persist);
+        if(generation!=LoginGate.generation()){SessionStore.endTemporarySession();throw new Exception("应用已离开前台，请重新登录");}
+    }
+    /** 先查询当前服务端策略，避免旧版或模板调整前的令牌直接恢复管理员/私密账号。 */
+    int savedAccountPolicy(String userId)throws Exception{
+        String access=session.accountToken(userId);
+        if(access.isEmpty())return SessionStore.PERSIST_ACCOUNT;
+        JSONObject user=request(session.server(),access,"GET","/api/tv/Users/Me",null);
+        if(!userId.equals(user.optString("Id")))throw new Exception("已保存账号身份不一致，请重新登录");
+        JSONObject policy=user.optJSONObject("Policy");
+        int persist=SessionStore.persistPolicy(user.optBoolean("PrivateAccount"),policy!=null&&policy.optBoolean("IsAdministrator"));
+        if(persist!=SessionStore.PERSIST_FULL)session.restrictSavedAccount(userId,persist);
+        return persist;
+    }
+    void refreshSavedAccounts()throws Exception{
+        for(SavedAccounts.Account account:session.accounts()){
+            if(account.needsPassword)continue;
+            try{savedAccountPolicy(account.userId);}
+            catch(AuthException expired){session.restrictSavedAccount(account.userId,SessionStore.PERSIST_ACCOUNT);}
+        }
     }
     String userPath() { return "/api/tv/Users/" + encode(session.userId()); }
     String artwork(JSONObject media, String type, int width) {

@@ -106,7 +106,7 @@ public final class HomeActivity extends TvActivity {
         return super.dispatchKeyEvent(event);
     }
     @Override protected void onResume(){
-        super.onResume();foreground=true;
+        super.onResume();if(isFinishing())return;foreground=true;
         boolean carouselSetting=new TvPreferences(this,api).smartCarousel();
         if("home".equals(mode)&&carouselSetting!=carouselEnabled)loadHome();
         else if(!createdHome)refreshHome();
@@ -195,11 +195,11 @@ public final class HomeActivity extends TvActivity {
         if(accounts.isEmpty())return;
         String[] labels=new String[accounts.size()];
         for(int index=0;index<accounts.size();index++){
-            SavedAccounts.Account account=accounts.get(index);labels[index]=account.name+(account.userId.equals(api.session.userId())?"（当前）":"");
+            SavedAccounts.Account account=accounts.get(index);labels[index]=account.name+(account.userId.equals(api.session.userId())?"（当前）":"")+(account.needsPassword?"（需密码）":"");
         }
         new AlertDialog.Builder(this).setTitle("切换用户").setItems(labels,(dialog,index)->{
-            SavedAccounts.Account account=accounts.get(index);if(account.userId.equals(api.session.userId()))return;
-            try{api.session.activate(account.userId);recreate();}catch(Exception error){status.setText(error.getMessage());}
+            SavedAccounts.Account account=accounts.get(index);if(!account.needsPassword&&account.userId.equals(api.session.userId()))return;
+            SetupActivity.selectAccount(this,account,this::recreate);
         }).setNeutralButton("登录新用户",(dialog,index)->startActivity(new Intent(this,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true))).setNegativeButton("取消",null).show();
     }
     private LinearLayout section(String title){return section(title,content);}
