@@ -8,8 +8,8 @@ android {
         applicationId 'xyz.etkn.tv'
         minSdk 24
         targetSdk 35
-        versionCode 27
-        versionName '0.1.26'
+        versionCode 28
+        versionName '0.1.27'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         buildConfigField 'String', 'UPDATE_MANIFEST_URL', '"https://github.com/hbq0405/etkn-tv/releases/latest/download/update.json"'
     }

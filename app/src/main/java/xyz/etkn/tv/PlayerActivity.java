@@ -111,23 +111,8 @@ public final class PlayerActivity extends TvActivity {
         DefaultTimeBar bar=view.findViewById(androidx.media3.ui.R.id.exo_progress);
         if(bar!=null){bar.setPlayedColor(ACCENT);bar.setScrubberColor(ACCENT);bar.setBufferedColor(BUFFERED);bar.setUnplayedColor(BAR_IDLE);}
         view.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(controls!=null)controls.setVisibility(visibility);if(visibility!=View.VISIBLE){focusNextWhenLoaded=false;view.requestFocus();}});
+        if(texture)view.getVideoSurfaceView().addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{if(player!=null)applyVideoRotation(player.getVideoSize());});
         return view;
-    }
-    private void setVideoView(boolean texture){
-        if((video.getVideoSurfaceView() instanceof TextureView)==texture)return;
-        PlayerView previous=video;ViewGroup parent=(ViewGroup)previous.getParent();
-        int index=parent.indexOfChild(previous);boolean focused=previous.hasFocus(),visible=previous.isControllerFullyVisible();
-        video=createVideoView(texture);parent.addView(video,index,previous.getLayoutParams());
-        androidx.media3.ui.SubtitleView from=previous.getSubtitleView(),to=video.getSubtitleView();
-        to.setStyle(new androidx.media3.ui.CaptionStyleCompat(android.graphics.Color.WHITE,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,android.graphics.Color.BLACK,null));
-        for(int i=from.getChildCount()-1;i>=0;i--){
-            View child=from.getChildAt(i);
-            if(child instanceof io.github.peerless2012.ass.media.widget.AssSubtitleView){from.removeViewAt(i);to.addView(child);}
-        }
-        if(player!=null)PlayerView.switchTargetView(player,previous,video);
-        parent.removeView(previous);
-        if(visible)video.showController();else video.hideController();
-        if(focused)video.requestFocus();
     }
     private void loadNextEpisode(){
         String series=getIntent().getStringExtra("seriesId");if(series==null||series.isEmpty())return;
@@ -150,7 +135,10 @@ public final class PlayerActivity extends TvActivity {
     private void startSource(){
         if(!foreground||!versionConfirmed||info==null||player!=null)return;
         try{
-            setVideoView(softwareVideo);
+            if((video.getVideoSurfaceView() instanceof TextureView)!=softwareVideo){
+                ViewGroup parent=(ViewGroup)video.getParent();int index=parent.indexOfChild(video);ViewGroup.LayoutParams layout=video.getLayoutParams();
+                parent.removeView(video);video=createVideoView(softwareVideo);parent.addView(video,index,layout);
+            }
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
             int locked=new TvPreferences(this,api).seasonAudio(seasonKey);
             if(locked>=0){audioIndex=PlaybackSelection.audioAt(source,locked);if(audioIndex==PlaybackSelection.AUTO&&missingSeasonAudio!=locked){missingSeasonAudio=locked;Toast.makeText(this,"本集缺少第 "+(locked+1)+" 音轨，使用默认音轨；本季锁定已保留",Toast.LENGTH_LONG).show();}}
@@ -180,12 +168,12 @@ public final class PlayerActivity extends TvActivity {
             reportedStart=false;
             videoFrameSeen=false;videoReadySince=0;videoDecoder="等待解码器";
             player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener(){
-                @Override public void onVideoDecoderInitialized(EventTime time,String name,long at,long duration){videoDecoder=name;if(player!=null)updateVideoOutput();updateVideoInfo();}
+                @Override public void onVideoDecoderInitialized(EventTime time,String name,long at,long duration){videoDecoder=name;if(player!=null)applyVideoRotation(player.getVideoSize());updateVideoInfo();}
             });
             player.addListener(new Player.Listener(){
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
-                @Override public void onVideoSizeChanged(VideoSize size){updateVideoOutput();}
-                @Override public void onTracksChanged(Tracks tracks){updateVideoOutput();applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
+                @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
+                @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
                 @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)finish();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
@@ -209,16 +197,26 @@ public final class PlayerActivity extends TvActivity {
         String label=format==null?"尚未解析视频":format.sampleMimeType+"  "+format.width+"×"+format.height;
         videoInfo.setText(label+"  ·  "+videoDecoder+"  ·  "+(videoFrameSeen?"已输出画面":"等待画面")+(format!=null&&format.rotationDegrees!=0?"  ·  旋转"+format.rotationDegrees+"°":""));
     }
-    /** Both decoders output unrotated pixels; rotated video uses the texture matrix. */
-    private void updateVideoOutput(){
+    /** MediaCodec 已旋转输出；FFmpeg 的原始帧只在 TextureView 内做旋转，SurfaceView 不做视图变换。 */
+    private void applyVideoRotation(VideoSize size){
         if(player==null)return;
-        Format format=player.getVideoFormat();
-        if(format==null)for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_VIDEO){
-            for(int i=0;i<group.length;i++)if(group.isTrackSelected(i)){format=group.getTrackFormat(i);break;}
-            if(format!=null)break;
+        View surface=video.getVideoSurfaceView();
+        if(!(surface instanceof TextureView))return;
+        androidx.media3.ui.AspectRatioFrameLayout frame=video.findViewById(androidx.media3.ui.R.id.exo_content_frame);
+        Format format=player.getVideoFormat();boolean raw=videoDecoder.startsWith("ffmpeg");
+        int rotation=raw&&format!=null?format.rotationDegrees:0;
+        boolean swap=rotation==90||rotation==270;
+        if(frame!=null&&size.width>0&&size.height>0){
+            float par=raw&&format!=null?format.pixelWidthHeightRatio:size.pixelWidthHeightRatio;
+            frame.setAspectRatio(swap?size.height/(size.width*par):size.width*par/size.height);
         }
-        if(format!=null)setVideoView(softwareVideo||format.rotationDegrees!=0);
-        if(video instanceof RotatingPlayerView)((RotatingPlayerView)video).updateRotation();
+        android.graphics.Matrix transform=new android.graphics.Matrix();int w=surface.getWidth(),h=surface.getHeight();
+        if(rotation!=0&&w>0&&h>0){
+            float x=w/2f,y=h/2f;transform.postRotate(rotation,x,y);
+            android.graphics.RectF bounds=new android.graphics.RectF(0,0,w,h);transform.mapRect(bounds);
+            transform.postScale(w/bounds.width(),h/bounds.height(),x,y);
+        }
+        ((TextureView)surface).setTransform(transform);
     }
     private void updateSkip(){
         SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||pendingSeekPosition>=0||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
