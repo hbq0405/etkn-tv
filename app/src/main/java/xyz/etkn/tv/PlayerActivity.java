@@ -77,7 +77,7 @@ public final class PlayerActivity extends TvActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
-        video=createVideoView(softwareVideo);
+        video=createVideoView(useTextureVideo());
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
         seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.BOTTOM);seekLayout.setMargins(dp(28),0,dp(28),dp(28));stage.addView(seekProgress,seekLayout);
@@ -104,6 +104,8 @@ public final class PlayerActivity extends TvActivity {
         });
         loadNextEpisode();
     }
+    // L055FCN 的 SurfaceView 旋转异常；在创建解码器前选定纹理输出，避免跨表面类型切换。
+    private boolean useTextureVideo(){return softwareVideo||(android.os.Build.VERSION.SDK_INT<=28&&"L055FCN".equals(android.os.Build.MODEL));}
     private PlayerView createVideoView(boolean texture){
         PlayerView view=texture?(PlayerView)getLayoutInflater().inflate(R.layout.player_texture,null):new PlayerView(this);
         view.setUseController(true);view.setControllerAutoShow(false);view.setControllerShowTimeoutMs(5000);view.setKeepContentOnPlayerReset(true);view.setShowSubtitleButton(false);view.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
@@ -135,9 +137,10 @@ public final class PlayerActivity extends TvActivity {
     private void startSource(){
         if(!foreground||!versionConfirmed||info==null||player!=null)return;
         try{
-            if((video.getVideoSurfaceView() instanceof TextureView)!=softwareVideo){
+            boolean texture=useTextureVideo();
+            if((video.getVideoSurfaceView() instanceof TextureView)!=texture){
                 ViewGroup parent=(ViewGroup)video.getParent();int index=parent.indexOfChild(video);ViewGroup.LayoutParams layout=video.getLayoutParams();
-                parent.removeView(video);video=createVideoView(softwareVideo);parent.addView(video,index,layout);
+                parent.removeView(video);video=createVideoView(texture);parent.addView(video,index,layout);
             }
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
             int locked=new TvPreferences(this,api).seasonAudio(seasonKey);

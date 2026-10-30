@@ -365,12 +365,24 @@ public class DetailFlowTest {
         verifyRotationFixture("rotation-90.mp4",90);
         verifyRotationFixture("rotation-270.mp4",270);
     }
+    @Test public void hardwareRotationMetadataKeepsOrientationAndShape()throws Exception{
+        verifyRotationFixture("rotation-270.mp4",270,new boolean[]{false});
+        verifyRotationFixture("rotation-90.mp4",90,new boolean[]{false});
+    }
+    @Test public void hardwarePortraitWithoutRotationKeepsShape()throws Exception{
+        File file=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"codec-fixtures/phone-portrait.mp4");
+        org.junit.Assume.assumeTrue("手机样本只保留在独立诊断设备，不随仓库分发",file.isFile());
+        verifyRotationFixture("phone-portrait.mp4",0,new boolean[]{false});
+    }
     private void verifyRotationFixture(String file,int rotation)throws Exception{
+        verifyRotationFixture(file,rotation,new boolean[]{false,true,false});
+    }
+    private void verifyRotationFixture(String file,int rotation,boolean[] modes)throws Exception{
         List<String> errors=new ArrayList<>();
         try(Fixture server=new Fixture(true,file)){
             open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
             int pass=0;
-            for(boolean software:new boolean[]{false,true,false}){
+            for(boolean software:modes){
                 if(software!=Boolean.TRUE.equals(field(playback,"softwareVideo"))){
                     onMain(()->((Button)field(playback,"decoderButton")).performClick());settle();
                     instrumentation.sendKeyDownUpSync(software?KeyEvent.KEYCODE_DPAD_DOWN:KeyEvent.KEYCODE_DPAD_UP);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
@@ -383,6 +395,7 @@ public class DetailFlowTest {
                     ExoPlayer player=(ExoPlayer)field(playback,"player");View surface=((androidx.media3.ui.PlayerView)field(playback,"video")).getVideoSurfaceView();
                     android.util.Log.i("RotationFixture",name+" decoder="+field(playback,"videoDecoder")+" format="+player.getVideoFormat()+" size="+player.getVideoSize().width+"x"+player.getVideoSize().height+" surface="+surface.getWidth()+"x"+surface.getHeight()+" rotation="+surface.getRotation()+" scale="+surface.getScaleX()+","+surface.getScaleY());
                     assertNull(player.getPlayerError());
+                    assertEquals("必须保持选择的解码模式",software,((String)field(playback,"videoDecoder")).startsWith("ffmpeg"));
                     assertEquals("竖屏输出必须保留原始比例",360f/640f,surface.getWidth()/(float)surface.getHeight(),.003f);
                 });
                 if(rotation!=0){
