@@ -34,6 +34,7 @@ final class EtknApi {
     }
     JSONObject get(String path) throws Exception { return request(server, token, "GET", path, null); }
     JSONObject post(String path, JSONObject body) throws Exception { return request(server, token, "POST", path, body); }
+    JSONObject delete(String path) throws Exception { return request(server, token, "DELETE", path, null); }
     JSONObject request(String origin, String access, String method, String path, JSONObject body) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(origin + path).openConnection();
         conn.setInstanceFollowRedirects(false);

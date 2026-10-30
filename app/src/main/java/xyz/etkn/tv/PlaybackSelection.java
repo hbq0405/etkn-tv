@@ -19,6 +19,21 @@ final class PlaybackSelection {
         }
         return next;
     }
+    /** Queue entry point: first unwatched playable episode, else the first playable one. */
+    static JSONObject firstUnwatched(List<JSONObject> episodes){
+        List<JSONObject> playable=new ArrayList<>();
+        for(JSONObject episode:episodes){
+            if(!"Episode".equals(episode.optString("Type"))||episode.optString("Id").isEmpty()||episode.optBoolean("IsMissing")||"Virtual".equals(episode.optString("LocationType")))continue;
+            if(episode.optInt("ParentIndexNumber",-1)<0||episode.optInt("IndexNumber",-1)<0)continue;
+            playable.add(episode);
+        }
+        playable.sort((a,b)->{int s=Integer.compare(a.optInt("ParentIndexNumber"),b.optInt("ParentIndexNumber"));return s!=0?s:Integer.compare(a.optInt("IndexNumber"),b.optInt("IndexNumber"));});
+        for(JSONObject episode:playable){
+            JSONObject data=episode.optJSONObject("UserData");
+            if(data==null||!data.optBoolean("Played"))return episode;
+        }
+        return playable.isEmpty()?null:playable.get(0);
+    }
     static String seasonKey(JSONObject item){
         if(item==null||!"Episode".equals(item.optString("Type")))return "";
         String season=item.optString("SeasonId");if(!season.isEmpty())return season;

@@ -82,9 +82,12 @@ abstract class TvActivity extends Activity {
         return card;
     }
     View posterCard(GridLayout grid,org.json.JSONObject media,Runnable click,String episodeCountMode){
+        return posterCard(grid,media,click,episodeCountMode,false);
+    }
+    View posterCard(GridLayout grid,org.json.JSONObject media,Runnable click,String episodeCountMode,boolean landscape){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());
         FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(Color.TRANSPARENT,0));artwork.setClipToOutline(true);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
-        card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(198)));
+        card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(landscape?139:198)));
         android.graphics.drawable.GradientDrawable fade=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(235,0,0,0)});
         LinearLayout ratings=row();ratings.setGravity(android.view.Gravity.CENTER);ratings.setPadding(0,dp(17),0,dp(3));ratings.setBackground(fade);
         FrameLayout.LayoutParams ratingBounds=new FrameLayout.LayoutParams(-1,dp(42),android.view.Gravity.BOTTOM);artwork.addView(ratings,ratingBounds);
@@ -99,8 +102,9 @@ abstract class TvActivity extends Activity {
         }
         TextView title=text(EtknApi.title(media),14,Color.WHITE);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,dp(25)));
         TextView year=text(media.optString("ProductionYear"),12,MUTED);year.setGravity(android.view.Gravity.CENTER);year.setPadding(0,0,0,0);card.addView(year,new LinearLayout.LayoutParams(-1,dp(20)));
-        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(132);layout.height=dp(255);layout.setMargins(dp(6),dp(6),dp(6),dp(6));grid.addView(card,layout);
-        Images.load(api,api.image(media),poster);
+        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(landscape?264:132);layout.height=dp(landscape?215:255);layout.setMargins(dp(6),dp(6),dp(6),dp(6));grid.addView(card,layout);
+        if(landscape){String backdrop=api.artwork(media,"Backdrop",640);Images.visible(api,backdrop,poster,success->{if(!success)Images.load(api,api.image(media),poster);});}
+        else Images.load(api,api.image(media),poster);
         card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setForeground(hasFocus?focusOutline():null);});
         return card;
     }

@@ -49,6 +49,9 @@ public final class PlayerActivity extends TvActivity {
     private long pendingSeekPosition=-1;
     private boolean seekKeys,focusNextWhenLoaded;
     private int audioIndex=PlaybackSelection.AUTO,subtitleIndex=PlaybackSelection.AUTO;
+    private String[] queueIds;
+    private int queueIndex;
+    private boolean queueMode,nextLoaded,pendingAdvance;
     private final Handler timer=new Handler(Looper.getMainLooper());
     private final Runnable seekCommit=this::commitSeek;
     private final Runnable seekProgressHide=this::hideSeekProgress;
@@ -74,6 +77,8 @@ public final class PlayerActivity extends TvActivity {
         softwareVideo=state!=null&&state.getBoolean("softwareVideo");
         softwareAudio=state==null||state.getBoolean("softwareAudio",true);enhancedSubtitles=state==null||state.getBoolean("enhancedSubtitles",true);
         playWhenReady=state==null||state.getBoolean("playWhenReady",true);skipMode=new TvPreferences(this,api).skipMode();
+        queueIds=getIntent().getStringArrayExtra("queue");queueIndex=getIntent().getIntExtra("queueIndex",0);queueMode=queueIds!=null&&queueIds.length>0;
+        String seriesExtra=getIntent().getStringExtra("seriesId");nextLoaded=seriesExtra==null||seriesExtra.isEmpty();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
@@ -87,12 +92,13 @@ public final class PlayerActivity extends TvActivity {
         LinearLayout actions=row();actions.addView(button("版本",this::chooseVersion));
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
         actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(decoderButton);
-        nextButton=button("下一集",this::playNextEpisode);nextButton.setVisibility(View.GONE);actions.addView(nextButton);
+        nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);actions.addView(nextButton);
         HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=dp(96);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
         skipButton=button("跳过片头",this::skipSegment);skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
         status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
         setContentView(stage);video.hideController();video.requestFocus();
+        if(queueMode&&!getIntent().getBooleanExtra("resolved",false)){status.setText("正在解析播放队列…");resolveQueueUnit(itemId,true);return;}
         String requestedSource=state==null?getIntent().getStringExtra("sourceId"):state.getString("sourceId",getIntent().getStringExtra("sourceId"));
         async(()->api.post("/api/tv/Items/"+EtknApi.encode(itemId)+"/PlaybackInfo?UserId="+EtknApi.encode(api.session.userId()),new JSONObject()),result->{
             info=result;playSession=info.optString("PlaySessionId");JSONArray sources=info.optJSONArray("MediaSources");
@@ -117,17 +123,56 @@ public final class PlayerActivity extends TvActivity {
         return view;
     }
     private void loadNextEpisode(){
-        String series=getIntent().getStringExtra("seriesId");if(series==null||series.isEmpty())return;
+        String series=getIntent().getStringExtra("seriesId");
+        if(series==null||series.isEmpty()){nextLoaded=true;updateNextButton();return;}
         async(()->{
             try{return PlaybackSelection.nextEpisode(EtknApi.rows(api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())+"&IsMissing=false")),itemId);}
             catch(EtknApi.AuthException error){throw error;}
             catch(Exception ignored){return null;}
-        },episode->{nextEpisode=episode;nextButton.setVisibility(episode==null?View.GONE:View.VISIBLE);if(episode!=null&&focusNextWhenLoaded&&controls.getVisibility()==View.VISIBLE)nextButton.requestFocus();focusNextWhenLoaded=false;});
+        },episode->{nextEpisode=episode;nextLoaded=true;updateNextButton();if(hasNext()&&focusNextWhenLoaded&&controls.getVisibility()==View.VISIBLE)nextButton.requestFocus();focusNextWhenLoaded=false;if(pendingAdvance){pendingAdvance=false;advanceQueue();}});
     }
+    private boolean hasNext(){return nextEpisode!=null||(queueMode&&queueIndex+1<queueIds.length);}
+    private void updateNextButton(){if(nextButton==null)return;nextButton.setText(nextEpisode!=null?"下一集":"下一个");nextButton.setVisibility(hasNext()?View.VISIBLE:View.GONE);}
     private void playNextEpisode(){
         if(nextEpisode==null||isFinishing())return;
         Intent next=new Intent(this,PlayerActivity.class).putExtra("id",nextEpisode.optString("Id")).putExtra("title",EtknApi.resumeTitle(nextEpisode)).putExtra("seriesId",getIntent().getStringExtra("seriesId")).putExtra("seasonKey",PlaybackSelection.seasonKey(nextEpisode)).putExtra("resume",true);
+        if(queueMode)next.putExtra("queue",queueIds).putExtra("queueIndex",queueIndex).putExtra("resolved",true);
         stopPlayer();startActivity(next);finish();
+    }
+    private void advanceQueue(){
+        if(nextEpisode!=null){playNextEpisode();return;}
+        if(!queueMode||isFinishing())return;
+        if(!nextLoaded){pendingAdvance=true;return;}
+        if(queueIndex+1>=queueIds.length){finish();return;}
+        queueIndex++;message("正在准备下一项…");resolveQueueUnit(queueIds[queueIndex],false);
+    }
+    private void resolveQueueUnit(String id,boolean first){
+        async(()->{
+            try{
+                JSONObject entry=api.get(api.userPath()+"/Items/"+EtknApi.encode(id));
+                String type=entry.optString("Type");
+                if("Series".equals(type)||"Season".equals(type)){
+                    String series="Series".equals(type)?entry.optString("Id"):entry.optString("SeriesId",entry.optString("ParentId"));
+                    List<JSONObject> episodes=EtknApi.rows(api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())+"&IsMissing=false"));
+                    JSONObject target=episodes.isEmpty()?null:(first?DetailPresentation.recommended(episodes):PlaybackSelection.firstUnwatched(episodes));
+                    if(target==null)return new JSONObject().put("failed",true);
+                    return new JSONObject().put("unit",target).put("seriesId",series);
+                }
+                return new JSONObject().put("unit",entry).put("seriesId",entry.optString("SeriesId"));
+            }catch(EtknApi.AuthException error){throw error;}
+            catch(Exception error){return new JSONObject().put("failed",true);}
+        },result->{
+            if(isFinishing()||isDestroyed())return;
+            JSONObject unit=result.optJSONObject("unit");
+            if(unit==null){
+                if(queueIndex+1<queueIds.length){queueIndex++;resolveQueueUnit(queueIds[queueIndex],first);return;}
+                if(first)status.setText("队列中没有可播放的媒体项");else finish();
+                return;
+            }
+            long start=first?("Episode".equals(unit.optString("Type"))?DetailPresentation.position(unit)/10000:position):0;
+            Intent next=new Intent(this,PlayerActivity.class).putExtra("id",unit.optString("Id")).putExtra("title",EtknApi.resumeTitle(unit)).putExtra("position",Math.max(0,start)).putExtra("seriesId",result.optString("seriesId")).putExtra("seasonKey",PlaybackSelection.seasonKey(unit)).putExtra("resume",true).putExtra("resolved",true).putExtra("queue",queueIds).putExtra("queueIndex",queueIndex);
+            stopPlayer();startActivity(next);finish();
+        });
     }
     private void chooseVersion(){
         if(info==null)return;JSONArray sources=info.optJSONArray("MediaSources");if(sources==null||sources.length()==0)return;
@@ -177,7 +222,7 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
-                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)finish();}
+                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){if(queueMode)advanceQueue();else finish();}}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
             player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();video.requestFocus();updateTrackButtons();
@@ -294,7 +339,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void commitSeek(){if(player==null||pendingSeekPosition<0)return;long target=pendingSeekPosition;pendingSeekPosition=-1;player.seekTo(target);showSeekProgress();}
     private void hideSeekProgress(){seekKeys=false;pendingSeekPosition=-1;timer.removeCallbacks(seekCommit);timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgress.setVisibility(View.GONE);}
-    private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);focusNextWhenLoaded=nextEpisode==null;(nextEpisode==null?audioButton:nextButton).requestFocus();}
+    private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);focusNextWhenLoaded=!hasNext();(hasNext()?nextButton:audioButton).requestFocus();}
     private void chooseDecoder(){
         if(player==null)return;video.setControllerShowTimeoutMs(0);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("视频解码").setSingleChoiceItems(new String[]{"自动：硬解优先，失败回退","软件兼容：高分辨率可能较慢"},softwareVideo?1:0,(choice,index)->{if(softwareVideo!=(index==1)){stopPlayer();softwareVideo=index==1;startSource();}choice.dismiss();}).setNegativeButton("取消",null).create();

@@ -19,7 +19,8 @@ public final class DetailActivity extends TvActivity {
     private final List<JSONObject> allEpisodes=new ArrayList<>();
     private JSONArray sources=new JSONArray();
     private int sourceIndex,audio=PlaybackSelection.AUTO,subtitle=PlaybackSelection.AUTO;
-    private Button playButton,versionButton,audioButton,subtitleButton,restartButton;
+    private Button playButton,versionButton,audioButton,subtitleButton,restartButton,favoriteButton,playedButton;
+    private int stateTicket;
     private LinearLayout episodeArea,preview;
     private TextView episodeTitle,episodeOverview;
     private ImageView backdrop,episodeImage;
@@ -70,7 +71,9 @@ public final class DetailActivity extends TvActivity {
         String categories=DetailPresentation.categories(item);if(!categories.isEmpty())content.addView(text(categories,14,MUTED));
         LinearLayout actions=row();
         playButton=button("播放",()->play(false));playButton.setId(View.generateViewId());playButton.setEnabled(false);actions.addView(playButton);
-        restartButton=button("从头播放",()->play(true));restartButton.setVisibility(View.GONE);actions.addView(restartButton);content.addView(actions);
+        restartButton=button("从头播放",()->play(true));restartButton.setVisibility(View.GONE);actions.addView(restartButton);
+        favoriteButton=button("",this::toggleFavorite);actions.addView(favoriteButton);
+        playedButton=button("",this::togglePlayed);actions.addView(playedButton);refreshStateButtons();content.addView(actions);
         LinearLayout selections=row();versionButton=button("版本",this::chooseVersion);audioButton=button("音轨",()->chooseStream(false));subtitleButton=button("字幕",()->chooseStream(true));
         selections.addView(versionButton);selections.addView(audioButton);selections.addView(subtitleButton);
         HorizontalScrollView selectionScroll=new FocusScroll.Row(this);selectionScroll.setHorizontalScrollBarEnabled(false);selectionScroll.addView(selections);content.addView(selectionScroll);
@@ -90,6 +93,47 @@ public final class DetailActivity extends TvActivity {
         return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(PANEL,0),fill,outline});
     }
     private void focusPlay(){playButton.post(()->{playButton.requestFocus();scroll.scrollTo(0,0);});}
+    private JSONObject userData(){JSONObject data=item==null?null:item.optJSONObject("UserData");return data==null?new JSONObject():data;}
+    private void refreshStateButtons(){
+        if(favoriteButton==null||playedButton==null)return;
+        JSONObject data=userData();
+        favoriteButton.setText(data.optBoolean("IsFavorite")?"★ 已收藏":"☆ 收藏");
+        favoriteButton.setContentDescription(data.optBoolean("IsFavorite")?"已收藏，按确定取消收藏":"未收藏，按确定收藏");
+        playedButton.setText(data.optBoolean("Played")?"✓ 已播放":"标记已播放");
+        playedButton.setContentDescription(data.optBoolean("Played")?"已播放，按确定标为未播放":"未播放，按确定标记已播放");
+    }
+    private void mergeUserData(JSONObject target,JSONObject result){
+        if(target==null)return;
+        JSONObject data=target.optJSONObject("UserData");
+        if(data==null){data=new JSONObject();try{target.put("UserData",data);}catch(Exception ignored){}}
+        for(String key:new String[]{"PlaybackPositionTicks","PlayedPercentage","IsResumable","PlayCount","IsFavorite","Played","LastPlayedDate"}){try{if(result.has(key))data.put(key,result.get(key));}catch(Exception ignored){}}
+    }
+    private void applyUserData(JSONObject result){
+        mergeUserData(item,result);
+        if(playable!=null&&playable.optString("Id").equals(item.optString("Id")))mergeUserData(playable,result);
+        if(playable!=null){playButton.setText(DetailPresentation.position(playable)>0?"继续播放":"播放");restartButton.setVisibility(DetailPresentation.position(playable)>0?View.VISIBLE:View.GONE);}
+    }
+    private void toggleFavorite(){
+        if(item==null)return;
+        boolean current=userData().optBoolean("IsFavorite");
+        String path=api.userPath()+"/FavoriteItems/"+EtknApi.encode(item.optString("Id"));
+        int ticket=++stateTicket;
+        async(()->current?api.delete(path):api.post(path,new JSONObject()),result->{if(ticket!=stateTicket)return;applyUserData(result);refreshStateButtons();});
+    }
+    private void togglePlayed(){
+        if(item==null)return;
+        boolean current=userData().optBoolean("Played");
+        String path=api.userPath()+"/PlayedItems/"+EtknApi.encode(item.optString("Id"));
+        int ticket=++stateTicket;
+        async(()->current?api.delete(path):api.post(path,new JSONObject()),result->{
+            if(ticket!=stateTicket)return;
+            String type=item.optString("Type");
+            if(type.equals("Series")||type.equals("Season")){mergeUserData(item,result);refreshStateButtons();loadEpisodes();return;}
+            applyUserData(result);refreshStateButtons();
+            for(JSONObject episode:allEpisodes)if(item.optString("Id").equals(episode.optString("Id"))){mergeUserData(episode,result);break;}
+            if(episodeGrid!=null&&playable!=null)showSeason(playable.optString("SeasonId"),playable);
+        });
+    }
     private void setPlayable(JSONObject value){
         boolean changed=playable==null||!playable.optString("Id").equals(value.optString("Id"));playable=value;
         sources=value.optJSONArray("MediaSources");if(sources==null)sources=new JSONArray();
