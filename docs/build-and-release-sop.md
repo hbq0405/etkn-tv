@@ -93,3 +93,10 @@
 - 首页各分区独立返回时，续播行可能在媒体库取得焦点后增高并推动布局；调整 heroSpacer 后必须重新保证当前焦点完整可见。测试同时覆盖先返回片库、续播随后返回及原有首尾卡片可见矩形，不能只测初始焦点。
 - 分集矩阵进入焦点与矩阵内部左右导航分别验证。截图应在滚动到目标矩阵后提取，布局坐标断言不能证明截图已包含该区域；当前绿色填充采用服务端 Played 与 PlaybackPositionTicks/RunTimeTicks。
 - 原生依赖未改时，读取 APK 内实际 lib/*.so 清单，逐个比较上一版和受测 Debug 的 SHA-256，再复用对应源码包。不可把历史记录中的库数量当作当前包清单；本版实际为四 ABI 各四库，共 16 个，字节完全一致。Java 类核验须搜索所有 classes*.dex；FocusPulse 位于 classes2.dex，不能仅查主 dex 就判定漏包。校验脚本断言失败时先检查资产是否已写入，不据此重建原生依赖或替换签名。
+
+## 当前原生库重建入口（2026-10-30）
+
+- 当前 APK 的 FFmpeg 静态链接进 `libetkn_media3ext.so`；完整重建使用 `scripts/Build-PlayerNative.py`，NDK r27c。`Build-NextlibCompat.py` 是旧动态链接入口，生成物会依赖 APK 未包含的 `libavcodec.so` 等；模拟器日志实际出现 `dlopen failed: library "libavcodec.so" not found`，不能只按编译成功验收。
+- 仅 JNI 源码变更且固定 FFmpeg 静态缓存完整时，可以按 `Build-PlayerNative.py` 的相同编译、链接和 strip 参数重新链接四 ABI；不修改 FFmpeg 配置或库。用 `llvm-readelf -d` 核对不得新增独立 FFmpeg 动态库依赖，再验证实际解码、切换、seek 与字幕输出。本轮四 ABI 重链已通过依赖检查。
+- 旧 MSYS 构建缓存的 Makefile 可能保存 Git Bash `/c/...` 路径，直接由另一 MSYS make 启动会报源 Makefile 不存在；先读 build.log 并确认部分产物，本轮仅 x86_64 重建成功，其他 ABI 尚未写出。源文件与静态缓存仍存在时，复用已确认的缓存重链 JNI 可避免改变解码器构建；全量重建的 MSYS 路径修正本轮未验证。
+- Git 二进制读取使用可保留原始字节的文件流（如 Python `subprocess.check_output` 后 `write_bytes`）；`git show ... --output=...` 不能用于导出 blob。本轮误用只生成了独立输出目录中的无效诊断文件，未修改源文件；应先验证 ELF 魔数再交给 readelf。

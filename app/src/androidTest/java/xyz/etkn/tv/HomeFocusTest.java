@@ -40,6 +40,8 @@ public class HomeFocusTest {
             new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"resume-fixture","直接续播测试","synthetic-test-session");
             home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
             await(()->field(HomeActivity.class,"resumeFirst")!=null);
+            assertSame("首页只应聚焦第一个继续观看",field(HomeActivity.class,"resumeFirst"),home.getCurrentFocus());
+            assertEquals("用户确认前不能自动打开播放器",0,player.getHits());
             instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).performClick());
             playback=(PlayerActivity)player.waitForActivityWithTimeout(8000);assertNotNull(playback);assertEquals("item-0",playback.getIntent().getStringExtra("id"));assertTrue(playback.getIntent().getBooleanExtra("resume",false));assertEquals(0,details.getHits());
         }finally{instrumentation.removeMonitor(details);instrumentation.removeMonitor(player);if(playback!=null){PlayerActivity current=playback;instrumentation.runOnMainSync(current::finish);}if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
@@ -90,9 +92,11 @@ public class HomeFocusTest {
             server.holdFirstLatest=true;server.holdResume=true;
             new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"slow-fixture","首页延迟测试","synthetic-test-session");
             home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
-            await(()->library("library-2")!=null&&home.getCurrentFocus()==library("library-0")&&cards().size()>=18);
+            await(()->library("library-2")!=null&&cards().size()>=18);
             assertEquals("媒体库列表只能请求一次",1,server.viewCalls);assertEquals(1L,server.latestGate.getCount());assertEquals(1L,server.resumeGate.getCount());
-            View focused=home.getCurrentFocus();server.latestGate.countDown();server.resumeGate.countDown();await(()->cards().size()==90);assertEquals("后续加载不可抢走焦点",focused,home.getCurrentFocus());
+            assertFalse("续播结果未到时不能先选媒体库作为默认焦点",(Boolean)field(HomeActivity.class,"initialFocusChosen"));
+            server.resumeGate.countDown();await(()->home.getCurrentFocus()==field(HomeActivity.class,"resumeFirst"));
+            View focused=home.getCurrentFocus();server.latestGate.countDown();await(()->cards().size()==90);assertSame("后续加载不可抢走焦点",focused,home.getCurrentFocus());
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
 

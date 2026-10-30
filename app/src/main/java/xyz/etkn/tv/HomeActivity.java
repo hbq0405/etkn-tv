@@ -63,7 +63,7 @@ public final class HomeActivity extends TvActivity {
     private int carouselIndex;
     private ImageView carouselPrefetch;
     private final Runnable carouselRotate=new Runnable(){@Override public void run(){if(!carouselActive||!"home".equals(mode))return;if(!homeBackdrop.actionView().hasFocus())showCarouselItem(carouselIndex+1);homeTimer.postDelayed(this,8000);}};
-    private static boolean autoPlayDone,updateChecked;
+    private static boolean updateChecked;
     private Updater.Release pendingUpdate;
     private java.io.File pendingApk;
     private boolean installing;
@@ -207,7 +207,6 @@ public final class HomeActivity extends TvActivity {
         homeRequest(path,request,result->{
             if(request!=revision)return;String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
             if(libraries)loadLatestByLibrary(latestSections,request,items);
-            if(resumeShelf&&!autoPlayDone){autoPlayDone=true;if(!items.isEmpty())resumePlayback(items.get(0));}
             if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);return;}
             HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
@@ -246,7 +245,7 @@ public final class HomeActivity extends TvActivity {
         carouselItems.clear();carouselItems.addAll(items);carouselIndex=0;
         carouselActive=carouselEnabled&&"home".equals(mode)&&!carouselItems.isEmpty();
         homeTimer.removeCallbacks(carouselRotate);
-        homeBackdrop.actionVisible(carouselActive);
+        homeBackdrop.actionVisible(carouselActive);homeBackdrop.actionView().setFocusable(initialFocusChosen);
         if(!carouselActive)return;
         showCarouselItem(0);
         if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);
@@ -265,8 +264,9 @@ public final class HomeActivity extends TvActivity {
         if(resumeShelf){resumeFirst=first;resumeReady=true;}else{libraryFirst=first;libraryReady=true;}
         if(initialFocusChosen)return;
         if(!pendingLibraryFocus.isEmpty()&&!libraryReady)return;
+        if(pendingLibraryFocus.isEmpty()&&!resumeReady)return;
         if(resumeFirst==null&&libraryFirst==null&&(!resumeReady||!libraryReady))return;
-        initialFocusChosen=true;for(View card:homeCards)card.setFocusable(true);
+        initialFocusChosen=true;for(View card:homeCards)card.setFocusable(true);homeBackdrop.actionView().setFocusable(true);
         View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null)target=resumeFirst!=null?resumeFirst:libraryFirst;if(target!=null)target.requestFocus();else content.requestFocus(View.FOCUS_DOWN);
     }
     private void search(){EditText field=input("搜索片库",false);new AlertDialog.Builder(this).setTitle("搜索片库").setView(field).setPositiveButton("搜索",(dialog,which)->{query=field.getText().toString();parent="";selectedLibrary=null;offset=0;mode="search";loadItems();}).setNegativeButton("取消",null).show();}

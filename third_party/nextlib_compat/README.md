@@ -14,21 +14,26 @@ ETKN modifications, 2026-10-29, cover `ffaudio.cpp` and `ffvideo.cpp`:
   before filling Media3's `VideoDecoderOutputBuffer`.
 - Copy normalized Y/U/V planes directly into the Android YV12 window and fall
   back to the displayed width when a device reports a zero native-window stride.
+  The 2026-10-30 correction also uses this fallback for the Y-plane copy width,
+  preserving luminance on windows that report a zero stride.
 
 `ffcommon.cpp`, `ffcommon.h` and `ffmain.cpp` are unchanged. The JNI library is
 named `libetkn_media3ext.so`; `TvRenderersFactory` selects it
-before constructing any decoder. The FFmpeg shared libraries and Java classes
-come unchanged from the pinned Maven dependency. No media transport is added.
+before constructing any decoder. Current APKs statically link the pinned FFmpeg
+6.0 decoder sources. No media transport is added.
 
 Rebuild the four ABI binaries with NDK r27c (27.2.12479018), Python 3.12+:
 
 ```text
-python scripts/Build-NextlibCompat.py --ndk /path/to/android-ndk-r27c --work /path/to/scratch
+python scripts/Build-PlayerNative.py --ndk /path/to/android-ndk-r27c --work /path/to/scratch
 ```
 
-The script downloads the original AAR and FFmpeg 6.0 public headers, links
-against the AAR's unmodified FFmpeg libraries, and writes into
-`app/src/main/jniLibs`. Normal Gradle builds use those checked-in binaries.
+The script builds FFmpeg 6.0 decoders and links them into the JNI library in
+`app/src/main/jniLibs`. On Windows, pass installed Git Bash and GNU make paths
+with `--bash` and `--make`. Normal Gradle builds use the checked-in binaries.
+`Build-NextlibCompat.py` retains the old dynamic-link build and must not replace
+these binaries in current APKs, which do not package separate `libavcodec.so` or
+`libswscale.so` files. Verify ELF dependencies after rebuilding.
 The app can be rebuilt and installed with a developer's own Android signing key;
 no ETKN private signing material or server credentials are required.
 

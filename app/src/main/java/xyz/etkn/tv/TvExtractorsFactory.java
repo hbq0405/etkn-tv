@@ -11,8 +11,6 @@ import java.util.Map;
 /** Declare the HDR10 base layer before Media3 chooses a Dolby Vision P7 decoder. */
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 final class TvExtractorsFactory implements ExtractorsFactory {
-    /** 提取器阶段捕获的视频旋转与原始尺寸；渲染链路可能把旋转标记成已应用，视图层以这里为准。 */
-    static volatile int videoRotation,videoRawWidth,videoRawHeight;
     private final ExtractorsFactory delegate;
     TvExtractorsFactory(ExtractorsFactory delegate){this.delegate=delegate;}
     static Format baseLayer(Format format){
@@ -27,7 +25,7 @@ final class TvExtractorsFactory implements ExtractorsFactory {
         for(int i=0;i<extractors.length;i++)extractors[i]=new ForwardingExtractor(extractors[i]){
             @Override public void init(ExtractorOutput output){super.init(new ForwardingExtractorOutput(output){
                 @Override public TrackOutput track(int id,int type){return new ForwardingTrackOutput(super.track(id,type)){
-                    @Override public void format(Format format){if(MimeTypes.isVideo(format.sampleMimeType)){videoRotation=format.rotationDegrees;videoRawWidth=format.width;videoRawHeight=format.height;}super.format(baseLayer(format));}
+                    @Override public void format(Format format){super.format(baseLayer(format));}
                 };}
             });}
         };

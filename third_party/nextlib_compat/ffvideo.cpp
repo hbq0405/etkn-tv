@@ -260,7 +260,7 @@ Java_io_github_anilbeesetti_nextlib_media3ext_ffdecoder_FfmpegVideoDecoder_ffmpe
 
     // Both the decoder output and the native window are 8-bit 4:2:0. Copy
     // the planes directly; swscale is unnecessary after 10-bit normalization.
-    const int copyYWidth = std::min(displayed_width, native_window_buffer.stride);
+    const int copyYWidth = std::min(displayed_width, native_stride);
     const int copyYHeight = std::min(displayed_height, native_window_buffer.height);
     for (int y = 0; y < copyYHeight; ++y) {
         memcpy(dest[kPlaneY] + y * dest_stride[kPlaneY],

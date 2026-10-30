@@ -102,6 +102,19 @@ public class DetailFlowTest {
             }
         }finally{cleanup();}
     }
+    @Test public void endOfMovieOrEpisodeReturnsToDetailsAndReportsFinalPositionOnce()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            for(String id:new String[]{"movie-single","episode-1-2"}){
+                if(detail!=null)onMain(()->detail.finish());open(server,id);new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
+                int before=server.stopped.size();play();long[] duration={0};
+                onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");duration[0]=player.getDuration();player.seekTo(duration[0]-300);player.play();});
+                await(()->playback.isFinishing()&&field(playback,"player")==null&&detail.hasWindowFocus()&&server.stopped.size()>before);settle();
+                assertEquals("结束退出只应回报一次停止",before+1,server.stopped.size());
+                assertTrue("必须保存最终进度",server.stopped.get(before).getLong("PositionTicks")>=(duration[0]-300)*10000);
+                closePlayer();
+            }
+        }finally{cleanup();}
+    }
 
     private void nextByRemote()throws Exception{
         Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
@@ -343,6 +356,50 @@ public class DetailFlowTest {
         assertFalse(TvVideoRenderer.hasHevcBaseLayer(new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_H265).build()));
     }
     @Test public void softwareVideoOutputsFourKTenBitWithAss()throws Exception{verifyVideoFixture("player-hevc10.mkv",MimeTypes.VIDEO_H265);}
+    @Test public void portraitPhoneSamplePlaysInBothDecoderModes()throws Exception{
+        File file=new File(instrumentation.getTargetContext().getFilesDir(),"codec-fixtures/phone-portrait.mp4");
+        org.junit.Assume.assumeTrue("手机竖屏样本只保留在本地设备，不随仓库分发",file.isFile());
+        verifyRotationFixture("phone-portrait.mp4",0);
+    }
+    @Test public void rotationMetadataKeepsOrientationAndShapeInBothDecoderModes()throws Exception{
+        verifyRotationFixture("rotation-90.mp4",90);
+        verifyRotationFixture("rotation-270.mp4",270);
+    }
+    private void verifyRotationFixture(String file,int rotation)throws Exception{
+        List<String> errors=new ArrayList<>();
+        try(Fixture server=new Fixture(true,file)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            int pass=0;
+            for(boolean software:new boolean[]{false,true,false}){
+                if(software!=Boolean.TRUE.equals(field(playback,"softwareVideo"))){
+                    onMain(()->((Button)field(playback,"decoderButton")).performClick());settle();
+                    instrumentation.sendKeyDownUpSync(software?KeyEvent.KEYCODE_DPAD_DOWN:KeyEvent.KEYCODE_DPAD_UP);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+                }
+                await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player!=null&&player.getPlaybackState()==Player.STATE_READY&&Boolean.TRUE.equals(field(playback,"videoFrameSeen"))&&(!software||((String)field(playback,"videoDecoder")).startsWith("ffmpeg"));});
+                onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.pause();player.seekTo(2000);((androidx.media3.ui.PlayerView)field(playback,"video")).hideController();});
+                await(()->((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);settle();
+                String name=file+(software?"-software":"-system")+(pass++==2?"-restored":"");screenshot(name+".png");
+                onMain(()->{
+                    ExoPlayer player=(ExoPlayer)field(playback,"player");View surface=((androidx.media3.ui.PlayerView)field(playback,"video")).getVideoSurfaceView();
+                    android.util.Log.i("RotationFixture",name+" decoder="+field(playback,"videoDecoder")+" format="+player.getVideoFormat()+" size="+player.getVideoSize().width+"x"+player.getVideoSize().height+" surface="+surface.getWidth()+"x"+surface.getHeight()+" rotation="+surface.getRotation()+" scale="+surface.getScaleX()+","+surface.getScaleY());
+                    assertNull(player.getPlayerError());
+                    assertEquals("竖屏输出必须保留原始比例",360f/640f,surface.getWidth()/(float)surface.getHeight(),.003f);
+                });
+                if(rotation!=0){
+                    Bitmap image=instrumentation.getUiAutomation().takeScreenshot();
+                    int h=image.getHeight(),w=image.getWidth();float pictureW=h*360f/640f;
+                    int[] expected=rotation==90?new int[]{Color.BLUE,Color.RED,Color.YELLOW,Color.GREEN}:new int[]{Color.GREEN,Color.YELLOW,Color.RED,Color.BLUE};int index=0;
+                    for(float y:new float[]{.25f,.75f})for(float x:new float[]{.25f,.75f}){
+                        int color=image.getPixel(Math.round((w-pictureW)/2+pictureW*x),Math.round(h*y));int wanted=expected[index++];
+                        boolean matches=wanted==Color.BLUE?Color.blue(color)>150&&Color.red(color)<100:wanted==Color.RED?Color.red(color)>150&&Color.green(color)<100:wanted==Color.YELLOW?Color.red(color)>150&&Color.green(color)>150:Color.green(color)>130&&Color.red(color)<100;
+                        if(!matches)errors.add(name+" quadrant="+(index-1)+" color="+Integer.toHexString(color));
+                    }
+                    assertTrue("横向黑边必须保留",Color.red(image.getPixel(w/8,h/2))<20);image.recycle();
+                }
+            }
+            assertTrue("旋转后的实际输出像素必须保持方向和比例："+errors,errors.isEmpty());
+        }finally{cleanup();}
+    }
     @Test public void vc1ActuallyOutputsVideoWithAss()throws Exception{verifyVideoFixture("player-vc1.mkv",MimeTypes.VIDEO_VC1);}
     @Test public void firstFrameRecoveryWaitsForActivePlaybackAndPreservesSelections()throws Exception{
         try(Fixture server=new Fixture(true)){
@@ -488,7 +545,8 @@ public class DetailFlowTest {
         Fixture(boolean codecs)throws Exception{this(codecs,codecs?"player-codecs.mkv":"detail-tracks.mkv");}
         Fixture(boolean codecs,String file)throws Exception{codecMedia=codecs;personal.put("audio_lang_priority",JSONObject.NULL).put("subtitle_priority",new JSONArray().put("chs"));
             Bitmap bitmap=Bitmap.createBitmap(960,540,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);canvas.drawColor(Color.rgb(38,60,84));Paint paint=new Paint();paint.setColor(Color.rgb(95,140,155));canvas.drawCircle(750,180,220,paint);paint.setColor(Color.rgb(205,155,85));canvas.drawRect(620,300,900,500,paint);ByteArrayOutputStream output=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,85,output);bitmap.recycle();image=output.toByteArray();
-            File external=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"codec-fixtures/"+file);
+            File local=new File(instrumentation.getTargetContext().getFilesDir(),"codec-fixtures/"+file);
+            File external=local.isFile()?local:new File(instrumentation.getTargetContext().getExternalFilesDir(null),"codec-fixtures/"+file);
             if("player-vc1.mkv".equals(file))org.junit.Assume.assumeTrue("请按构建规范放置 FFmpeg VC1 测试片段；不随公开仓库分发",external.isFile());
             try(InputStream stream=external.isFile()?new FileInputStream(external):instrumentation.getContext().getAssets().open(file)){ByteArrayOutputStream data=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;while((n=stream.read(buffer))!=-1)data.write(buffer,0,n);media=data.toByteArray();}
             Thread thread=new Thread(()->{while(!closed)try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception error){if(!closed)android.util.Log.e("DetailFixture","request",error);}});worker.setDaemon(true);worker.start();}catch(IOException ignored){if(closed)return;}},"detail-fixture");thread.setDaemon(true);thread.start();
