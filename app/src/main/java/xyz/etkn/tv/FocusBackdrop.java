@@ -15,20 +15,22 @@ import org.json.JSONObject;
 
 final class FocusBackdrop extends FrameLayout {
     private final TvActivity activity;
-    private final ImageView backdrop,logo;
+    private final ImageView backdrop,previousBackdrop,imageLoader,logo;
     private final TextView title,metadata,overview;
     private final LinearLayout copy,information;
     private final Button action;
     private JSONObject current;
     private boolean actionVisible;
     private boolean resumeFocused;
-    private Bitmap sharp,blurred;
+    private Bitmap sharp,blurred,lastBlurred,displayed;
     private String imageKey="",pendingBlur="";
     private final android.util.LruCache<String,Bitmap> blurredImages=new android.util.LruCache<>(1024*1024){@Override protected int sizeOf(String key,Bitmap image){return image.getAllocationByteCount();}};
 
     FocusBackdrop(TvActivity activity){
         super(activity);this.activity=activity;setBackgroundColor(TvActivity.INK);
         backdrop=new ImageView(activity);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,activity.dp(10));addView(backdrop,new LayoutParams(-1,-1));
+        previousBackdrop=new ImageView(activity);previousBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(previousBackdrop,activity.dp(10));addView(previousBackdrop,new LayoutParams(-1,-1));
+        imageLoader=new ImageView(activity);imageLoader.setVisibility(GONE);addView(imageLoader,new LayoutParams(0,0));
         addView(activity.backdropShade(),new LayoutParams(-1,-1));
         copy=activity.column();copy.setPadding(activity.dp(30),0,activity.dp(24),0);
         LayoutParams copyLayout=new LayoutParams(activity.dp(540),-2,Gravity.TOP|Gravity.START);copyLayout.topMargin=activity.dp(54);addView(copy,copyLayout);
@@ -44,12 +46,12 @@ final class FocusBackdrop extends FrameLayout {
     void show(JSONObject item,boolean library,boolean showDetails){
         current=item;sharp=null;blurred=null;imageKey="";pendingBlur="";
         String itemTitle=library?EtknApi.title(item):EtknApi.resumeTitle(item);
-        copy.setVisibility(showDetails?VISIBLE:GONE);action.setVisibility(actionVisible&&showDetails?VISIBLE:GONE);title.setText(itemTitle);title.setVisibility(VISIBLE);logo.setVisibility(GONE);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());backdrop.setImageDrawable(null);
+        copy.setVisibility(showDetails?VISIBLE:GONE);action.setVisibility(actionVisible&&showDetails&&resumeFocused?VISIBLE:GONE);title.setText(itemTitle);title.setVisibility(VISIBLE);logo.setVisibility(GONE);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());imageLoader.setImageDrawable(null);
         String type=library?"媒体库":"Episode".equals(item.optString("Type"))||"Series".equals(item.optString("Type"))?"剧集":"电影";
         String rating=item.optString("OfficialRating"),score=item.optDouble("CommunityRating",0)>0?"★ "+item.optString("CommunityRating"):"";
         metadata.setText(join(type,item.optString("ProductionYear"),rating,score,genres(item)));overview.setText(item.optString("Overview"));
         String image=library?activity.api.artwork(item,"Primary",1280):activity.api.artwork(item,"Backdrop",1280);
-        Images.backdrop(activity.api,image,backdrop,success->{String fallback=activity.api.image(item);if(success)imageLoaded();else if(!image.equals(fallback))Images.backdrop(activity.api,fallback,backdrop,loaded->{if(loaded)imageLoaded();});});
+        Images.backdrop(activity.api,image,imageLoader,success->{String fallback=activity.api.image(item);if(success)imageLoaded();else if(!image.equals(fallback))Images.backdrop(activity.api,fallback,imageLoader,loaded->{if(loaded)imageLoaded();});});
         if(showDetails&&!library){
             String logoUrl=activity.api.artwork(item,"Logo",600);JSONObject tags=item.optJSONObject("ImageTags");
             boolean hasLogo=tags!=null&&!tags.optString("Logo").isEmpty()||!item.optString("ParentLogoItemId").isEmpty()&&!item.optString("ParentLogoImageTag").isEmpty();
@@ -57,26 +59,39 @@ final class FocusBackdrop extends FrameLayout {
         }
     }
 
-    void clear(){sharp=null;blurred=null;imageKey="";pendingBlur="";backdrop.setTag("none:"+System.nanoTime());backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");action.setVisibility(GONE);copy.setVisibility(GONE);resumeFocused(false);}
+    void clear(){cancelTransition();sharp=null;blurred=null;lastBlurred=null;displayed=null;imageKey="";pendingBlur="";imageLoader.setTag("none:"+System.nanoTime());imageLoader.setImageDrawable(null);backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");action.setVisibility(GONE);copy.setVisibility(GONE);resumeFocused(false);}
 
     /** Focus controls only the backdrop image and information; the carousel action stays operable. */
-    void resumeFocused(boolean focused){resumeFocused=focused;information.setVisibility(focused?VISIBLE:GONE);displayImage();}
+    void resumeFocused(boolean focused){if(resumeFocused!=focused)cancelTransition();resumeFocused=focused;information.setVisibility(focused?VISIBLE:GONE);action.setVisibility(actionVisible&&focused&&copy.getVisibility()==VISIBLE?VISIBLE:GONE);displayImage(false);}
     private void imageLoaded(){
-        sharp=((BitmapDrawable)backdrop.getDrawable()).getBitmap();imageKey=String.valueOf(backdrop.getTag());blurred=blurredImages.get(imageKey);displayImage();
+        sharp=((BitmapDrawable)imageLoader.getDrawable()).getBitmap();imageKey=String.valueOf(imageLoader.getTag());blurred=blurredImages.get(imageKey);displayImage(true);
     }
-    private void displayImage(){
+    private void displayImage(boolean transition){
+        if(blurred!=null)lastBlurred=blurred;
+        render(resumeFocused?sharp:lastBlurred,transition);
         if(sharp==null)return;
-        backdrop.setImageBitmap(resumeFocused||blurred==null?sharp:blurred);
-        if(resumeFocused||blurred!=null||imageKey.equals(pendingBlur))return;
+        if(blurred!=null||imageKey.equals(pendingBlur))return;
         Bitmap source=sharp;String key=imageKey;pendingBlur=key;
         TvActivity.IO.execute(()->{
             Bitmap result=BackdropBlur.create(source);
-            post(()->{blurredImages.put(key,result);if(sharp==source&&imageKey.equals(key)){pendingBlur="";blurred=result;if(!resumeFocused)backdrop.setImageBitmap(result);}});
+            post(()->{blurredImages.put(key,result);if(sharp==source&&imageKey.equals(key)){pendingBlur="";blurred=result;displayImage(true);}});
         });
     }
 
+    private void render(Bitmap image,boolean transition){
+        if(displayed==image)return;
+        Bitmap previous=displayed;cancelTransition();displayed=image;backdrop.setImageBitmap(image);
+        if(!transition||previous==null||image==null)return;
+        previousBackdrop.setImageBitmap(previous);previousBackdrop.setAlpha(1f);backdrop.setAlpha(0f);
+        previousBackdrop.animate().alpha(0f).setDuration(320).withEndAction(()->previousBackdrop.setImageDrawable(null)).start();
+        backdrop.animate().alpha(1f).setDuration(320).start();
+    }
+    private void cancelTransition(){
+        backdrop.animate().cancel();previousBackdrop.animate().cancel();backdrop.setAlpha(1f);previousBackdrop.setAlpha(0f);previousBackdrop.setImageDrawable(null);
+    }
+
     /** 轮播模式下展示“查看详情”按钮作为焦点目标；普通联动背景保持隐藏。 */
-    void actionVisible(boolean on){actionVisible=on;action.setVisibility(on&&copy.getVisibility()==VISIBLE?VISIBLE:GONE);}
+    void actionVisible(boolean on){actionVisible=on;action.setVisibility(on&&resumeFocused&&copy.getVisibility()==VISIBLE?VISIBLE:GONE);}
     View actionView(){return action;}
 
     private String genres(JSONObject item){org.json.JSONArray values=item.optJSONArray("Genres");if(values==null)return "";StringBuilder result=new StringBuilder();for(int index=0;index<values.length();index++){String value=values.optString(index);if(value.isEmpty())continue;if(result.length()>0)result.append(" / ");result.append(value);}return result.toString();}

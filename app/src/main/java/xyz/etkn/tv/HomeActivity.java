@@ -90,7 +90,7 @@ public final class HomeActivity extends TvActivity {
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);stage.addView(status,notice);
         setContentView(stage);refreshNavigation();loadHome();checkUpdateOnce();
-        stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->homeBackdrop.resumeFocused("home".equals(mode)&&resumeCards.contains(focused)));
+        stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->homeBackdrop.resumeFocused("home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView())));
     }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
     private void showMenu(){previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}

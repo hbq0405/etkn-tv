@@ -62,6 +62,9 @@ public class HomeFocusTest {
                 View card=home.getCurrentFocus();assertEquals(home.dp(192),card.getWidth());assertEquals(home.dp(150),card.getHeight());
                 View library=library("library-0");assertEquals("媒体库宽度与继续观看一致",card.getWidth(),library.getWidth());assertEquals("媒体库高度与继续观看一致",card.getHeight(),library.getHeight());
                 assertEquals(home.dp(108),((ViewGroup)library).getChildAt(0).getHeight());
+                View selectedArtwork=((ViewGroup)card).getChildAt(0),libraryArtwork=((ViewGroup)library).getChildAt(0);
+                assertEquals(home.dp(8),selectedArtwork.getElevation(),0f);assertEquals(home.dp(4),libraryArtwork.getElevation(),0f);
+                assertTrue(selectedArtwork.getClipToOutline());assertFalse(((ViewGroup)card).getClipChildren());
                 for(View first:new View[]{card,library}){
                     View second=((ViewGroup)first.getParent()).getChildAt(1);
                     assertEquals("横向卡片实际间距",home.dp(24),second.getLeft()-first.getRight());
@@ -71,14 +74,16 @@ public class HomeFocusTest {
                 assertTrue("聚焦卡片须完整保留在底部安全区，bottom="+bottom+" screen="+screen,bottom<=screen&&screen-bottom<=home.dp(24));
             });
             instrumentation.runOnMainSync(()->library("library-0").requestFocus());settle();saveScreenshot("compact-libraries.png");
+            instrumentation.runOnMainSync(()->assertEquals(home.dp(8),((ViewGroup)library("library-0")).getChildAt(0).getElevation(),0f));
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
 
-    @Test public void onlyResumeFocusKeepsBackdropSharpAndDetailsVisible()throws Exception{
+    @Test public void resumeAndCarouselDetailsFocusKeepBackdropSharpAndDetailsVisible()throws Exception{
         try(Fixture server=new Fixture()){
             evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"home-backdrop");assertTrue(evidence.isDirectory()||evidence.mkdirs());
             new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"blur-fixture","背景测试","synthetic-test-session");
             for(boolean carousel:new boolean[]{false,true}){
+                new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"blur-fixture","背景测试","synthetic-test-session");
                 new TvPreferences(instrumentation.getTargetContext(),new EtknApi(instrumentation.getTargetContext())).setSmartCarousel(carousel);
                 home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
                 await(()->cards().size()==90&&home.getCurrentFocus()==field(HomeActivity.class,"resumeFirst"));settle();
@@ -87,11 +92,13 @@ public class HomeFocusTest {
                 await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable);
                 Bitmap sharp=((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap();
                 double sharpDetail=imageDetail(sharp);
-                assertTrue("继续观看须显示简介",findText(hero,"背景简介").isShown());
+                saveScreenshot("initial-state-"+carousel+".png");assertTrue("继续观看须显示简介 carousel="+carousel+" focus="+home.getCurrentFocus()+" window="+home.hasWindowFocus()+" finishing="+home.isFinishing()+" copy="+((View)backdropField(hero,"copy")).getVisibility()+" information="+((View)backdropField(hero,"information")).getVisibility()+" resume="+backdropField(hero,"resumeFocused"),findText(hero,"背景简介").isShown());
+                assertEquals(carousel,hero.actionView().isShown());
                 saveScreenshot("resume-clear-"+carousel+".png");
                 instrumentation.runOnMainSync(()->library("library-0").requestFocus());settle();
                 await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&imageDetail(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap())<sharpDetail*0.6);
                 assertFalse("媒体库聚焦时隐藏简介",findText(hero,"背景简介").isShown());
+                assertFalse("离开继续观看时隐藏查看详情",hero.actionView().isShown());
                 assertFalse("媒体库聚焦时隐藏年份等信息",findText(hero,"2026").isShown());
                 saveScreenshot("library-blurred-"+carousel+".png");
                 View latest=cards().stream().filter(card->!((java.util.List<?>)field(HomeActivity.class,"resumeCards")).contains(card)&&!((java.util.Map<?,?>)field(HomeActivity.class,"libraryCards")).containsValue(card)).findFirst().orElseThrow();
@@ -100,14 +107,57 @@ public class HomeFocusTest {
                 instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
                 assertTrue("回到继续观看恢复清晰度",sharp.sameAs(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap()));
                 assertTrue("回到继续观看恢复简介",findText(hero,"背景简介").isShown());
-                if(carousel){instrumentation.runOnMainSync(()->assertTrue("轮播详情入口仍可聚焦",hero.actionView().requestFocus()));settle();assertFalse("轮播按钮聚焦时隐藏简介",findText(hero,"背景简介").isShown());instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();}
-                call("showMenu",new Class<?>[]{});settle();assertFalse("菜单聚焦时隐藏简介",findText(hero,"背景简介").isShown());
+                assertEquals(carousel,hero.actionView().isShown());
+                if(carousel){
+                    instrumentation.runOnMainSync(()->assertTrue("轮播详情入口仍可聚焦",hero.actionView().requestFocus()));settle();
+                    assertTrue("轮播详情聚焦时显示简介",findText(hero,"背景简介").isShown());
+                    assertSame(backdropField(hero,"sharp"),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());
+                    android.widget.ImageView outgoing=(android.widget.ImageView)backdropField(hero,"previousBackdrop");
+                    java.util.concurrent.atomic.AtomicInteger fadeFrames=new java.util.concurrent.atomic.AtomicInteger();
+                    android.view.ViewTreeObserver.OnPreDrawListener fade=()->{if(outgoing.getDrawable()!=null&&outgoing.getAlpha()>0&&outgoing.getAlpha()<1&&image.getAlpha()>0&&image.getAlpha()<1)fadeFrames.incrementAndGet();return true;};
+                    instrumentation.runOnMainSync(()->image.getViewTreeObserver().addOnPreDrawListener(fade));
+                    instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);await(()->backdropField(hero,"sharp")!=null);
+                    instrumentation.runOnMainSync(()->image.getViewTreeObserver().removeOnPreDrawListener(fade));
+                    assertTrue("轮播切图必须实际绘制交叉淡入淡出帧",fadeFrames.get()>0);assertNull(outgoing.getDrawable());
+                    assertTrue("轮播切图后保留简介",findText(hero,"背景简介").isShown());
+                    assertTrue(findText(hero,"2026").isShown());assertSame(backdropField(hero,"sharp"),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());
+                    instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
+                }
+                call("showMenu",new Class<?>[]{});settle();assertFalse("菜单聚焦时隐藏简介",findText(hero,"背景简介").isShown());assertFalse(hero.actionView().isShown());
                 call("hideMenu",new Class<?>[]{});settle();assertTrue(findText(hero,"背景简介").isShown());
                 saveScreenshot("resume-restored-"+carousel+".png");
-                instrumentation.runOnMainSync(home::finish);home=null;settle();
+                HomeActivity closing=home;instrumentation.runOnMainSync(closing::finish);await(closing::isDestroyed);home=null;
             }
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
+    @Test public void backdropSwitchNeverDisplaysSharpImageWhileBlurIsPending()throws Exception{
+        java.util.concurrent.CountDownLatch release=new java.util.concurrent.CountDownLatch(1);
+        try(Fixture server=new Fixture()){
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"blur-transition-fixture","背景切换测试","synthetic-test-session");
+            new TvPreferences(instrumentation.getTargetContext(),new EtknApi(instrumentation.getTargetContext())).setSmartCarousel(false);
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->cards().size()==90&&home.getCurrentFocus()==field(HomeActivity.class,"resumeFirst"));
+            FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");android.widget.ImageView image=(android.widget.ImageView)hero.getChildAt(0);
+            instrumentation.runOnMainSync(()->library("library-0").requestFocus());
+            await(()->backdropField(hero,"blurred")!=null);Bitmap previous=((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap();
+            java.util.concurrent.CountDownLatch blocked=new java.util.concurrent.CountDownLatch(6);
+            for(int i=0;i<6;i++)TvActivity.IO.execute(()->{blocked.countDown();try{release.await(12,java.util.concurrent.TimeUnit.SECONDS);}catch(InterruptedException error){Thread.currentThread().interrupt();}});
+            assertTrue(blocked.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            java.util.concurrent.atomic.AtomicInteger sharpFrames=new java.util.concurrent.atomic.AtomicInteger();
+            android.view.ViewTreeObserver.OnPreDrawListener frames=()->{if(image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap()==backdropField(hero,"sharp"))sharpFrames.incrementAndGet();return true;};
+            instrumentation.runOnMainSync(()->image.getViewTreeObserver().addOnPreDrawListener(frames));
+            for(String id:new String[]{"transition-a","transition-b","transition-b"}){
+                JSONObject item=new JSONObject().put("Id",id).put("Type","Movie");
+                instrumentation.runOnMainSync(()->hero.show(item,false,true));await(()->backdropField(hero,"sharp")!=null);
+                instrumentation.runOnMainSync(()->{assertNotNull(image.getDrawable());assertSame("新图模糊未完成时应继续显示上一张模糊图",previous,((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());});
+            }
+            release.countDown();await(()->backdropField(hero,"blurred")!=null);
+            instrumentation.runOnMainSync(()->{assertSame(backdropField(hero,"blurred"),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());image.getViewTreeObserver().removeOnPreDrawListener(frames);});
+            assertEquals("切换过程中不能绘制任何清晰帧",0,sharpFrames.get());
+        }finally{release.countDown();if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+    private Object backdropField(FocusBackdrop hero,String name){try{java.lang.reflect.Field field=FocusBackdrop.class.getDeclaredField(name);field.setAccessible(true);return field.get(hero);}catch(Exception error){throw new AssertionError(error);}}
+
     private View findText(View view,String value){if(view instanceof android.widget.TextView&&((android.widget.TextView)view).getText().toString().contains(value))return view;if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){View found=findText(((ViewGroup)view).getChildAt(i),value);if(found!=null)return found;}return null;}
     private double imageDetail(Bitmap source){
         Bitmap sample=Bitmap.createScaledBitmap(source,256,144,true);long detail=0;
@@ -120,7 +170,7 @@ public class HomeFocusTest {
             SessionStore session=new SessionStore(instrumentation.getTargetContext());session.save(server.origin(),"cache-fixture","缓存测试","synthetic-test-session");
             home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
             await(()->cards().size()==90&&home.getCurrentFocus()!=null);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));
-            instrumentation.runOnMainSync(()->home.finish());settle();server.holdResume=true;server.holdFirstLatest=true;
+            HomeActivity previous=home;instrumentation.runOnMainSync(previous::finish);await(previous::isDestroyed);LoginGate.satisfy();server.holdResume=true;server.holdFirstLatest=true;
             long started=android.os.SystemClock.elapsedRealtime();
             home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
             await(()->cards().size()==90&&home.getCurrentFocus()!=null);
@@ -159,7 +209,7 @@ public class HomeFocusTest {
             key(KeyEvent.KEYCODE_BACK);await(()->library("library-2")!=null&&home.getCurrentFocus()==library("library-2"));
             instrumentation.runOnMainSync(()->library("library-3").performClick());await(()->"library-3".equals(field(HomeActivity.class,"parent"))&&posterGrid()!=null&&posterGrid().getChildCount()==60);
             assertEquals("SortName",field(HomeActivity.class,"sortBy"));call("setSort",new Class<?>[]{String.class,String.class},"ProductionYear","Ascending");
-            await(()->server.lastListingPath.contains("SortBy=ProductionYear"));instrumentation.runOnMainSync(()->home.finish());settle();
+            await(()->server.lastListingPath.contains("SortBy=ProductionYear"));HomeActivity previous=home;instrumentation.runOnMainSync(previous::finish);await(previous::isDestroyed);LoginGate.satisfy();
             home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));await(()->library("library-2")!=null);
             instrumentation.runOnMainSync(()->library("library-2").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);assertEquals("DoubanRating",field(HomeActivity.class,"sortBy"));assertEquals("Descending",field(HomeActivity.class,"sortOrder"));
             key(KeyEvent.KEYCODE_BACK);await(()->library("library-2")!=null);call("loadLibraries",new Class<?>[]{});await(()->"library".equals(field(HomeActivity.class,"mode"))&&library("library-3")!=null);

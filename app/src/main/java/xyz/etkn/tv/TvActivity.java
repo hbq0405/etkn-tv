@@ -73,15 +73,15 @@ abstract class TvActivity extends Activity {
     }
     View mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click, boolean landscape, boolean resume, java.util.function.Consumer<View> focused) {
         boolean compact=resume||"CollectionFolder".equals(media.optString("Type"));
-        LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());
-        FrameLayout artwork=new FrameLayout(this);artwork.setForegroundGravity(android.view.Gravity.FILL);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));artwork.setForegroundGravity(android.view.Gravity.FILL);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         int imageHeight=compact?108:landscape?139:198;card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(imageHeight)));
         TextView title=text(resume?EtknApi.resumeTitle(media):EtknApi.title(media),compact?12:14,Color.WHITE);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,dp(compact?42:46)));
         int gap=compact||focused!=null?12:6;
         GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(compact?192:landscape?264:132);layout.height=dp(compact?150:landscape?215:248);layout.setMargins(dp(gap),dp(5),dp(gap),dp(5));grid.addView(card,layout);
         String image=landscape&&!"CollectionFolder".equals(media.optString("Type"))?api.artwork(media,"Backdrop",640):api.image(media);
         Images.visible(api,image,poster,success->{if(!success&&!image.equals(api.image(media)))Images.load(api,api.image(media),poster);});
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
         org.json.JSONObject data=media.optJSONObject("UserData");
         if(landscape&&data!=null&&data.optLong("PlaybackPositionTicks")>0&&media.optLong("RunTimeTicks")>0){
             ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setProgress((int)Math.min(1000,1000.0*data.optLong("PlaybackPositionTicks")/media.optLong("RunTimeTicks")));progress.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.argb(180,0,0,0)));FrameLayout.LayoutParams bar=new FrameLayout.LayoutParams(-1,dp(4),android.view.Gravity.BOTTOM);bar.leftMargin=dp(10);bar.rightMargin=dp(10);bar.bottomMargin=dp(6);artwork.addView(progress,bar);
@@ -92,8 +92,8 @@ abstract class TvActivity extends Activity {
         return posterCard(grid,media,click,episodeCountMode,false);
     }
     View posterCard(GridLayout grid,org.json.JSONObject media,Runnable click,String episodeCountMode,boolean landscape){
-        LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());
-        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(Color.TRANSPARENT,0));artwork.setClipToOutline(true);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(landscape?139:198)));
         android.graphics.drawable.GradientDrawable fade=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(235,0,0,0)});
         LinearLayout ratings=row();ratings.setGravity(android.view.Gravity.CENTER);ratings.setPadding(0,dp(17),0,dp(3));ratings.setBackground(fade);
@@ -112,7 +112,7 @@ abstract class TvActivity extends Activity {
         GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(landscape?264:132);layout.height=dp(landscape?215:255);layout.setMargins(dp(6),dp(6),dp(6),dp(6));grid.addView(card,layout);
         if(landscape){String backdrop=api.artwork(media,"Backdrop",640);Images.visible(api,backdrop,poster,success->{if(!success)Images.load(api,api.image(media),poster);});}
         else Images.load(api,api.image(media),poster);
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setForeground(hasFocus?focusOutline():null);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);});
         return card;
     }
     private String rating(org.json.JSONObject media,String field){double value=media.optDouble(field,Double.NaN);return Double.isNaN(value)?"–":String.format(java.util.Locale.ROOT,"%.1f",value);}

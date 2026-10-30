@@ -140,10 +140,10 @@ public final class PlayerActivity extends TvActivity {
         stopPlayer();startActivity(next);finish();
     }
     private void advanceQueue(){
-        if(nextEpisode!=null){playNextEpisode();return;}
-        if(!queueMode||isFinishing())return;
+        if(isFinishing())return;
         if(!nextLoaded){pendingAdvance=true;return;}
-        if(queueIndex+1>=queueIds.length){finish();return;}
+        if(nextEpisode!=null){playNextEpisode();return;}
+        if(!queueMode||queueIndex+1>=queueIds.length){finish();return;}
         queueIndex++;message("正在准备下一项…");resolveQueueUnit(queueIds[queueIndex],false);
     }
     private void resolveQueueUnit(String id,boolean first){
@@ -222,7 +222,7 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
-                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED){if(queueMode)advanceQueue();else finish();}}
+                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
             player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();video.requestFocus();updateTrackButtons();

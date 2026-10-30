@@ -102,9 +102,9 @@ public class DetailFlowTest {
             }
         }finally{cleanup();}
     }
-    @Test public void endOfMovieOrEpisodeReturnsToDetailsAndReportsFinalPositionOnce()throws Exception{
+    @Test public void endOfMovieOrLastEpisodeReturnsToDetailsAndReportsFinalPositionOnce()throws Exception{
         try(Fixture server=new Fixture(true)){
-            for(String id:new String[]{"movie-single","episode-1-2"}){
+            for(String id:new String[]{"movie-single","episode-1-24"}){
                 if(detail!=null)onMain(()->detail.finish());open(server,id);new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
                 int before=server.stopped.size();play();long[] duration={0};
                 onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");duration[0]=player.getDuration();player.seekTo(duration[0]-300);player.play();});
@@ -113,6 +113,69 @@ public class DetailFlowTest {
                 assertTrue("必须保存最终进度",server.stopped.get(before).getLong("PositionTicks")>=(duration[0]-300)*10000);
                 closePlayer();
             }
+        }finally{cleanup();}
+    }
+
+    private void endAndPlayNext()throws Exception{
+        Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+        PlayerActivity previous=playback;
+        try{
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(previous,"player");if(player.isCurrentMediaItemSeekable())player.seekTo(player.getDuration()-300);player.play();});
+            PlayerActivity next=(PlayerActivity)monitor.waitForActivityWithTimeout(30000);
+            String[] state={""};onMain(()->{ExoPlayer player=(ExoPlayer)field(previous,"player");state[0]=" finishing="+previous.isFinishing()+" nextLoaded="+field(previous,"nextLoaded")+" next="+field(previous,"nextEpisode")+(player==null?" released":" state="+player.getPlaybackState()+" position="+player.getCurrentPosition()+" duration="+player.getDuration()+" seekable="+player.isCurrentMediaItemSeekable());});
+            assertNotNull("有后续可播放内容时应自动继续播放"+state[0],next);playback=next;
+            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
+            onMain(()->{assertTrue("下一集应自动开始播放",((ExoPlayer)field(playback,"player")).getPlayWhenReady());((ExoPlayer)field(playback,"player")).pause();});
+            assertTrue(previous.isFinishing());assertNull(field(previous,"player"));
+        }finally{instrumentation.removeMonitor(monitor);}
+    }
+    @Test public void endedEpisodeAutomaticallyContinuesAndPreservesSeasonAudio()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.ordinalFixture=true;open(server,"episode-1-2");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
+            play();clickTrack(false,2);await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));
+            await(()->Boolean.TRUE.equals(field(playback,"nextLoaded")));server.audioOffset=20;
+            long[] duration={0};onMain(()->duration[0]=((ExoPlayer)field(playback,"player")).getDuration());endAndPlayNext();
+            assertEquals("episode-1-3",playback.getIntent().getStringExtra("id"));
+            await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));assertEquals(24,field(playback,"audioIndex"));
+            await(()->server.stopped.size()==1);settle();assertEquals(1,server.stopped.size());
+            assertEquals("episode-1-2",server.stopped.get(0).getString("ItemId"));
+            assertTrue(server.stopped.get(0).getLong("PositionTicks")>=(duration[0]-300)*10000);
+        }finally{cleanup();}
+    }
+    @Test public void endedEpisodeWaitsForNextLookupThenContinuesOrExitsAtLastEpisode()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            for(String id:new String[]{"episode-1-2","episode-1-24"}){
+                if(detail!=null)onMain(()->detail.finish());open(server,id);new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
+                server.nextRequested=new java.util.concurrent.CountDownLatch(1);server.nextGate=new java.util.concurrent.CountDownLatch(1);
+                Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+                try{
+                    play();assertTrue(server.nextRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));monitor.waitForActivityWithTimeout(1000);
+                    PlayerActivity previous=playback;int before=server.stopped.size();
+                    onMain(()->{ExoPlayer player=(ExoPlayer)field(previous,"player");player.seekTo(player.getDuration()-300);player.play();});
+                    await(()->previous.isFinishing()||((ExoPlayer)field(previous,"player")).getPlaybackState()==Player.STATE_ENDED);
+                    assertFalse("查询尚未完成时不能误判为末集退出",previous.isFinishing());
+                    assertEquals(true,field(previous,"pendingAdvance"));server.nextGate.countDown();
+                    if(id.equals("episode-1-2")){
+                        PlayerActivity next=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);assertNotNull(next);playback=next;
+                        assertEquals("episode-1-3",playback.getIntent().getStringExtra("id"));
+                        await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
+                        onMain(()->((ExoPlayer)field(playback,"player")).pause());
+                    }else await(()->previous.isFinishing()&&detail.hasWindowFocus());
+                    await(()->field(previous,"player")==null&&server.stopped.size()==before+1);closePlayer();
+                }finally{server.nextGate.countDown();server.nextGate=null;instrumentation.removeMonitor(monitor);}
+            }
+        }finally{cleanup();}
+    }
+    @Test public void queueStillAutomaticallyPlaysNextItemThenExits()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
+            playback=(PlayerActivity)instrumentation.startActivitySync(new Intent(detail,PlayerActivity.class).putExtra("id","movie-single").putExtra("resume",true).putExtra("resolved",true).putExtra("queue",new String[]{"movie-single","movie-next"}).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
+            onMain(()->((ExoPlayer)field(playback,"player")).pause());endAndPlayNext();
+            assertEquals("movie-next",playback.getIntent().getStringExtra("id"));assertEquals(1,playback.getIntent().getIntExtra("queueIndex",-1));
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(player.getDuration()-300);player.play();});
+            await(()->playback.isFinishing()&&field(playback,"player")==null&&detail.hasWindowFocus()&&server.stopped.size()==2);
+            assertEquals("movie-single",server.stopped.get(0).getString("ItemId"));assertEquals("movie-next",server.stopped.get(1).getString("ItemId"));
         }finally{cleanup();}
     }
 
@@ -153,7 +216,7 @@ public class DetailFlowTest {
             }
         }finally{cleanup();}
     }
-    @Test public void nextEpisodeCrossesSeasonAndUsesTargetSeasonLockThenHidesAtSeriesEnd()throws Exception{
+    @Test public void endedEpisodeCrossesSeasonAndUsesTargetSeasonLockThenHidesAtSeriesEnd()throws Exception{
         try(Fixture server=new Fixture()){
             server.ordinalFixture=true;open(server,"series-many");
             new TvPreferences(detail,detail.api).saveSeasonAudio("season-1",1);
@@ -162,7 +225,7 @@ public class DetailFlowTest {
             Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
             onMain(()->button("第 24 集").performClick());playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
             await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->((ExoPlayer)field(playback,"player")).pause());
-            await(()->((View)field(playback,"nextButton")).getVisibility()==View.VISIBLE);nextByRemote();
+            await(()->((View)field(playback,"nextButton")).getVisibility()==View.VISIBLE);endAndPlayNext();
             assertEquals("episode-2-1",playback.getIntent().getStringExtra("id"));assertEquals("season-2",playback.getIntent().getStringExtra("seasonKey"));
             await(()->"1".equals(selected(C.TRACK_TYPE_AUDIO)));assertEquals(0,field(playback,"audioIndex"));
             closePlayer();onMain(()->detail.finish());open(server,"episode-1-24");play();settle();assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());
