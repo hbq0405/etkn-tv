@@ -8,6 +8,7 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.KeyEvent;
 import android.widget.*;
 import org.json.JSONArray;
@@ -77,7 +78,8 @@ public final class DetailActivity extends TvActivity {
         LinearLayout selections=row();versionButton=button("版本",this::chooseVersion);audioButton=button("音轨",()->chooseStream(false));subtitleButton=button("字幕",()->chooseStream(true));
         selections.addView(versionButton);selections.addView(audioButton);selections.addView(subtitleButton);
         HorizontalScrollView selectionScroll=new FocusScroll.Row(this);selectionScroll.setHorizontalScrollBarEnabled(false);selectionScroll.addView(selections);content.addView(selectionScroll);
-        TextView overview=text(item.optString("Overview","暂无简介"),15,Color.rgb(219,227,237));overview.setMaxLines(3);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);overview.setFocusable(true);overview.setBackground(transparentFocusBackground());overview.setPadding(dp(10),dp(5),dp(10),dp(5));overview.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(EtknApi.title(item)).setMessage(item.optString("Overview")).setPositiveButton("关闭",null).show());
+        boolean hasOverview=!item.optString("Overview").trim().isEmpty();
+        TextView overview=text(hasOverview?item.optString("Overview"):"暂无简介",15,Color.rgb(219,227,237));overview.setMaxLines(3);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);overview.setFocusable(hasOverview);overview.setFocusableInTouchMode(false);overview.setBackground(hasOverview?transparentFocusBackground():shape(Color.TRANSPARENT,0));overview.setPadding(dp(10),dp(5),dp(10),dp(5));if(hasOverview)overview.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(EtknApi.title(item)).setMessage(item.optString("Overview")).setPositiveButton("关闭",null).show());
         content.addView(overview,new LinearLayout.LayoutParams(dp(Math.min(650,getResources().getConfiguration().screenWidthDp-84)),-2));
         renderChapters();
         status=text("",12,MUTED);content.addView(status);episodeArea=column();content.addView(episodeArea);updateChoices();
@@ -203,13 +205,14 @@ public final class DetailActivity extends TvActivity {
         JSONArray chapters=item.optJSONArray("Chapters");if(chapters==null||chapters.length()==0)return;
         List<JSONObject> images=new ArrayList<>();for(int i=0;i<chapters.length();i++){JSONObject chapter=chapters.optJSONObject(i);if(chapter!=null&&(!chapter.optString("ImageTag").isEmpty()||!chapter.optString("ImagePath").isEmpty()))images.add(chapter);}
         if(images.isEmpty())return;
-        content.addView(text("章节",20,Color.WHITE));
-        HorizontalScrollView rail=new FocusScroll.Row(this);rail.setHorizontalScrollBarEnabled(false);LinearLayout cards=row();rail.addView(cards);content.addView(rail);
+        TextView heading=text("章节",20,Color.WHITE);heading.setFocusable(false);heading.setFocusableInTouchMode(false);content.addView(heading);
+        HorizontalScrollView rail=new FocusScroll.Row(this);rail.setHorizontalScrollBarEnabled(false);rail.setFocusable(false);rail.setFocusableInTouchMode(false);rail.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        LinearLayout cards=row();cards.setFocusable(false);cards.setFocusableInTouchMode(false);rail.addView(cards);content.addView(rail);
         for(int i=0;i<images.size();i++){
-            JSONObject chapter=images.get(i);LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackground(transparentFocusBackground());card.setPadding(dp(3),dp(3),dp(3),dp(3));
-            LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(224),dp(174));bounds.setMargins(0,dp(8),dp(14),dp(8));cards.addView(card,bounds);
-            ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(8));card.addView(image,new LinearLayout.LayoutParams(-1,dp(126)));Images.load(api,api.chapterArtwork(item,chapter,480),image);
-            String name=chapter.optString("Name");if(name.isEmpty())name="章节 "+(i+1);TextView label=text(name+"  ·  "+chapterTime(chapter.optLong("StartPositionTicks")),13,Color.WHITE);label.setMaxLines(1);label.setEllipsize(android.text.TextUtils.TruncateAt.END);label.setPadding(dp(3),dp(5),dp(3),0);card.addView(label);
+            JSONObject chapter=images.get(i);LinearLayout card=column();card.setFocusable(true);card.setFocusableInTouchMode(false);card.setClickable(true);card.setBackground(transparentFocusBackground());card.setPadding(dp(3),dp(3),dp(3),dp(3));
+            LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(180),dp(140));bounds.setMargins(0,dp(8),dp(14),dp(8));cards.addView(card,bounds);
+            ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(8));image.setFocusable(false);card.addView(image,new LinearLayout.LayoutParams(-1,dp(102)));Images.load(api,api.chapterArtwork(item,chapter,480),image);
+            String name=chapter.optString("Name");if(name.isEmpty())name="章节 "+(i+1);TextView label=text(name+"  ·  "+chapterTime(chapter.optLong("StartPositionTicks")),12,Color.WHITE);label.setFocusable(false);label.setFocusableInTouchMode(false);label.setMaxLines(1);label.setEllipsize(android.text.TextUtils.TruncateAt.END);label.setPadding(dp(3),dp(3),dp(3),0);card.addView(label);
             card.setContentDescription(name);card.setOnClickListener(view->playChapter(chapter));
         }
     }

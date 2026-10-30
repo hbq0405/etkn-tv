@@ -30,6 +30,7 @@ public class DetailFlowTest {
     private Object field(Object owner,String name){try{java.lang.reflect.Field field=owner.getClass().getDeclaredField(name);field.setAccessible(true);return field.get(owner);}catch(Exception error){throw new AssertionError(error);}}
     private List<View> descendants(View root){List<View> views=new ArrayList<>();views.add(root);if(root instanceof ViewGroup)for(int i=0;i<((ViewGroup)root).getChildCount();i++)views.addAll(descendants(((ViewGroup)root).getChildAt(i)));return views;}
     private Button button(String prefix){for(View view:descendants(detail.content))if(view instanceof Button&&((Button)view).getText().toString().startsWith(prefix))return (Button)view;return null;}
+    private View contentDescription(String value){for(View view:descendants(detail.content))if(value.equals(view.getContentDescription()))return view;return null;}
     private Button findButton(View root,String title){for(View view:descendants(root))if(view instanceof Button&&title.equals(((Button)view).getText().toString()))return (Button)view;return null;}
     private void clickTrack(boolean subtitles,int index)throws Exception{onMain(()->((Button)field(playback,subtitles?"subtitleButton":"audioButton")).performClick());settle();onMain(()->{ListView list=((AlertDialog)field(playback,"trackDialog")).getListView();list.performItemClick(null,index,list.getAdapter().getItemId(index));});settle();}
     private void open(Fixture server,String id)throws Exception{
@@ -584,6 +585,38 @@ public class DetailFlowTest {
             assertTrue(descendants(detail.content).stream().anyMatch(view->view instanceof TextView&&((TextView)view).getText().toString().contains("开场")));
             await(()->server.imagePaths.stream().anyMatch(path->path.contains("/Items/movie-chapters/Images/Chapter/0")));
             assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/movie-chapters/Images/Chapter/1")));
+            onMain(()->{
+                View heading=descendants(detail.content).stream().filter(view->view instanceof TextView&&"章节".equals(((TextView)view).getText().toString())).findFirst().orElse(null);
+                View first=contentDescription("开场");assertNotNull("章节卡片必须存在",first);assertNotNull("章节标题必须存在",heading);
+                assertEquals("章节卡片宽度应缩小",detail.dp(180),first.getWidth());assertEquals("章节卡片高度应缩小",detail.dp(140),first.getHeight());
+                View overview=descendants(detail.content).stream().filter(view->view instanceof TextView&&((TextView)view).getText().toString().startsWith("这是用于详情页验收")).findFirst().orElse(null);assertNotNull("有简介时简介文本必须存在",overview);assertTrue("有简介时简介可以聚焦",overview.isFocusable());
+                assertFalse("章节标题不能成为焦点",heading.isFocusable());assertFalse("章节卡片父级滚动容器不能成为焦点",((View)first.getParent().getParent()).isFocusable());
+                button("音轨").requestFocus();
+            });
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
+            assertTrue("有简介时向下应聚焦简介",detail.getCurrentFocus() instanceof TextView&&((TextView)detail.getCurrentFocus()).getText().toString().startsWith("这是用于详情页验收"));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();
+            assertFalse("确认应打开简介弹窗并交出页面焦点",detail.hasWindowFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertTrue(detail.hasWindowFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertTrue("简介下方应直接进入章节",detail.getCurrentFocus()==contentDescription("开场")||detail.getCurrentFocus()==contentDescription("转折"));
+            onMain(()->contentDescription("开场").requestFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();assertSame(contentDescription("转折"),detail.getCurrentFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();
+            assertTrue("章节上方应回到有内容的简介",detail.getCurrentFocus() instanceof TextView&&((TextView)detail.getCurrentFocus()).getText().toString().startsWith("这是用于详情页验收"));
+            screenshot("compact-chapters-overview.png");
+        }finally{cleanup();}
+    }
+    @Test public void missingOverviewIsSkippedByRemoteFocus()throws Exception{
+        try(Fixture server=new Fixture()){
+            open(server,"movie-no-overview");
+            View overview=descendants(detail.content).stream().filter(view->view instanceof TextView&&"暂无简介".equals(((TextView)view).getText().toString())).findFirst().orElse(null);
+            assertNotNull(overview);assertFalse("没有简介时占位文本不能成为焦点",overview.isFocusable());assertFalse("占位简介不能打开空弹窗",overview.isClickable());
+            onMain(()->button("音轨").requestFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertTrue("无简介时从音轨向下直接到章节",detail.getCurrentFocus()==contentDescription("开场")||detail.getCurrentFocus()==contentDescription("转折"));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();assertTrue("向上应跳过占位简介回到选择行",detail.getCurrentFocus() instanceof Button);
+            onMain(()->button("字幕").requestFocus());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertTrue("无简介时从字幕向下直接到章节",detail.getCurrentFocus()==contentDescription("开场")||detail.getCurrentFocus()==contentDescription("转折"));
+            screenshot("compact-chapters-no-overview.png");
         }finally{cleanup();}
     }
     @Test public void singleVersionHidesSelectorAndExternalSubtitleOrOffTakeEffect()throws Exception{
@@ -661,7 +694,7 @@ public class DetailFlowTest {
             if(path.contains("/PlaybackInfo")){JSONArray original=sources(!path.contains("movie-single")),reversed=new JSONArray();for(int i=original.length()-1;i>=0;i--)reversed.put(original.get(i));return new JSONObject().put("MediaSources",reversed).put("PlaySessionId","synthetic-play");}
             if(path.contains("/Seasons")){JSONArray seasons=new JSONArray().put(new JSONObject().put("Id","season-1").put("Name","第 1 季"));if(path.contains("series-many"))seasons.put(new JSONObject().put("Id","season-2").put("Name","第 2 季"));return new JSONObject().put("Items",seasons);}
             if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeriesId",seasons==2?"series-many":"series-one").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("RunTimeTicks",100000000).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",!noProgress&&s==seasons&&e==3?30000000:0).put("Played",e==1)));if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
-            String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));if(id.equals("movie-chapters"))item.put("Chapters",new JSONArray().put(new JSONObject().put("Name","开场").put("ChapterIndex",0).put("StartPositionTicks",0).put("ImageTag","chapter-0").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/0")).put(new JSONObject().put("Name","转折").put("ChapterIndex",1).put("StartPositionTicks",600000000).put("ImageTag","chapter-1").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/1")));return item;
+            String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(id.equals("movie-no-overview"))item.put("Overview","");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));if(id.equals("movie-chapters")||id.equals("movie-no-overview"))item.put("Chapters",new JSONArray().put(new JSONObject().put("Name","开场").put("ChapterIndex",0).put("StartPositionTicks",0).put("ImageTag","chapter-0").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/0")).put(new JSONObject().put("Name","转折").put("ChapterIndex",1).put("StartPositionTicks",600000000).put("ImageTag","chapter-1").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/1")));return item;
         }
         void serve(Socket client)throws Exception{
             try(client){BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));String line=reader.readLine();if(line==null)return;String path=line.split(" ")[1];boolean post=line.startsWith("POST ");int range=0,length=0;while((line=reader.readLine())!=null&&!line.isEmpty()){if(line.toLowerCase(Locale.ROOT).startsWith("range: bytes="))range=Integer.parseInt(line.substring(13).split("-")[0]);if(line.toLowerCase(Locale.ROOT).startsWith("content-length:"))length=Integer.parseInt(line.substring(15).trim());}
