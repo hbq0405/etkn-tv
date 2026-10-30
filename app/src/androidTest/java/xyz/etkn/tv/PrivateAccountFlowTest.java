@@ -109,6 +109,40 @@ public class PrivateAccountFlowTest {
         if(view instanceof ViewGroup)for(int index=0;index<((ViewGroup)view).getChildCount();index++)result.addAll(labels(((ViewGroup)view).getChildAt(index)));
         return result;
     }
+    private View findText(View view,String text){
+        if(view instanceof TextView&&text.equals(((TextView)view).getText().toString()))return view;
+        if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){View found=findText(((ViewGroup)view).getChildAt(i),text);if(found!=null)return found;}
+        return null;
+    }
+    @Test public void savedAccountCheckDoesNotShowIntermediateScreen()throws Exception{
+        session.save(server.origin(),"admin","admin","token-admin");LoginGate.reset();
+        server.holdPolicy=true;
+        SetupActivity setup=start(SetupActivity.class);await(()->server.policyRequests>0);
+        onMain(()->{
+            List<String> visible=labels(setup.getWindow().getDecorView());
+            assertFalse("登录框前不应闪现检查页",visible.contains("重新检查"));
+            assertFalse(visible.contains("正在检查已保存账号的登录规则…"));
+            assertFalse("策略检查完成前不能展示旧账号",visible.contains("admin"));
+        });
+        server.policyGate.countDown();
+        await(()->labels(setup.getWindow().getDecorView()).contains("admin"));
+        assertEquals("",session.token());assertTrue(session.accounts().get(0).needsPassword);
+        clickText("admin");await(this::hasPasswordInput);clickText("取消");
+    }
+    @Test public void everyAccountReachesNewUserWithOneDownPress()throws Exception{
+        for(int i=0;i<8;i++)session.saveSession(server.origin(),"account-"+i,"account-"+i,"unused",SessionStore.PERSIST_ACCOUNT);
+        LoginGate.reset();
+        SetupActivity setup=start(SetupActivity.class);
+        await(()->findText(setup.getWindow().getDecorView(),"account-7")!=null);
+        for(int i=0;i<8;i++){
+            String name="account-"+i;
+            onMain(()->((View)findText(setup.getWindow().getDecorView(),name).getParent()).requestFocus());
+            device.waitForIdleSync();device.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);
+            await(()->setup.getCurrentFocus() instanceof Button&&"登录新用户".equals(((Button)setup.getCurrentFocus()).getText().toString()));
+        }
+        device.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+        await(()->resumed instanceof SetupActivity&&resumed!=setup&&labels(resumed.getWindow().getDecorView()).contains("连接并登录"));
+    }
     @Test public void privateHotStartHidesIdentityAndRequiresFullLogin()throws Exception{
         session.saveSession(server.origin(),"private","private","token-private",SessionStore.PERSIST_NONE);LoginGate.satisfy();
         HomeActivity home=start(HomeActivity.class);
@@ -167,7 +201,10 @@ public class PrivateAccountFlowTest {
         private volatile boolean closed;
         volatile int logins;
         volatile boolean holdLogin;
+        volatile int policyRequests;
+        volatile boolean holdPolicy;
         final java.util.concurrent.CountDownLatch loginGate=new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch policyGate=new java.util.concurrent.CountDownLatch(1);
         Fixture()throws Exception{
             Thread accept=new Thread(()->{while(!closed)try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}});worker.setDaemon(true);worker.start();}catch(Exception ignored){return;}});
             accept.setDaemon(true);accept.start();
@@ -184,7 +221,7 @@ public class PrivateAccountFlowTest {
                 if(path.equals("/api/health"))result=new JSONObject().put("status","ok");
                 else if(path.equals("/api/tv/System/Info/Public"))result=new JSONObject().put("ProductName","ETKN").put("TvApiVersion",1).put("Id","fixture");
                 else if(path.equals("/api/system/tv-discovery"))result=new JSONObject().put("ProductName","ETKN").put("MediaServerAddress",origin());
-                else if(path.equals("/api/tv/Users/Me"))result=user(token.replace("token-",""));
+                else if(path.equals("/api/tv/Users/Me")){policyRequests++;if(holdPolicy)policyGate.await(10,java.util.concurrent.TimeUnit.SECONDS);result=user(token.replace("token-",""));}
                 else if(path.equals("/api/tv/Users/AuthenticateByName")){
                     JSONObject body=new JSONObject(new String(data));logins++;
                     if(holdLogin)loginGate.await(10,java.util.concurrent.TimeUnit.SECONDS);
@@ -195,6 +232,6 @@ public class PrivateAccountFlowTest {
                 output.write(("HTTP/1.1 "+status+" OK\r\nContent-Type: application/json\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
             }
         }
-        public void close()throws IOException{closed=true;loginGate.countDown();socket.close();}
+        public void close()throws IOException{closed=true;loginGate.countDown();policyGate.countDown();socket.close();}
     }
 }

@@ -57,13 +57,62 @@ public class HomeFocusTest {
             await(()->field(HomeActivity.class,"resumeFirst")!=null);
             instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
             evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"home-performance");assertTrue(evidence.isDirectory()||evidence.mkdirs());saveScreenshot("compact-resume.png");
+            await(()->library("library-0")!=null&&library("library-0").getWidth()>0);
             instrumentation.runOnMainSync(()->{
                 View card=home.getCurrentFocus();assertEquals(home.dp(192),card.getWidth());assertEquals(home.dp(150),card.getHeight());
+                View library=library("library-0");assertEquals("媒体库宽度与继续观看一致",card.getWidth(),library.getWidth());assertEquals("媒体库高度与继续观看一致",card.getHeight(),library.getHeight());
+                assertEquals(home.dp(108),((ViewGroup)library).getChildAt(0).getHeight());
+                for(View first:new View[]{card,library}){
+                    View second=((ViewGroup)first.getParent()).getChildAt(1);
+                    assertEquals("横向卡片实际间距",home.dp(24),second.getLeft()-first.getRight());
+                }
                 int[] location=new int[2];card.getLocationOnScreen(location);int bottom=Math.round(location[1]+card.getHeight()*card.getScaleY());
                 int screen=home.getWindow().getDecorView().getHeight();
                 assertTrue("聚焦卡片须完整保留在底部安全区，bottom="+bottom+" screen="+screen,bottom<=screen&&screen-bottom<=home.dp(24));
             });
+            instrumentation.runOnMainSync(()->library("library-0").requestFocus());settle();saveScreenshot("compact-libraries.png");
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+
+    @Test public void onlyResumeFocusKeepsBackdropSharpAndDetailsVisible()throws Exception{
+        try(Fixture server=new Fixture()){
+            evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"home-backdrop");assertTrue(evidence.isDirectory()||evidence.mkdirs());
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"blur-fixture","背景测试","synthetic-test-session");
+            for(boolean carousel:new boolean[]{false,true}){
+                new TvPreferences(instrumentation.getTargetContext(),new EtknApi(instrumentation.getTargetContext())).setSmartCarousel(carousel);
+                home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+                await(()->cards().size()==90&&home.getCurrentFocus()==field(HomeActivity.class,"resumeFirst"));settle();
+                FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");
+                android.widget.ImageView image=(android.widget.ImageView)hero.getChildAt(0);
+                await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable);
+                Bitmap sharp=((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap();
+                double sharpDetail=imageDetail(sharp);
+                assertTrue("继续观看须显示简介",findText(hero,"背景简介").isShown());
+                saveScreenshot("resume-clear-"+carousel+".png");
+                instrumentation.runOnMainSync(()->library("library-0").requestFocus());settle();
+                await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&imageDetail(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap())<sharpDetail*0.6);
+                assertFalse("媒体库聚焦时隐藏简介",findText(hero,"背景简介").isShown());
+                assertFalse("媒体库聚焦时隐藏年份等信息",findText(hero,"2026").isShown());
+                saveScreenshot("library-blurred-"+carousel+".png");
+                View latest=cards().stream().filter(card->!((java.util.List<?>)field(HomeActivity.class,"resumeCards")).contains(card)&&!((java.util.Map<?,?>)field(HomeActivity.class,"libraryCards")).containsValue(card)).findFirst().orElseThrow();
+                instrumentation.runOnMainSync(latest::requestFocus);settle();assertFalse("最新片架聚焦时隐藏简介",findText(hero,"背景简介").isShown());
+                await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&imageDetail(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap())<sharpDetail*0.6);
+                instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
+                assertTrue("回到继续观看恢复清晰度",sharp.sameAs(((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap()));
+                assertTrue("回到继续观看恢复简介",findText(hero,"背景简介").isShown());
+                if(carousel){instrumentation.runOnMainSync(()->assertTrue("轮播详情入口仍可聚焦",hero.actionView().requestFocus()));settle();assertFalse("轮播按钮聚焦时隐藏简介",findText(hero,"背景简介").isShown());instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();}
+                call("showMenu",new Class<?>[]{});settle();assertFalse("菜单聚焦时隐藏简介",findText(hero,"背景简介").isShown());
+                call("hideMenu",new Class<?>[]{});settle();assertTrue(findText(hero,"背景简介").isShown());
+                saveScreenshot("resume-restored-"+carousel+".png");
+                instrumentation.runOnMainSync(home::finish);home=null;settle();
+            }
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+    private View findText(View view,String value){if(view instanceof android.widget.TextView&&((android.widget.TextView)view).getText().toString().contains(value))return view;if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){View found=findText(((ViewGroup)view).getChildAt(i),value);if(found!=null)return found;}return null;}
+    private double imageDetail(Bitmap source){
+        Bitmap sample=Bitmap.createScaledBitmap(source,256,144,true);long detail=0;
+        for(int y=0;y<144;y++)for(int x=1;x<256;x++){int a=sample.getPixel(x-1,y),b=sample.getPixel(x,y);detail+=Math.abs(Color.red(a)-Color.red(b))+Math.abs(Color.green(a)-Color.green(b))+Math.abs(Color.blue(a)-Color.blue(b));}
+        if(sample!=source)sample.recycle();return detail;
     }
 
     @Test public void cachedHomeAppearsBeforeNetworkAndServerEventRefreshesWithoutStealingFocus()throws Exception{
@@ -258,6 +307,7 @@ public class HomeFocusTest {
         Fixture()throws Exception{
             Bitmap bitmap=Bitmap.createBitmap(640,360,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);canvas.drawColor(Color.rgb(45,80,110));
             Paint paint=new Paint();paint.setColor(Color.rgb(225,150,70));canvas.drawRect(0,0,640,18,paint);canvas.drawRect(0,342,640,360,paint);
+            for(int y=36;y<324;y+=18)for(int x=0;x<640;x+=18){paint.setColor(((x/18+y/18)%2==0)?Color.rgb(45,80,110):Color.rgb(145,180,210));canvas.drawRect(x,y,x+18,y+18,paint);}
             paint.setColor(Color.WHITE);paint.setTextSize(40);canvas.drawText("TV Focus Fixture",100,190,paint);
             ByteArrayOutputStream bytes=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,90,bytes);bitmap.recycle();image=bytes.toByteArray();
             Thread thread=new Thread(()->{while(!closed){try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}},"focus-request");worker.setDaemon(true);worker.start();}catch(Exception ignored){if(closed)return;}}},"focus-fixture");thread.setDaemon(true);thread.start();
@@ -291,7 +341,7 @@ public class HomeFocusTest {
                 return new JSONObject().put("Items",page).put("TotalRecordCount",120).put("EpisodeCountMode","unplayed");
             }
             boolean libraries=path.endsWith("/Views");JSONArray items=new JSONArray();
-            for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
+            for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("Overview","背景简介").put("ProductionYear",2026).put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
             return new JSONObject().put("Items",items);
         }
         @Override public void close()throws IOException{closed=true;latestGate.countDown();resumeGate.countDown();cardGate.countDown();updateGate.countDown();socket.close();}

@@ -18,8 +18,8 @@ public final class SetupActivity extends TvActivity {
         super.onCreate(state);
         boolean addAccount=getIntent().getBooleanExtra(EXTRA_ADD_ACCOUNT,false);
         if(addAccount){showLogin(true);return;}
-        screen("连接你的 ETKN","正在检查已保存账号的登录规则…");
-        nav("重新检查",()->recreate());
+        if(api.session.accounts().isEmpty()){showLogin(false);return;}
+        // 保留主题背景，检查完成后直接展示登录界面，避免临时检查页闪现。
         IO.execute(()->{
             try{api.refreshSavedAccounts();runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){api=new EtknApi(this);showLogin(false);}});}
             catch(Exception error){runOnUiThread(()->{if(!isFinishing()&&!isDestroyed()){showLogin(true);status.setText("无法检查已保存账号，请重新登录或返回重试。");}});}
@@ -52,25 +52,26 @@ public final class SetupActivity extends TvActivity {
         }));if(!addAccount)scan();
     }
     private void openHome(){LoginGate.satisfy();startActivity(new Intent(this,HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));finish();}
-    /** 用户选择框：居中面板横向展示已登录用户头像，末尾提供登录新用户入口。 */
+    /** 用户选择框：横向展示已保存用户，下方独立提供登录新用户入口。 */
     private void showPicker(){
         screen("选择登录用户","点选要进入的用户，也可以登录新用户。");
         content.setGravity(android.view.Gravity.CENTER);
         LinearLayout panel=column();panel.setBackground(shape(PANEL,0));panel.setPadding(dp(30),dp(24),dp(30),dp(20));panel.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
         FocusScroll.Row scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));
         LinearLayout users=row();users.setGravity(android.view.Gravity.CENTER_VERTICAL);scroll.addView(users);
+        Button newUser=button("登录新用户",()->startActivity(new Intent(this,SetupActivity.class).putExtra(EXTRA_ADD_ACCOUNT,true)));
+        newUser.setId(android.view.View.generateViewId());
         List<SavedAccounts.Account> accounts=api.session.accounts();
         for(SavedAccounts.Account account:accounts){
             ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(44));avatar.setImageResource(android.R.drawable.ic_menu_myplaces);
             LinearLayout card=pickerCard(account.name,avatar,()->loginWithPasswordIfNeeded(account));
             card.setContentDescription("登录用户 "+account.name);
+            card.setNextFocusDownId(newUser.getId());
             users.addView(card);
             Images.load(api,api.server+"/api/tv/Users/"+EtknApi.encode(account.userId)+"/Images/Primary?maxWidth=160",avatar,api.session.accountToken(account.userId));
         }
-        TextView plus=new TextView(this);plus.setText("+");plus.setTextSize(34);plus.setTextColor(MUTED);plus.setGravity(android.view.Gravity.CENTER);
-        android.graphics.drawable.GradientDrawable circle=new android.graphics.drawable.GradientDrawable();circle.setShape(android.graphics.drawable.GradientDrawable.OVAL);circle.setColor(PANEL);circle.setStroke(dp(2),MUTED);plus.setBackground(circle);
-        users.addView(pickerCard("登录新用户",plus,()->startActivity(new Intent(this,SetupActivity.class).putExtra(EXTRA_ADD_ACCOUNT,true))));
         panel.addView(scroll);
+        panel.addView(newUser);
         content.addView(panel,new LinearLayout.LayoutParams(-2,-2));
         panel.post(()->{if(users.getChildCount()>0)users.getChildAt(0).requestFocus();});
     }
