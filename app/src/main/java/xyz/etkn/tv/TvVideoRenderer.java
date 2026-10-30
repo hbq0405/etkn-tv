@@ -35,6 +35,13 @@ final class TvVideoRenderer extends MediaCodecVideoRenderer {
     }
     @Override protected MediaFormat getMediaFormat(Format format,String mime,CodecMaxValues maximum,float rate,boolean noPostProcess,int audioSession){
         if(hasHevcBaseLayer(format)&&MimeTypes.VIDEO_H265.equals(mime))format=format.buildUpon().setSampleMimeType(MimeTypes.VIDEO_H265).setCodecs(null).build();
-        return super.getMediaFormat(format,mime,maximum,rate,noPostProcess,audioSession);
+        return super.getMediaFormat(withoutRotation(format),mime,maximum,rate,noPostProcess,audioSession);
+    }
+    @Override protected void onOutputFormatChanged(Format format,MediaFormat output){
+        // TextureView applies container rotation; keep decoder pixels and reported size unrotated.
+        super.onOutputFormatChanged(withoutRotation(format),output);
+    }
+    private static Format withoutRotation(Format format){
+        return format.rotationDegrees==0?format:format.buildUpon().setRotationDegrees(0).build();
     }
 }

@@ -100,3 +100,10 @@
 - 仅 JNI 源码变更且固定 FFmpeg 静态缓存完整时，可以按 `Build-PlayerNative.py` 的相同编译、链接和 strip 参数重新链接四 ABI；不修改 FFmpeg 配置或库。用 `llvm-readelf -d` 核对不得新增独立 FFmpeg 动态库依赖，再验证实际解码、切换、seek 与字幕输出。本轮四 ABI 重链已通过依赖检查。
 - 旧 MSYS 构建缓存的 Makefile 可能保存 Git Bash `/c/...` 路径，直接由另一 MSYS make 启动会报源 Makefile 不存在；先读 build.log 并确认部分产物，本轮仅 x86_64 重建成功，其他 ABI 尚未写出。源文件与静态缓存仍存在时，复用已确认的缓存重链 JNI 可避免改变解码器构建；全量重建的 MSYS 路径修正本轮未验证。
 - Git 二进制读取使用可保留原始字节的文件流（如 Python `subprocess.check_output` 后 `write_bytes`）；`git show ... --output=...` 不能用于导出 blob。本轮误用只生成了独立输出目录中的无效诊断文件，未修改源文件；应先验证 ELF 魔数再交给 readelf。
+
+## 视频旋转与输出比例（2026-10-30）
+
+- 用户反馈 L055FCN 的 OMX 对带 270° 标记的视频仍异常，而无旋转标记的视频及软件兼容模式正常。此反馈不能由无旋转元数据的手机样本或模拟器正常硬解替代。
+- 系统解码配置与输出尺寸计算都使用零旋转副本，保留原始 Format 的旋转信息。带旋转标记的自动模式与软件模式使用 RotatingPlayerView，通过纹理矩阵旋转一次；无旋转标记的自动模式保持 SurfaceView。
+- PlayerView 会在尺寸事件及绑定播放器时重设比例，仅由 Activity 设置内容比例会被后来的视图回调覆盖。RotatingPlayerView 在 onContentAspectRatioChanged 中按原始帧尺寸、像素比例和旋转计算比例，布局完成后更新纹理矩阵。90°/270° 的系统解码、软解与切回系统解码均需检查实际像素、比例及黑边。
+- 切换输出视图使用 PlayerView.switchTargetView，迁移原有 ASS 视图，不重建播放器或媒体源；保留字幕、音轨、进度和遥控器状态。模拟器通过只证明当前模拟器路径；L055FCN 的 OMX 真机效果仍须用户安装验证。
