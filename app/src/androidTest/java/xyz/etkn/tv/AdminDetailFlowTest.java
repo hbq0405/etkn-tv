@@ -55,6 +55,23 @@ public class AdminDetailFlowTest {
     @Test public void ordinaryAccountHasNoManagementActions()throws Exception{
         try(Fixture server=new Fixture(false)){open(server,false);main(()->{assertFalse(button("refreshButton").isShown());assertFalse(button("deleteButton").isShown());assertTrue(button("playButton").isEnabled());});assertTrue(server.mutations.isEmpty());}
     }
+    @Test public void delegatedRefreshKeepsOrdinaryLoginAndHidesDelete()throws Exception{
+        try(Fixture server=new Fixture(false,true,false)){
+            open(server,false);await(()->button("refreshButton").isShown());
+            main(()->assertFalse(button("deleteButton").isShown()));
+            assertEquals(SessionStore.PERSIST_FULL,new SessionStore(instrumentation.getTargetContext()).persist());
+            refresh();confirm();await(()->server.mutations.size()==1&&!Boolean.TRUE.equals(field("managementBusy")));
+            assertEquals("POST /api/tv/Items/item-1/Refresh?Action=replace_metadata",server.mutations.get(0));
+        }
+    }
+    @Test public void delegatedDeleteHidesRefreshAndUsesExistingConfirmation()throws Exception{
+        try(Fixture server=new Fixture(false,false,true)){
+            open(server,false);await(()->button("deleteButton").isShown());
+            main(()->{assertFalse(button("refreshButton").isShown());button("deleteButton").performClick();});
+            main(()->assertSame(dialog().getButton(AlertDialog.BUTTON_NEGATIVE),dialog().getCurrentFocus()));
+            confirm();await(()->detail.isFinishing());assertEquals(Collections.singletonList("DELETE /api/tv/Items/item-1"),server.mutations);
+        }
+    }
     @Test public void refreshSwitchesSupportRemoteAndDisableEmptySelection()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,false);refresh();List<Switch> options=switches(dialog().getWindow().getDecorView());
@@ -113,19 +130,21 @@ public class AdminDetailFlowTest {
     private static final class Fixture implements AutoCloseable {
         private final ServerSocket socket;
         final boolean admin;
+        final boolean canRefresh,canDelete;
         volatile boolean closed,policyRead,error;
         volatile boolean deleted;
         volatile int worksReads;
         volatile CountDownLatch gate;
         final List<String> mutations=Collections.synchronizedList(new ArrayList<>());
-        Fixture(boolean admin)throws Exception{this.admin=admin;socket=new ServerSocket(0,16,InetAddress.getByName("127.0.0.1"));Thread thread=new Thread(()->{while(!closed)try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}});worker.setDaemon(true);worker.start();}catch(IOException ignored){}});thread.setDaemon(true);thread.start();}
+        Fixture(boolean admin)throws Exception{this(admin,false,false);}
+        Fixture(boolean admin,boolean canRefresh,boolean canDelete)throws Exception{this.admin=admin;this.canRefresh=canRefresh;this.canDelete=canDelete;socket=new ServerSocket(0,16,InetAddress.getByName("127.0.0.1"));Thread thread=new Thread(()->{while(!closed)try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}});worker.setDaemon(true);worker.start();}catch(IOException ignored){}});thread.setDaemon(true);thread.start();}
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
         JSONObject item(String id,String type)throws Exception{return new JSONObject().put("Id",id).put("Name",type.equals("Series")?"合成剧集":"合成电影").put("Type",type).put("Overview","管理员媒体管理测试").put("MediaSources",new JSONArray()).put("People",new JSONArray());}
         void serve(Socket client)throws Exception{
             try(client){BufferedReader input=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));String line=input.readLine();if(line==null)return;String[] request=line.split(" ");String method=request[0],path=request[1];while((line=input.readLine())!=null&&!line.isEmpty()){}
                 boolean mutation=method.equals("DELETE")||path.contains("/Refresh?");JSONObject body=new JSONObject();String status="200 OK";
                 if(mutation){mutations.add(method+" "+path);if(gate!=null&&!gate.await(10,TimeUnit.SECONDS))throw new IOException("gate timed out");if(error){status="403 Forbidden";body.put("detail","需要管理员权限");}else if(method.equals("DELETE")){deleted=true;status="204 No Content";}else body.put("submitted",true);}
-                else if(path.equals("/api/tv/Users/Me")){body.put("Id","admin-test").put("Policy",new JSONObject().put("IsAdministrator",admin));policyRead=true;}
+                else if(path.equals("/api/tv/Users/Me")){body.put("Id","admin-test").put("Policy",new JSONObject().put("IsAdministrator",admin));if(canRefresh||canDelete)body.put("TvPermissions",new JSONObject().put("CanRefreshMetadata",canRefresh).put("CanDeleteMedia",canDelete));policyRead=true;}
                 else if(path.contains("/Images/")){status="404 Not Found";}
                 else if(path.contains("/Similar")||path.contains("/Seasons")){body.put("Items",new JSONArray());}
                 else if(path.contains("/Persons/person-1/Items")){worksReads++;body.put("Items",deleted?new JSONArray():new JSONArray().put(item("item-1","Movie"))).put("TotalRecordCount",deleted?0:1);}

@@ -82,8 +82,12 @@ public final class DetailActivity extends TvActivity {
         refreshButton=button("刷新元数据",this::confirmRefresh);deleteButton=button("删除",this::confirmDelete);
         management.addView(refreshButton);management.addView(deleteButton);content.addView(management);
         if(item.optString("Id").startsWith("item-"))async(()->api.get("/api/tv/Users/Me"),user->{
-            JSONObject policy=user.optJSONObject("Policy");
-            if(policy!=null&&policy.optBoolean("IsAdministrator"))management.setVisibility(View.VISIBLE);
+            JSONObject policy=user.optJSONObject("Policy"),permissions=user.optJSONObject("TvPermissions");
+            boolean admin=policy!=null&&policy.optBoolean("IsAdministrator");
+            boolean refresh=admin||(permissions!=null&&permissions.optBoolean("CanRefreshMetadata"));
+            boolean delete=admin||(permissions!=null&&permissions.optBoolean("CanDeleteMedia"));
+            refreshButton.setVisibility(refresh?View.VISIBLE:View.GONE);deleteButton.setVisibility(delete?View.VISIBLE:View.GONE);
+            management.setVisibility(refresh||delete?View.VISIBLE:View.GONE);
         });
         LinearLayout selections=row();versionButton=button("版本",this::chooseVersion);audioButton=button("音轨",()->chooseStream(false));subtitleButton=button("字幕",()->chooseStream(true));
         selections.addView(versionButton);selections.addView(audioButton);selections.addView(subtitleButton);
