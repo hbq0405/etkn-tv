@@ -1,30 +1,35 @@
 package xyz.etkn.tv;
 
-import java.net.URI;
+import okhttp3.HttpUrl;
 import org.json.JSONObject;
 import java.util.Locale;
 
 final class PlaybackAddress {
     private PlaybackAddress(){}
     static String resolve(JSONObject source,String server)throws Exception{
+        return resolve(source,server,"","");
+    }
+    static String resolve(JSONObject source,String server,String token,String userId)throws Exception{
         String direct=source.getString("DirectStreamUrl");
         String path=source.optString("Path","").trim();
         String container=source.optString("Container","").trim();
-        String pathName="";
-        try{String value=URI.create(path).getPath();if(value!=null)pathName=value.toLowerCase(Locale.ROOT);}catch(Exception ignored){}
-        boolean iso="iso".equalsIgnoreCase(container)||pathName.endsWith(".iso");
+        boolean iso="iso".equalsIgnoreCase(container)||path.toLowerCase(Locale.ROOT).contains(".iso");
         String address=iso&&!path.isEmpty()?path:direct;
         if(address.startsWith("/"))address=server+address;
-        else if(URI.create(address).getScheme()==null)address=server+"/"+address;
-        URI resolved=URI.create(address);String scheme=resolved.getScheme();
-        if(resolved.getHost()==null||(!"http".equalsIgnoreCase(scheme)&&!"https".equalsIgnoreCase(scheme)))throw new Exception("服务器返回了无效播放地址");
-        if(!iso&&!sameOrigin(address,server))throw new Exception("服务器返回了无效播放地址");
-        return address;
+        else if(!address.matches("(?i)^https?://.*"))address=server+"/"+address;
+        HttpUrl resolved;
+        try{resolved=HttpUrl.get(address);}catch(IllegalArgumentException error){throw new Exception("服务器返回了无效播放地址",error);}
+        if(!"http".equalsIgnoreCase(resolved.scheme())&&!"https".equalsIgnoreCase(resolved.scheme()))throw new Exception("服务器返回了无效播放地址");
+        HttpUrl serverUrl=HttpUrl.get(server);
+        if(!iso&&!sameOrigin(resolved,serverUrl))throw new Exception("服务器返回了无效播放地址");
+        if(iso&&sameOrigin(resolved,serverUrl)){
+            HttpUrl.Builder builder=resolved.newBuilder();
+            if(!token.trim().isEmpty()&&resolved.queryParameter("X-Emby-Token")==null)builder.addQueryParameter("X-Emby-Token",token.trim());
+            if(!userId.trim().isEmpty()&&resolved.queryParameter("UserId")==null)builder.addQueryParameter("UserId",userId.trim());
+            resolved=builder.build();
+        }
+        return resolved.toString();
     }
-    private static boolean sameOrigin(String a,String b){
-        URI x=URI.create(a),y=URI.create(b);
-        int xp=x.getPort()>=0?x.getPort():"https".equalsIgnoreCase(x.getScheme())?443:80;
-        int yp=y.getPort()>=0?y.getPort():"https".equalsIgnoreCase(y.getScheme())?443:80;
-        return x.getScheme().equalsIgnoreCase(y.getScheme())&&x.getHost()!=null&&x.getHost().equalsIgnoreCase(y.getHost())&&xp==yp;
-    }
-}
+    private static boolean sameOrigin(HttpUrl a,HttpUrl b){
+        return a.scheme().equalsIgnoreCase(b.scheme())&&a.host().equalsIgnoreCase(b.host())&&a.port()==b.port();
+    }}
