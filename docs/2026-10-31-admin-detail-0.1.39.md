@@ -32,4 +32,14 @@ ETKvNext `api/tv.py` 增加 POST `/api/tv/Items/{item_id}/Refresh` 与 DELETE `/
 - `D:\work\ETKN-TV\outputs\etkn-tv-0.1.39\etkn-tv-0.1.39.apk`
 - 版本0.1.39/code40，包名xyz.etkn.tv，minSdk24/targetSdk35，沿用既有证书。
 - SHA256：`769ce4e0ede661519448651539ba23d99c664ed37403635a5f451786337942b8`。
-- 两仓库仅本地提交，未推送、未发布 GitHub Release；安装新 APK 后才有 TV 管理入口。
+- TV 功能提交 `a473e465f4c5943279a97ed900c7ea35c0b6c84b` 已推送 main，发行标签 `v0.1.39` 固定指向该提交；ETKvNext 配套后端提交仍仅在本地，未推送。
+
+## 正式发布（2026-10-31）
+
+- 2026-10-31 10:37:05（Asia/Shanghai）正式发布为 latest：https://github.com/hbq0405/etkn-tv/releases/tag/v0.1.39 。Release ID 为 429672781，先校验草稿正文、标签与四资产摘要，再正式发布。
+- APK 保持上述 SHA256 和固定发行证书；update.json 为 0.1.39/code40，SHA256 为 `36ba0c932dff0382148da4dccd56c75a6ced1ff9cdb17c1afb557e2282732038`。
+- 对应播放器源码包沿用 v0.1.38 的17个固定上游源码归档，仅将 README 版本说明更新为0.1.39；逐个校验内层归档哈希及ZIP完整性，SHA256 为 `4f12d06f784947495ff9896ec82be1f95676d22d5e14cde18ca1decaef1c0446`。
+- APK、update.json、SHA256SUMS.txt、播放器源码包均已匿名下载并逐字节哈希验证；latest API 与 latest/download/update.json 均指向0.1.39，更新清单中的APK地址、版本、大小及哈希一致。
+- Telegram 发行工作流 `41160822794` 成功，日志确认一次送达，未重跑通知。
+- 下载验证证据：`build/publish-0.1.39-20261031/anonymous-verification.json`。最终发行清单：`outputs/etkn-tv-0.1.39/release-assets-verified.json`。
+- 真实电视安装与真实媒体刷新/删除、后台刷新任务自然完成周期仍待验收。
