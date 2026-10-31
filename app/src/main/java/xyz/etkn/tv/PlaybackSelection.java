@@ -7,6 +7,18 @@ import java.util.*;
 /** Playback uses server indices; season preferences store an audio-list ordinal. */
 final class PlaybackSelection {
     static final int AUTO=-2;
+    static boolean useTextureVideo(boolean software,String model,int sdk,JSONObject source){
+        if(software)return true;
+        if(sdk>28||!"L055FCN".equals(model))return false;
+        JSONArray streams=source==null?null:source.optJSONArray("MediaStreams");
+        if(streams!=null)for(int i=0;i<streams.length();i++){
+            JSONObject stream=streams.optJSONObject(i);if(stream==null||!"Video".equalsIgnoreCase(stream.optString("Type")))continue;
+            String range=stream.optString("VideoRange").toUpperCase(Locale.ROOT),extended=stream.optString("ExtendedVideoType").toUpperCase(Locale.ROOT);
+            String transfer=stream.optString("ColorTransfer").toLowerCase(Locale.ROOT);
+            if(range.contains("HDR")||range.contains("DOLBY")||range.equals("HLG")||extended.contains("DOLBY")||transfer.equals("smpte2084")||transfer.equals("arib-std-b67"))return false;
+        }
+        return true;
+    }
     static JSONObject nextEpisode(List<JSONObject> episodes,String currentId){
         JSONObject current=null,next=null;
         for(JSONObject episode:episodes)if(currentId.equals(episode.optString("Id"))){current=episode;break;}

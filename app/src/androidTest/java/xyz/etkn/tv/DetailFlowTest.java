@@ -359,6 +359,23 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
+    @Test public void hdrSourceChoosesSurfaceBeforeDecodingAndDecoderSwitchesStaySafe()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.hdrVideo=true;open(server,"movie-single");play();
+            for(boolean software:new boolean[]{false,true,false}){
+                if(software!=Boolean.TRUE.equals(field(playback,"softwareVideo"))){
+                    onMain(()->((Button)field(playback,"decoderButton")).performClick());settle();
+                    instrumentation.sendKeyDownUpSync(software?KeyEvent.KEYCODE_DPAD_DOWN:KeyEvent.KEYCODE_DPAD_UP);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+                }
+                await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player!=null&&player.getPlaybackState()==Player.STATE_READY&&Boolean.TRUE.equals(field(playback,"videoFrameSeen"))&&(!software||((String)field(playback,"videoDecoder")).startsWith("ffmpeg"));});
+                onMain(()->{
+                    ExoPlayer player=(ExoPlayer)field(playback,"player");View surface=((androidx.media3.ui.PlayerView)field(playback,"video")).getVideoSurfaceView();
+                    assertEquals(software,surface instanceof TextureView);assertEquals(!software,surface instanceof SurfaceView);
+                    assertNull(player.getPlayerError());assertTrue(player.getVideoDecoderCounters().renderedOutputBufferCount>0);
+                });
+            }
+        }finally{cleanup();}
+    }
     @Test public void softwareVideoActuallyOutputsHevcFrames()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");play();onMain(()->((ExoPlayer)field(playback,"player")).play());
@@ -656,7 +673,7 @@ public class DetailFlowTest {
         final List<String> imagePaths=Collections.synchronizedList(new ArrayList<>());
         final List<JSONObject> stopped=Collections.synchronizedList(new ArrayList<>());
         volatile java.util.concurrent.CountDownLatch nextRequested,nextGate;
-        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress,failNext;volatile int audioOffset;volatile String unexpectedPath;volatile int reports;
+        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress,failNext,hdrVideo;volatile int audioOffset;volatile String unexpectedPath;volatile int reports;
         final boolean codecMedia;
         final JSONObject personal=new JSONObject();
         Fixture()throws Exception{this(false);}
@@ -672,7 +689,7 @@ public class DetailFlowTest {
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
         JSONObject stream(String type,int index,String title)throws Exception{return new JSONObject().put("Type",type).put("Index",index).put("DisplayTitle",title+" · 主标题 (默认)").put("Title",title+" · 副标题").put("Language","chi").put("Codec",type.equals("Audio")?"pcm_s16le":"subrip");}
         JSONArray sources(boolean multi)throws Exception{
-            if(codecMedia){JSONArray streams=new JSONArray();String[] codecs={"aac","ac3","eac3","dts","truehd"};for(int i=0;i<codecs.length;i++)streams.put(stream("Audio",i+1,"归一化 "+codecs[i]).put("Title","raw-"+codecs[i]).put("Codec",codecs[i]));streams.put(stream("Subtitle",6,"特效字幕 ASS").put("Title","raw-effect").put("Codec","ass"));
+            if(codecMedia){JSONArray streams=new JSONArray();if(hdrVideo)streams.put(new JSONObject().put("Type","Video").put("Index",0).put("Codec","hevc").put("VideoRange","HDR10"));String[] codecs={"aac","ac3","eac3","dts","truehd"};for(int i=0;i<codecs.length;i++)streams.put(stream("Audio",i+1,"归一化 "+codecs[i]).put("Title","raw-"+codecs[i]).put("Codec",codecs[i]));streams.put(stream("Subtitle",6,"特效字幕 ASS").put("Title","raw-effect").put("Codec","ass"));
                 if(pgsSubtitle)streams.put(stream("Subtitle",12,"外挂 PGS").put("IsExternal",true).put("Codec","pgs").put("DeliveryUrl","/api/tv/subtitle.vtt"));
                 JSONArray chapters=new JSONArray();String[] types={"IntroStart","IntroEnd","CreditsStart"};long[] ticks={10000000,30000000,100000000};for(int i=0;i<types.length;i++)chapters.put(new JSONObject().put("MarkerType",types[i]).put("StartPositionTicks",ticks[i]));return new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","HEVC 多编码").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",1).put("DefaultSubtitleStreamIndex",6).put("Chapters",chapters));}
             JSONArray streams=new JSONArray().put(stream("Audio",0,"音轨一").put("IsDefault",true)).put(stream("Audio",4,"音轨二")).put(stream("Subtitle",7,"内封一")).put(stream("Subtitle",8,"内封二")).put(stream("Subtitle",12,"外挂字幕").put("IsExternal",true).put("Codec","webvtt").put("DeliveryUrl","/api/tv/subtitle.vtt"));

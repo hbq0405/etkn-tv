@@ -110,8 +110,8 @@ public final class PlayerActivity extends TvActivity {
         });
         loadNextEpisode();
     }
-    // L055FCN 的 SurfaceView 旋转异常；在创建解码器前选定纹理输出，避免跨表面类型切换。
-    private boolean useTextureVideo(){return softwareVideo||(android.os.Build.VERSION.SDK_INT<=28&&"L055FCN".equals(android.os.Build.MODEL));}
+    // L055FCN 保留 SDR 旋转兼容；HDR 在创建解码器前选择 SurfaceView，保留颜色信号。
+    private boolean useTextureVideo(){return PlaybackSelection.useTextureVideo(softwareVideo,android.os.Build.MODEL,android.os.Build.VERSION.SDK_INT,source);}
     private PlayerView createVideoView(boolean texture){
         PlayerView view=texture?(PlayerView)getLayoutInflater().inflate(R.layout.player_texture,null):new PlayerView(this);
         view.setUseController(true);view.setControllerAutoShow(false);view.setControllerShowTimeoutMs(5000);view.setKeepContentOnPlayerReset(true);view.setShowSubtitleButton(false);view.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
@@ -182,12 +182,12 @@ public final class PlayerActivity extends TvActivity {
     private void startSource(){
         if(!foreground||!versionConfirmed||info==null||player!=null)return;
         try{
+            source=info.getJSONArray("MediaSources").getJSONObject(selected);
             boolean texture=useTextureVideo();
             if((video.getVideoSurfaceView() instanceof TextureView)!=texture){
                 ViewGroup parent=(ViewGroup)video.getParent();int index=parent.indexOfChild(video);ViewGroup.LayoutParams layout=video.getLayoutParams();
                 parent.removeView(video);video=createVideoView(texture);parent.addView(video,index,layout);
             }
-            source=info.getJSONArray("MediaSources").getJSONObject(selected);
             int locked=new TvPreferences(this,api).seasonAudio(seasonKey);
             if(locked>=0){audioIndex=PlaybackSelection.audioAt(source,locked);if(audioIndex==PlaybackSelection.AUTO&&missingSeasonAudio!=locked){missingSeasonAudio=locked;Toast.makeText(this,"本集缺少第 "+(locked+1)+" 音轨，使用默认音轨；本季锁定已保留",Toast.LENGTH_LONG).show();}}
             String address=PlaybackAddress.resolve(source,api.server,api.token,api.session.userId());

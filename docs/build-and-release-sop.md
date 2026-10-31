@@ -120,6 +120,12 @@
 ### L055FCN 真机兼容（0.1.28）
 
 - 真机确认 Android 9/API 28、32 位，实际 AVC 解码器为 OMX.amlogic.avc.decoder.awesome。0.1.26 在 SurfaceView 切向 TextureView 时，ACodec 报 cannot change usage，随后 MediaCodec.setOutputSurface 抛 IllegalArgumentException。保留初始输出表面，不在已运行播放器上跨类型切换。
-- 对 L055FCN/API 28 及以下在创建播放器之前固定 TextureView，旋转仍由 MediaCodec 处理；其他设备和软件解码策略保持原样。独立诊断包的合成 90°/270° 实际像素通过真机检查，用户覆盖安装 0.1.28 后确认正常。软件解码不再调整，不扩大兼容名单。
+- 0.1.28 对 L055FCN/API 28 及以下在创建播放器之前固定 TextureView（0.1.43 明确 HDR 源例外，见下节），旋转仍由 MediaCodec 处理；其他设备和软件解码策略保持原样。独立诊断包的合成 90°/270° 实际像素通过真机检查，用户覆盖安装 0.1.28 后确认正常。软件解码不再调整，不扩大兼容名单。
 - SurfaceView 的厂商硬件叠加画面可能不进入系统截图；L055FCN 基线截图为黑色而用户确认有画面，不能把截图黑色直接认定为播放黑屏。像素验收须确认采集路径包含视频输出。
 - 真机仪器测试使用独立 applicationId 和数据区，先验证 instrumentation 的 targetPackage。现有详情测试会保存/清除模拟会话，不可直接运行于用户正在使用的正式应用；保留正式应用的登录与数据。
+
+### L055FCN HDR 输出选择（0.1.43）
+
+- 同机同一 P8 文件对照显示：0.1.42 的 TextureView 将视频合成到 sRGB 应用层；AFU 使用独立 SurfaceView，视频层为 BT2020 / SMPTE 2084 / Limited range。两者实际使用相同 Amlogic HEVC 硬解器，不能把硬解成功等同于 HDR 输出正确。
+- 在创建播放器前读取所选源 MediaStreams 的视频 VideoRange、ExtendedVideoType、ColorTransfer；明确 HDR、DolbyVision、HLG 或 PQ/HLG 传递信息时，L055FCN 硬解选择 SurfaceView。SDR、缺少元数据仍使用已验证的 TextureView 旋转兼容，软件模式保持原样。
+- 先释放旧播放器，再按新源及解码模式选视图；禁止对运行中的 MediaCodec 跨 Surface 类型切换。测试覆盖输出决策、硬软硬切换、90°/270° 实际像素及退出生命周期。合成 SDR 素材即使带 HDR 测试元数据，也只能证明选择及生命周期；真实 HDR 仍须同片核验独立视频层 dataspace，并区分用户观感和完整杜比视界支持。
