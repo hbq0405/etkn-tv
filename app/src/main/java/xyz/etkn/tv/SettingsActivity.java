@@ -29,7 +29,8 @@ public final class SettingsActivity extends TvActivity {
     private boolean installing;
     private JSONObject playbackPreferences;
     private Button defaultAudio,defaultSubtitle,skipButton,loginModeButton;
-    private boolean preferenceSaving;
+    private boolean preferenceSaving,adminRememberSaving;
+    private LinearLayout loginSection,adminRememberRow;
     private AlertDialog preferenceDialog;
     private static final String[] AUDIO_KEYS={"chi","yue","original","eng","jpn","kor"};
     private static final String[] AUDIO_LABELS={"国语","粤语","原语言","英语","日语","韩语"};
@@ -58,7 +59,7 @@ public final class SettingsActivity extends TvActivity {
             LinearLayout home=section("首页");
             home.addView(switchRow("智能推荐轮播","首页背景按你的观影口味自动轮播推荐，不再跟随焦点联动。保存到此电视当前账号。",preferences.smartCarousel(),on->preferences.setSmartCarousel(on)));
         }
-        LinearLayout login=section("登录");
+        LinearLayout login=section("登录");loginSection=login;
         loginModeButton=settingRow(Color.WHITE);loginModeButton.setOnClickListener(view->chooseLoginMode());login.addView(loginModeButton);showLoginMode();
         login.addView(note("“最后登录用户”启动后直接进入上次用户的首页；“选择登录用户”每次启动或从后台返回时先显示用户选择框，可点选已登录用户或登录新用户。按本设备保存，对全部用户生效。"));
         LinearLayout app=section("应用");
@@ -127,6 +128,21 @@ public final class SettingsActivity extends TvActivity {
         }).setNegativeButton("关闭",null).show();}catch(java.io.IOException error){status.setText("无法读取许可文件");}
     }
     private void chooseSkipMode(){TvPreferences preferences=new TvPreferences(this,api);preferenceDialog=new AlertDialog.Builder(this).setTitle("片头片尾").setSingleChoiceItems(TvPreferences.SKIP_LABELS,preferences.skipMode(),(dialog,index)->{preferences.setSkipMode(index);showSkipMode();dialog.dismiss();}).setNegativeButton("取消",null).create();preferenceDialog.show();}
+    private void loadAdminRemember(){
+        boolean restoreFocus=adminRememberRow!=null&&adminRememberRow.hasFocus();
+        if(adminRememberRow!=null){loginSection.removeView(adminRememberRow);adminRememberRow=null;}
+        if(api.token.isEmpty())return;
+        async(()->api.get("/api/tv/Users/Me"),user->{
+            JSONObject policy=user.optJSONObject("Policy");if(!api.session.userId().equals(user.optString("Id"))||policy==null||!policy.optBoolean("IsAdministrator"))return;
+            boolean privateAccount=user.optBoolean("PrivateAccount");
+            adminRememberRow=switchRow("记住管理员登录",privateAccount?"私密账号不保存登录状态。":"开启后在此电视记住本管理员登录，重新进入免输密码；关闭后下次进入需要密码。",api.session.rememberAdmin(api.server,api.session.userId())&&!privateAccount,this::changeAdminRemember);
+            adminRememberRow.setEnabled(!privateAccount&&!adminRememberSaving);loginSection.addView(adminRememberRow);if(restoreFocus)adminRememberRow.requestFocus();
+        });
+    }
+    private void changeAdminRemember(boolean enabled){
+        if(adminRememberSaving)return;adminRememberSaving=true;adminRememberRow.setEnabled(false);
+        async(()->{try{api.rememberAdministrator(enabled);return enabled;}finally{runOnUiThread(()->{adminRememberSaving=false;if(!isFinishing()&&!isDestroyed())loadAdminRemember();});}},saved->status.setText(saved?"已记住此管理员登录":"已关闭记住登录，下次进入需要密码"));
+    }
     private void showLoginMode(){loginModeButton.setText(rowText("登录方式",LoginGate.LABELS[LoginGate.mode(this)]));}
     private void chooseLoginMode(){preferenceDialog=new AlertDialog.Builder(this).setTitle("登录方式").setSingleChoiceItems(LoginGate.LABELS,LoginGate.mode(this),(dialog,index)->{LoginGate.setMode(this,index);showLoginMode();dialog.dismiss();}).setNegativeButton("取消",null).create();preferenceDialog.show();}
     private void showPreferences(JSONObject value){
@@ -156,5 +172,5 @@ public final class SettingsActivity extends TvActivity {
     }
     private void checkUpdate(){status.setText("正在检查更新…");async(Updater::check,release->{if(release.code<=BuildConfig.VERSION_CODE){status.setText("当前已是最新发行版本。");return;}new AlertDialog.Builder(this).setTitle("ETKN TV "+release.version).setMessage(release.notes+"\n\n大小："+(release.size/1024/1024)+" MB").setPositiveButton("下载更新",(dialog,index)->{status.setText("开始下载…");async(()->Updater.download(this,release,percent->runOnUiThread(()->{if(!isDestroyed())status.setText("正在下载更新 "+percent+"%");})),apk->{downloaded=apk;status.setText("签名和文件校验通过，可以安装。");install();});}).setNegativeButton("稍后",null).show();});}
     private void install(){if(downloaded==null)return;if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){installing=true;startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));return;}installing=false;try{Uri uri=FileProvider.getUriForFile(this,getPackageName()+".files",downloaded);startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));}catch(Exception error){status.setText("此电视未提供安装器，请从下载目录手动安装。");}}
-    @Override protected void onResume(){super.onResume();if(defaultAudio!=null)async(()->api.get("/api/tv/Users/Me/PlaybackPreferences"),this::showPreferences);if(installing){installing=false;if(Build.VERSION.SDK_INT<26||getPackageManager().canRequestPackageInstalls())install();else status.setText("尚未允许安装更新，可授权后重试。");}}
+    @Override protected void onResume(){super.onResume();loadAdminRemember();if(defaultAudio!=null)async(()->api.get("/api/tv/Users/Me/PlaybackPreferences"),this::showPreferences);if(installing){installing=false;if(Build.VERSION.SDK_INT<26||getPackageManager().canRequestPackageInstalls())install();else status.setText("尚未允许安装更新，可授权后重试。");}}
 }

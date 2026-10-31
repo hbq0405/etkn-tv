@@ -103,12 +103,6 @@ public final class DetailActivity extends TvActivity {
         renderSimilar();
     }
     private TextView meta(String value,int color){TextView label=text(value,13,color);label.setGravity(Gravity.CENTER_VERTICAL);return label;}
-    private android.graphics.drawable.Drawable episodeBackground(int progress){
-        android.graphics.drawable.StateListDrawable outline=new android.graphics.drawable.StateListDrawable();
-        outline.addState(new int[]{android.R.attr.state_focused},new FocusPulse(12,3,ACCENT));outline.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));outline.addState(new int[]{},shape(Color.TRANSPARENT,0));
-        android.graphics.drawable.ClipDrawable fill=new android.graphics.drawable.ClipDrawable(shape(Color.rgb(29,91,62),0),Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);fill.setLevel(progress);
-        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(PANEL,0),fill,outline});
-    }
     private void focusPlay(){playButton.post(()->{playButton.requestFocus();scroll.scrollTo(0,0);});}
     private JSONObject userData(){JSONObject data=item==null?null:item.optJSONObject("UserData");return data==null?new JSONObject():data;}
     private void refreshStateButtons(){

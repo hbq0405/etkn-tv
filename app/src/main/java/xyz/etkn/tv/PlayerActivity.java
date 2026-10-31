@@ -29,7 +29,12 @@ public final class PlayerActivity extends TvActivity {
     private PlayerView video;
     private DefaultTimeBar seekProgress;
     private LinearLayout controls;
-    private Button audioButton,subtitleButton,decoderButton,skipButton,nextButton;
+    private Button audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton;
+    private AlertDialog speedDialog;
+    private PlayerEpisodePanel episodePanel;
+    private List<JSONObject> episodes=new ArrayList<>();
+    private boolean episodesLoading,episodesFailed;
+    private float playbackSpeed=1f;
     private AlertDialog trackDialog;
     private JSONObject info,source,nextEpisode;
     private String itemId,playSession="";
@@ -68,12 +73,13 @@ public final class PlayerActivity extends TvActivity {
         if(!expected||videoFrameSeen||!player.getPlayWhenReady()||player.getPlaybackState()!=Player.STATE_READY)videoReadySince=0;
         else if(videoReadySince==0)videoReadySince=android.os.SystemClock.elapsedRealtime();
         else if(android.os.SystemClock.elapsedRealtime()-videoReadySince>=6000){recoverVideo();return;}
-        updateVideoInfo();timer.postDelayed(this,1000);
+        updateVideoInfo();if(episodePanel!=null&&episodePanel.isShown())episodePanel.updateCurrent(player);timer.postDelayed(this,1000);
     }};
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);itemId=getIntent().getStringExtra("id");seasonKey=getIntent().getStringExtra("seasonKey");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
         audioIndex=state==null?getIntent().getIntExtra("audioIndex",PlaybackSelection.AUTO):state.getInt("audioIndex",PlaybackSelection.AUTO);subtitleIndex=state==null?getIntent().getIntExtra("subtitleIndex",PlaybackSelection.AUTO):state.getInt("subtitleIndex",PlaybackSelection.AUTO);
+        playbackSpeed=state==null?getIntent().getFloatExtra("speed",1f):state.getFloat("speed",1f);
         softwareVideo=state!=null&&state.getBoolean("softwareVideo");
         softwareAudio=state==null||state.getBoolean("softwareAudio",true);enhancedSubtitles=state==null||state.getBoolean("enhancedSubtitles",true);
         playWhenReady=state==null||state.getBoolean("playWhenReady",true);skipMode=new TvPreferences(this,api).skipMode();
@@ -85,18 +91,21 @@ public final class PlayerActivity extends TvActivity {
         video=createVideoView(useTextureVideo());
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
         seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setVisibility(View.GONE);
-        FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.BOTTOM);seekLayout.setMargins(dp(28),0,dp(28),dp(28));stage.addView(seekProgress,seekLayout);
+        FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.CENTER_VERTICAL);seekLayout.setMargins(dp(28),0,dp(28),0);stage.addView(seekProgress,seekLayout);
         controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(android.graphics.Color.argb(205,0,0,0));
         controls.addView(text(getIntent().getStringExtra("title"),18,android.graphics.Color.WHITE));
         videoInfo=text("",12,MUTED);controls.addView(videoInfo);
         LinearLayout actions=row();actions.addView(button("版本",this::chooseVersion));
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
-        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(decoderButton);
+        speedButton=button("倍速 · "+speedLabel(),this::chooseSpeed);
+        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(speedButton);actions.addView(decoderButton);
         nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);actions.addView(nextButton);
         HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);controls.addView(actionScroll);
-        FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=dp(96);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
+        FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=0;stage.addView(controls,overlay);controls.setVisibility(View.GONE);
         skipButton=button("跳过片头",this::skipSegment);skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
         status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
+        episodePanel=new PlayerEpisodePanel(this,itemId,this::playEpisode,this::loadNextEpisode);
+        episodePanel.setVisibility(View.GONE);stage.addView(episodePanel,new FrameLayout.LayoutParams(dp(Math.min(480,getResources().getConfiguration().screenWidthDp*3/5)),-1,Gravity.END));
         setContentView(stage);video.hideController();video.requestFocus();
         if(queueMode&&!getIntent().getBooleanExtra("resolved",false)){status.setText("正在解析播放队列…");resolveQueueUnit(itemId,true);return;}
         String requestedSource=state==null?getIntent().getStringExtra("sourceId"):state.getString("sourceId",getIntent().getStringExtra("sourceId"));
@@ -114,28 +123,55 @@ public final class PlayerActivity extends TvActivity {
     private boolean useTextureVideo(){return PlaybackSelection.useTextureVideo(softwareVideo,android.os.Build.MODEL,android.os.Build.VERSION.SDK_INT,source);}
     private PlayerView createVideoView(boolean texture){
         PlayerView view=texture?(PlayerView)getLayoutInflater().inflate(R.layout.player_texture,null):new PlayerView(this);
-        view.setUseController(true);view.setControllerAutoShow(false);view.setControllerShowTimeoutMs(5000);view.setKeepContentOnPlayerReset(true);view.setShowSubtitleButton(false);view.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
+        view.setUseController(true);view.setControllerAnimationEnabled(false);view.setControllerAutoShow(false);view.setControllerShowTimeoutMs(5000);view.setKeepContentOnPlayerReset(true);view.setShowSubtitleButton(false);view.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
         View center=view.findViewById(androidx.media3.ui.R.id.exo_center_controls);((ViewGroup)center.getParent()).removeView(center);
         DefaultTimeBar bar=view.findViewById(androidx.media3.ui.R.id.exo_progress);
         if(bar!=null){bar.setPlayedColor(ACCENT);bar.setScrubberColor(ACCENT);bar.setBufferedColor(BUFFERED);bar.setUnplayedColor(BAR_IDLE);}
-        view.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(controls!=null)controls.setVisibility(visibility);if(visibility!=View.VISIBLE){focusNextWhenLoaded=false;view.requestFocus();}});
+        if(bar!=null){
+            FrameLayout.LayoutParams layout=(FrameLayout.LayoutParams)bar.getLayoutParams();layout.gravity=Gravity.CENTER_VERTICAL;layout.leftMargin=layout.rightMargin=dp(28);layout.topMargin=layout.bottomMargin;bar.setLayoutParams(layout);
+            bar.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{FrameLayout.LayoutParams bounds=(FrameLayout.LayoutParams)v.getLayoutParams();if(bounds.topMargin!=bounds.bottomMargin){bounds.topMargin=bounds.bottomMargin;v.setLayoutParams(bounds);}});
+        }
+        View time=view.findViewById(androidx.media3.ui.R.id.exo_bottom_bar);
+        FrameLayout.LayoutParams timeLayout=(FrameLayout.LayoutParams)time.getLayoutParams();timeLayout.gravity=Gravity.CENTER_VERTICAL;timeLayout.topMargin=dp(56);timeLayout.bottomMargin=0;time.setLayoutParams(timeLayout);time.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        for(int id:new int[]{androidx.media3.ui.R.id.exo_basic_controls,androidx.media3.ui.R.id.exo_extra_controls_scroll_view,androidx.media3.ui.R.id.exo_minimal_controls}){View nativeControls=view.findViewById(id);if(nativeControls!=null)((ViewGroup)nativeControls.getParent()).removeView(nativeControls);}
+        view.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(controls!=null)controls.setVisibility(episodePanel!=null&&episodePanel.isShown()?View.GONE:visibility);if(visibility!=View.VISIBLE){focusNextWhenLoaded=false;if(episodePanel==null||!episodePanel.isShown())view.requestFocus();}});
         if(texture)view.getVideoSurfaceView().addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{if(player!=null)applyVideoRotation(player.getVideoSize());});
         return view;
     }
     private void loadNextEpisode(){
         String series=getIntent().getStringExtra("seriesId");
         if(series==null||series.isEmpty()){nextLoaded=true;updateNextButton();return;}
+        if(episodesLoading)return;episodesLoading=true;episodesFailed=false;
+        if(episodePanel.isShown())episodePanel.loading();
         async(()->{
-            try{return PlaybackSelection.nextEpisode(EtknApi.rows(api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())+"&IsMissing=false")),itemId);}
+            try{return EtknApi.rows(api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())+"&IsMissing=false"));}
             catch(EtknApi.AuthException error){throw error;}
             catch(Exception ignored){return null;}
-        },episode->{nextEpisode=episode;nextLoaded=true;updateNextButton();if(hasNext()&&focusNextWhenLoaded&&controls.getVisibility()==View.VISIBLE)nextButton.requestFocus();focusNextWhenLoaded=false;if(pendingAdvance){pendingAdvance=false;advanceQueue();}});
+        },rows->{
+            episodesLoading=false;episodesFailed=rows==null;episodes=rows==null?new ArrayList<>():new ArrayList<>(rows);
+            episodes.removeIf(ep->!"Episode".equals(ep.optString("Type"))||ep.optString("Id").isEmpty()||ep.optBoolean("IsMissing")||"Virtual".equals(ep.optString("LocationType"))||ep.optInt("ParentIndexNumber",-1)<0||ep.optInt("IndexNumber",-1)<0);
+            episodes.sort(Comparator.comparingInt((JSONObject ep)->ep.optInt("ParentIndexNumber")).thenComparingInt(ep->ep.optInt("IndexNumber")));
+            nextEpisode=PlaybackSelection.nextEpisode(episodes,itemId);nextLoaded=true;updateNextButton();
+            if(episodePanel.isShown())renderEpisodes();
+            if(hasNext()&&focusNextWhenLoaded&&controls.getVisibility()==View.VISIBLE)nextButton.requestFocus();focusNextWhenLoaded=false;
+            if(pendingAdvance){pendingAdvance=false;advanceQueue();}
+        });
     }
+    private void renderEpisodes(){if(episodesLoading)episodePanel.loading();else if(episodesFailed)episodePanel.failed();else{episodePanel.showEpisodes(episodes);episodePanel.updateCurrent(player);}}
+    private void showEpisodes(){
+        String series=getIntent().getStringExtra("seriesId");if(series==null||series.isEmpty()){Toast.makeText(this,"当前视频没有分集",Toast.LENGTH_SHORT).show();return;}
+        hideSeekProgress();episodePanel.setVisibility(View.VISIBLE);video.hideController();controls.setVisibility(View.GONE);skipButton.setVisibility(View.GONE);renderEpisodes();
+    }
+    private void hideEpisodes(){episodePanel.setVisibility(View.GONE);video.requestFocus();}
     private boolean hasNext(){return nextEpisode!=null||(queueMode&&queueIndex+1<queueIds.length);}
     private void updateNextButton(){if(nextButton==null)return;nextButton.setText(nextEpisode!=null?"下一集":"下一个");nextButton.setVisibility(hasNext()?View.VISIBLE:View.GONE);}
     private void playNextEpisode(){
-        if(nextEpisode==null||isFinishing())return;
-        Intent next=new Intent(this,PlayerActivity.class).putExtra("id",nextEpisode.optString("Id")).putExtra("title",EtknApi.resumeTitle(nextEpisode)).putExtra("seriesId",getIntent().getStringExtra("seriesId")).putExtra("seasonKey",PlaybackSelection.seasonKey(nextEpisode)).putExtra("resume",true);
+        if(nextEpisode!=null)playEpisode(nextEpisode,0);
+    }
+    private void playEpisode(JSONObject episode){playEpisode(episode,DetailPresentation.position(episode)/10000);}
+    private void playEpisode(JSONObject episode,long start){
+        if(isFinishing())return;if(itemId.equals(episode.optString("Id"))){hideEpisodes();return;}
+        Intent next=new Intent(this,PlayerActivity.class).putExtra("id",episode.optString("Id")).putExtra("title",EtknApi.resumeTitle(episode)).putExtra("seriesId",getIntent().getStringExtra("seriesId")).putExtra("seasonKey",PlaybackSelection.seasonKey(episode)).putExtra("resume",true).putExtra("position",start).putExtra("speed",playbackSpeed);
         if(queueMode)next.putExtra("queue",queueIds).putExtra("queueIndex",queueIndex).putExtra("resolved",true);
         stopPlayer();startActivity(next);finish();
     }
@@ -170,14 +206,14 @@ public final class PlayerActivity extends TvActivity {
                 return;
             }
             long start=first?("Episode".equals(unit.optString("Type"))?DetailPresentation.position(unit)/10000:position):0;
-            Intent next=new Intent(this,PlayerActivity.class).putExtra("id",unit.optString("Id")).putExtra("title",EtknApi.resumeTitle(unit)).putExtra("position",Math.max(0,start)).putExtra("seriesId",result.optString("seriesId")).putExtra("seasonKey",PlaybackSelection.seasonKey(unit)).putExtra("resume",true).putExtra("resolved",true).putExtra("queue",queueIds).putExtra("queueIndex",queueIndex);
+            Intent next=new Intent(this,PlayerActivity.class).putExtra("id",unit.optString("Id")).putExtra("title",EtknApi.resumeTitle(unit)).putExtra("position",Math.max(0,start)).putExtra("speed",playbackSpeed).putExtra("seriesId",result.optString("seriesId")).putExtra("seasonKey",PlaybackSelection.seasonKey(unit)).putExtra("resume",true).putExtra("resolved",true).putExtra("queue",queueIds).putExtra("queueIndex",queueIndex);
             stopPlayer();startActivity(next);finish();
         });
     }
     private void chooseVersion(){
         if(info==null)return;JSONArray sources=info.optJSONArray("MediaSources");if(sources==null||sources.length()==0)return;
         String[] labels=new String[sources.length()];for(int i=0;i<labels.length;i++)labels[i]=sources.optJSONObject(i).optString("Name","版本 "+(i+1));
-        new AlertDialog.Builder(this).setTitle("选择播放版本").setSingleChoiceItems(labels,selected,(dialog,index)->{stopPlayer();selected=index;versionConfirmed=true;audioIndex=subtitleIndex=PlaybackSelection.AUTO;dialog.dismiss();startSource();}).setNegativeButton("取消",null).show();
+        PlayerChoiceDialog.create(this,"选择播放版本",labels,selected,(dialog,index)->{stopPlayer();selected=index;versionConfirmed=true;audioIndex=subtitleIndex=PlaybackSelection.AUTO;dialog.dismiss();startSource();}).show();
     }
     private void startSource(){
         if(!foreground||!versionConfirmed||info==null||player!=null)return;
@@ -193,7 +229,7 @@ public final class PlayerActivity extends TvActivity {
             String address=PlaybackAddress.resolve(source,api.server,api.token,api.session.userId());
             try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles);}
             catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
-            video.setPlayer(player);
+            video.setPlayer(player);player.setPlaybackSpeed(playbackSpeed);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
             TrackSelectionParameters.Builder preferences=player.getTrackSelectionParameters().buildUpon();
             preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,source.optInt("DefaultSubtitleStreamIndex",-1)<0);
@@ -218,13 +254,14 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onVideoDecoderInitialized(EventTime time,String name,long at,long duration){videoDecoder=name;if(player!=null)applyVideoRotation(player.getVideoSize());updateVideoInfo();}
             });
             player.addListener(new Player.Listener(){
+                @Override public void onPlaybackParametersChanged(PlaybackParameters parameters){playbackSpeed=parameters.speed;speedButton.setText("倍速 · "+speedLabel());}
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
                 @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
-            player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();video.requestFocus();updateTrackButtons();
+            player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();if(episodePanel.isShown())renderEpisodes();else video.requestFocus();updateTrackButtons();
         }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
     }
     private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}
@@ -269,7 +306,7 @@ public final class PlayerActivity extends TvActivity {
         SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||pendingSeekPosition>=0||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
         skipTarget=segment==null?-1:segment.end;
         if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){player.seekTo(segment.end);skipTarget=-1;segment=null;}
-        if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
+        if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys&&!episodePanel.isShown()){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
     }
     private void skipSegment(){if(player!=null&&skipTarget>=0){player.seekTo(skipTarget);updateSkip();}}
     private static final class TrackRef{
@@ -316,13 +353,13 @@ public final class PlayerActivity extends TvActivity {
         }
         int selectedIndex=indices.indexOf(subtitles?subtitleIndex:audioIndex);
         video.setControllerShowTimeoutMs(0);
-        trackDialog=new AlertDialog.Builder(this).setTitle(subtitles?"字幕":"音轨").setSingleChoiceItems(labels.toArray(new String[0]),selectedIndex,(dialog,index)->{
+        trackDialog=PlayerChoiceDialog.create(this,subtitles?"字幕":"音轨",labels.toArray(new String[0]),selectedIndex,(dialog,index)->{
             if(player==null)return;int wanted=indices.get(index),resolved=wanted==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,subtitles):wanted;
             JSONObject stream=PlaybackSelection.stream(source,resolved,subtitles);TrackRef ref=stream==null?null:findTrack(stream,type);
             if(resolved>=0&&(ref==null||!ref.supported())){Toast.makeText(this,ref==null?"该轨道尚未解析，不能确认对应关系":"当前解码模式不支持该轨道",Toast.LENGTH_LONG).show();return;}
             if(subtitles){subtitleIndex=wanted;subtitlePending=true;}else{audioIndex=wanted;audioPending=true;new TvPreferences(this,api).saveSeasonAudio(seasonKey,PlaybackSelection.audioOrdinal(source,wanted));}
             applyInitialTrack(type);updateTrackButtons();dialog.dismiss();
-        }).setNegativeButton("取消",null).create();
+        });
         trackDialog.setOnDismissListener(dialog->{video.setControllerShowTimeoutMs(5000);showControls();});trackDialog.show();
     }
     private String currentTrackTitle(boolean subtitles){
@@ -339,9 +376,17 @@ public final class PlayerActivity extends TvActivity {
     private void commitSeek(){if(player==null||pendingSeekPosition<0)return;long target=pendingSeekPosition;pendingSeekPosition=-1;player.seekTo(target);showSeekProgress();}
     private void hideSeekProgress(){seekKeys=false;pendingSeekPosition=-1;timer.removeCallbacks(seekCommit);timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgress.setVisibility(View.GONE);}
     private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);focusNextWhenLoaded=!hasNext();(hasNext()?nextButton:audioButton).requestFocus();}
+    private String speedLabel(){return String.format(Locale.ROOT,"%s×",new java.math.BigDecimal(Float.toString(playbackSpeed)).stripTrailingZeros().toPlainString());}
+    private void chooseSpeed(){
+        if(player==null)return;float[] speeds={0.25f,0.5f,0.75f,1f,1.25f,1.5f,2f};String[] labels=new String[speeds.length];int selectedSpeed=3;
+        for(int i=0;i<speeds.length;i++){labels[i]=speeds[i]+"×";if(Math.abs(speeds[i]-playbackSpeed)<0.01f)selectedSpeed=i;}
+        video.setControllerShowTimeoutMs(0);
+        speedDialog=PlayerChoiceDialog.create(this,"播放倍速",labels,selectedSpeed,(dialog,index)->{if(player!=null)player.setPlaybackSpeed(speeds[index]);dialog.dismiss();});
+        speedDialog.setOnDismissListener(dialog->{video.setControllerShowTimeoutMs(5000);showControls();speedButton.requestFocus();});speedDialog.show();
+    }
     private void chooseDecoder(){
         if(player==null)return;video.setControllerShowTimeoutMs(0);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("视频解码").setSingleChoiceItems(new String[]{"自动：硬解优先，失败回退","软件兼容：高分辨率可能较慢"},softwareVideo?1:0,(choice,index)->{if(softwareVideo!=(index==1)){stopPlayer();softwareVideo=index==1;startSource();}choice.dismiss();}).setNegativeButton("取消",null).create();
+        AlertDialog dialog=PlayerChoiceDialog.create(this,"视频解码",new String[]{"自动：硬解优先，失败回退","软件兼容：高分辨率可能较慢"},softwareVideo?1:0,(choice,index)->{if(softwareVideo!=(index==1)){stopPlayer();softwareVideo=index==1;startSource();}choice.dismiss();});
         dialog.setOnDismissListener(value->{video.setControllerShowTimeoutMs(5000);showControls();});dialog.show();
     }
     private void report(String event){
@@ -355,11 +400,21 @@ public final class PlayerActivity extends TvActivity {
     @Override protected void onPause(){hideSeekProgress();super.onPause();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
-    @Override protected void onSaveInstanceState(Bundle state){state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("softwareAudio",softwareAudio);state.putBoolean("enhancedSubtitles",enhancedSubtitles);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
+    @Override protected void onSaveInstanceState(Bundle state){state.putFloat("speed",playbackSpeed);state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("softwareAudio",softwareAudio);state.putBoolean("enhancedSubtitles",enhancedSubtitles);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
         if(down)focusNextWhenLoaded=false;
-        if(key==KeyEvent.KEYCODE_BACK){if(down&&event.getRepeatCount()==0){hideSeekProgress();finish();}return true;}
+        if(key==KeyEvent.KEYCODE_BACK){if(down&&event.getRepeatCount()==0){
+            if(episodePanel.isShown())hideEpisodes();
+            else if(seekKeys||controls.getVisibility()==View.VISIBLE||video.isControllerFullyVisible()){hideSeekProgress();video.hideController();controls.setVisibility(View.GONE);video.requestFocus();}
+            else finish();
+        }return true;}
+        if(episodePanel.isShown()){
+            if(key==KeyEvent.KEYCODE_MENU||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD||key==KeyEvent.KEYCODE_MEDIA_REWIND)return true;
+            if(key>=KeyEvent.KEYCODE_DPAD_UP&&key<=KeyEvent.KEYCODE_DPAD_RIGHT){View focus=getCurrentFocus();int direction=key==KeyEvent.KEYCODE_DPAD_UP?View.FOCUS_UP:key==KeyEvent.KEYCODE_DPAD_DOWN?View.FOCUS_DOWN:key==KeyEvent.KEYCODE_DPAD_LEFT?View.FOCUS_LEFT:View.FOCUS_RIGHT;if(focus==null||!episodePanel.contains(focus.focusSearch(direction)))return true;}
+            return super.dispatchKeyEvent(event);
+        }
+        if(key==KeyEvent.KEYCODE_DPAD_UP){if(down&&event.getRepeatCount()==0)showEpisodes();return true;}
         if(key==KeyEvent.KEYCODE_MENU){if(down)chooseTrack(C.TRACK_TYPE_TEXT);return true;}
         boolean mediaSeek=key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD||key==KeyEvent.KEYCODE_MEDIA_REWIND;
         if((key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT||mediaSeek)&&video!=null&&(mediaSeek||!video.isControllerFullyVisible()||seekKeys)){
@@ -375,7 +430,6 @@ public final class PlayerActivity extends TvActivity {
         }
         if(video!=null&&!video.isControllerFullyVisible()){
             if(key==KeyEvent.KEYCODE_DPAD_DOWN){if(down)showControls();return true;}
-            if(key==KeyEvent.KEYCODE_DPAD_UP)return true;
         }
         return video!=null&&video.dispatchMediaKeyEvent(event)||super.dispatchKeyEvent(event);
     }

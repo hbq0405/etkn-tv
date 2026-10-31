@@ -78,7 +78,7 @@ final class EtknApi {
         String access = result.getString("AccessToken"); JSONObject user = result.getJSONObject("User");
         JSONObject policy=user.optJSONObject("Policy");
         boolean isAdmin=policy!=null&&policy.optBoolean("IsAdministrator");
-        int persist=SessionStore.persistPolicy(result.optBoolean("PrivateAccount"),isAdmin);
+        int persist=SessionStore.persistPolicy(result.optBoolean("PrivateAccount"),isAdmin,session.rememberAdmin(address,user.getString("Id")));
         if(persist!=SessionStore.PERSIST_FULL&&password.isEmpty())throw new Exception("请先为该账号设置密码，再输入密码登录");
         if(generation!=LoginGate.generation())throw new Exception("应用已离开前台，请重新登录");
         session.saveSession(address, user.getString("Id"), user.optString("Name"), access, persist);
@@ -91,9 +91,19 @@ final class EtknApi {
         JSONObject user=request(session.server(),access,"GET","/api/tv/Users/Me",null);
         if(!userId.equals(user.optString("Id")))throw new Exception("已保存账号身份不一致，请重新登录");
         JSONObject policy=user.optJSONObject("Policy");
-        int persist=SessionStore.persistPolicy(user.optBoolean("PrivateAccount"),policy!=null&&policy.optBoolean("IsAdministrator"));
+        int persist=SessionStore.persistPolicy(user.optBoolean("PrivateAccount"),policy!=null&&policy.optBoolean("IsAdministrator"),session.rememberAdmin(session.server(),userId));
         if(persist!=SessionStore.PERSIST_FULL)session.restrictSavedAccount(userId,persist);
         return persist;
+    }
+    void rememberAdministrator(boolean enabled)throws Exception{
+        int generation=LoginGate.generation();
+        JSONObject user=get("/api/tv/Users/Me"),policy=user.optJSONObject("Policy");
+        if(!session.userId().equals(user.optString("Id"))||policy==null||!policy.optBoolean("IsAdministrator"))throw new Exception("只有管理员可以设置记住登录");
+        if(user.optBoolean("PrivateAccount"))throw new Exception("私密账号不保存登录状态");
+        if(generation!=LoginGate.generation())throw new Exception("应用已离开前台，请重新设置记住登录");
+        session.saveSession(server,user.getString("Id"),user.optString("Name"),token,enabled?SessionStore.PERSIST_FULL:SessionStore.PERSIST_ACCOUNT);
+        session.setRememberAdmin(server,user.getString("Id"),enabled);
+        if(generation!=LoginGate.generation()){session.restrictSavedAccount(user.getString("Id"),SessionStore.PERSIST_ACCOUNT);throw new Exception("应用已离开前台，请重新登录");}
     }
     void refreshSavedAccounts()throws Exception{
         for(SavedAccounts.Account account:session.accounts()){

@@ -48,6 +48,12 @@ abstract class TvActivity extends Activity {
     private android.graphics.drawable.Drawable focusFill(int color){return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(color,0),new FocusPulse(12,dp(3),ACCENT)});}
     StateListDrawable focusBackground() { StateListDrawable state = new StateListDrawable(); state.addState(new int[]{android.R.attr.state_focused},focusFill(Color.rgb(39,69,73))); state.addState(new int[]{android.R.attr.state_pressed},shape(Color.rgb(39,69,73),ACCENT)); state.addState(new int[]{},shape(PANEL,0)); return state; }
     StateListDrawable transparentFocusBackground() { StateListDrawable state=new StateListDrawable();state.addState(new int[]{android.R.attr.state_focused},focusFill(Color.TRANSPARENT));state.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));state.addState(new int[]{},shape(Color.TRANSPARENT,0));return state; }
+    android.graphics.drawable.Drawable episodeBackground(int progress){
+        android.graphics.drawable.StateListDrawable outline=new android.graphics.drawable.StateListDrawable();
+        outline.addState(new int[]{android.R.attr.state_focused},new FocusPulse(12,3,ACCENT));outline.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));outline.addState(new int[]{},shape(Color.TRANSPARENT,0));
+        android.graphics.drawable.ClipDrawable fill=new android.graphics.drawable.ClipDrawable(shape(Color.rgb(29,91,62),0),android.view.Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);fill.setLevel(progress);
+        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(PANEL,0),fill,outline});
+    }
     View backdropShade(){View shade=new View(this);shade.setBackgroundColor(Color.argb(125,24,24,24));return shade;}
     Button button(String title, Runnable click) {
         Button view = new Button(this); view.setText(title); view.setAllCaps(false); view.setTextColor(Color.WHITE); view.setTextSize(14); view.setBackground(focusBackground()); view.setMinHeight(dp(44)); view.setPadding(dp(18),dp(8),dp(18),dp(8));

@@ -16,13 +16,17 @@ import javax.crypto.spec.GCMParameterSpec;
 
 final class SessionStore {
     static final int PERSIST_FULL=0,PERSIST_ACCOUNT=1,PERSIST_NONE=2;
-    /** 进程级临时会话：私密账号与管理员账号的令牌只保存在内存中，进程结束后必须重新登录。 */
+    /** 私密账号及未开启记住登录的管理员令牌只存内存，后台结束临时会话。 */
     private static String memoryToken,memoryUserId,memoryName;
     private final SharedPreferences prefs;
     private static final String KEY = "etkn-tv-session";
     SessionStore(Context context) { prefs = context.getSharedPreferences("session", Context.MODE_PRIVATE); }
-    /** 登录响应决定令牌持久化策略：私密账号不落盘、管理员账号只保留账号信息、普通账号保存加密令牌。 */
-    static int persistPolicy(boolean privateAccount,boolean isAdmin){return privateAccount?PERSIST_NONE:isAdmin?PERSIST_ACCOUNT:PERSIST_FULL;}
+    /** 私密账号优先不落盘；管理员默认只留账号，可在本机显式开启加密令牌保存。 */
+    static int persistPolicy(boolean privateAccount,boolean isAdmin){return persistPolicy(privateAccount,isAdmin,false);}
+    static int persistPolicy(boolean privateAccount,boolean isAdmin,boolean rememberAdmin){return privateAccount?PERSIST_NONE:isAdmin&&!rememberAdmin?PERSIST_ACCOUNT:PERSIST_FULL;}
+    private String rememberAdminKey(String address,String id){return "remember-admin/"+new org.json.JSONArray().put(address).put(id);}
+    boolean rememberAdmin(String address,String id){return prefs.getBoolean(rememberAdminKey(address,id),false);}
+    void setRememberAdmin(String address,String id,boolean enabled)throws Exception{if(!prefs.edit().putBoolean(rememberAdminKey(address,id),enabled).commit())throw new Exception("无法保存记住登录设置，请重试");}
     String server() { return prefs.getString("server", ""); }
     String userId() { return persist()==PERSIST_NONE ? (memoryUserId==null?"":memoryUserId) : prefs.getString("userId", ""); }
     String name() { return persist()==PERSIST_NONE ? (memoryName==null?"":memoryName) : prefs.getString("name", ""); }
@@ -91,7 +95,7 @@ final class SessionStore {
         endTemporarySession();
         LoginGate.satisfy();
     }
-    /** 按持久化策略保存登录会话：私密账号不进入注册表也不留凭据，管理员账号注册表只保留账号信息；两者的令牌只存内存。 */
+    /** 按持久化策略保存会话：受限账号不保存令牌，完整会话使用系统密钥加密保存。 */
     void saveSession(String server, String userId, String name, String token, int persist) throws Exception {
         if(persist==PERSIST_FULL){save(server,userId,name,token);return;}
         ensureServer(server);

@@ -74,12 +74,14 @@ public class DetailFlowTest {
                 assertEquals(View.GONE,((View)field(playback,"nextButton")).getVisibility());
             });
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
-            assertTrue("控制栏显示时也必须一次返回退出播放",playback.isFinishing());
+            assertFalse("返回先收起控制栏",playback.isFinishing());
+            assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());assertEquals(0,server.stopped.size());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertTrue(playback.isFinishing());
             await(()->field(playback,"player")==null&&server.stopped.size()==1&&detail.hasWindowFocus());
         }finally{cleanup();}
     }
 
-    @Test public void backExitsPlaybackImmediatelyAndReportsCurrentPosition()throws Exception{
+    @Test public void backHidesSeekBeforeExitingAndReportsCurrentPosition()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
             for(boolean seeking:new boolean[]{false,true}){
@@ -94,7 +96,8 @@ public class DetailFlowTest {
                     position[0]=((ExoPlayer)field(playback,"player")).getCurrentPosition();
                 });
                 instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
-                assertTrue("播放中或快进后都必须一次返回退出",playback.isFinishing());
+                if(seeking){assertFalse("快进后返回先收起提示",playback.isFinishing());assertEquals(stoppedBefore,server.stopped.size());assertFalse(((View)field(playback,"seekProgress")).isShown());instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();}
+                assertTrue("无浮层时返回退出",playback.isFinishing());
                 await(()->field(playback,"player")==null&&server.stopped.size()==stoppedBefore+1&&detail.hasWindowFocus());
                 JSONObject stopped=server.stopped.get(stoppedBefore);
                 assertEquals("movie-single",stopped.getString("ItemId"));assertTrue(stopped.getLong("PositionTicks")>=position[0]*10000);
@@ -266,6 +269,7 @@ public class DetailFlowTest {
             assertTrue(((Button)field(playback,"audioButton")).getText().toString().contains("音轨二"));clickTrack(false,1);await(()->"1".equals(selected(C.TRACK_TYPE_AUDIO)));
             assertTrue(((Button)field(playback,"audioButton")).getText().toString().contains("音轨一"));
             onMain(()->((Button)field(playback,"subtitleButton")).performClick());settle();
+            screenshot("player-subtitle-dialog.png");
             onMain(()->{ListView list=((AlertDialog)field(playback,"trackDialog")).getListView();assertEquals(5,list.getCount());assertEquals("内封二 · 副标题",list.getAdapter().getItem(0));assertEquals("内封一 · 副标题",list.getAdapter().getItem(2));((AlertDialog)field(playback,"trackDialog")).dismiss();});closePlayer();
             server.extraTrack=true;play();onMain(()->((Button)field(playback,"audioButton")).performClick());settle();
             onMain(()->{AlertDialog dialog=(AlertDialog)field(playback,"trackDialog");ListView list=dialog.getListView();assertEquals("全部服务端音轨必须保留",4,list.getCount());assertTrue(list.getAdapter().getItem(3).toString().contains("未解析音轨"));list.performItemClick(null,3,3);assertTrue("无法可靠对应的轨道不可静默选错",dialog.isShowing());assertEquals(PlaybackSelection.AUTO,field(playback,"audioIndex"));dialog.dismiss();});
@@ -552,6 +556,8 @@ public class DetailFlowTest {
             await(()->seeks.get()==1);settle();assertEquals(1,seeks.get());
             onMain(()->{((androidx.media3.ui.PlayerView)field(playback,"video")).hideController();seeks.set(0);long now=SystemClock.uptimeMillis();playback.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_LEFT,0));playback.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_LEFT,0));});
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
+            assertFalse(playback.isFinishing());assertEquals("收起必须取消待执行跳转",0,seeks.get());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
             await(()->playback.isFinishing()&&field(playback,"player")==null&&detail.hasWindowFocus());assertEquals("退出必须取消待执行跳转",0,seeks.get());
         }finally{cleanup();}
     }
@@ -570,6 +576,71 @@ public class DetailFlowTest {
             onMain(()->assertTrue("松手后立即打开控制栏仍须执行目标跳转",((ExoPlayer)field(playback,"player")).getCurrentPosition()>=10000));
             onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getPlayWhenReady()));
+        }finally{cleanup();}
+    }
+
+    private Button panelButton(String title){return findButton((View)field(playback,"episodePanel"),title);}
+    private void resumeEpisode(Fixture server,String id)throws Exception{
+        open(server,"series-many");JSONObject ep=EtknApi.rows(server.response("/api/tv/Shows/series-many/Episodes")).stream().filter(e->id.equals(e.optString("Id"))).findFirst().get();
+        Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+        onMain(()->detail.resumePlayback(ep));playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
+        await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
+        onMain(()->((ExoPlayer)field(playback,"player")).pause());await(()->Boolean.TRUE.equals(field(playback,"nextLoaded")));settle();
+    }
+    @Test public void upOpensDetailStyleEpisodesFromResumeAndSwitchesWithTargetSeasonLock()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.ordinalFixture=true;resumeEpisode(server,"episode-2-3");
+            new TvPreferences(playback,playback.api).saveSeasonAudio("season-1",1);server.audioOffset=20;
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();
+            View panel=(View)field(playback,"episodePanel");assertTrue(panel.isShown());Button current=panelButton("第 3 集 ▶");assertSame(current,playback.getCurrentFocus());
+            assertTrue(current.getContentDescription().toString().contains("正在播放"));Button watched=panelButton("第 1 集 ✓");assertNotNull(watched);
+            assertEquals(10000,((android.graphics.drawable.LayerDrawable)watched.getBackground()).getDrawable(1).getLevel());
+            onMain(()->((ExoPlayer)field(playback,"player")).play());await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=1000);onMain(()->((ExoPlayer)field(playback,"player")).pause());settle();
+            await(()->((android.graphics.drawable.LayerDrawable)current.getBackground()).getDrawable(1).getLevel()>0);
+            screenshot("player-current-episode-progress.png");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();assertFalse(panel.isShown());assertFalse(playback.isFinishing());assertEquals(0,server.stopped.size());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();onMain(()->panelButton("第 1 季").performClick());settle();
+            Button resumed=panelButton("第 2 集");assertNotNull(resumed);assertNull(panelButton("第 3 集 ▶"));screenshot("player-episode-matrix.png");
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);PlayerActivity previous=playback;
+            onMain(()->{resumed.requestFocus();resumed.performClick();});playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
+            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->((ExoPlayer)field(playback,"player")).pause());
+            assertTrue(previous.isFinishing());assertEquals("episode-1-2",playback.getIntent().getStringExtra("id"));assertEquals("season-1",playback.getIntent().getStringExtra("seasonKey"));
+            await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO)));assertEquals(24,field(playback,"audioIndex"));await(()->server.stopped.size()==1);assertEquals("episode-2-3",server.stopped.get(0).optString("ItemId"));
+        }finally{cleanup();}
+    }
+    @Test public void episodePanelRetryLateResultsAndBackKeepCurrentPlayback()throws Exception{
+        try(Fixture server=new Fixture()){
+            open(server,"episode-1-2");server.failNext=true;play();await(()->Boolean.TRUE.equals(field(playback,"episodesFailed")));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();assertNotNull(panelButton("重试"));assertFalse(playback.isFinishing());
+            server.failNext=false;server.nextRequested=new java.util.concurrent.CountDownLatch(1);server.nextGate=new java.util.concurrent.CountDownLatch(1);
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);assertTrue(server.nextRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertFalse(((View)field(playback,"episodePanel")).isShown());assertFalse(playback.isFinishing());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT);settle();View focused=playback.getCurrentFocus();
+            server.nextGate.countDown();await(()->!Boolean.TRUE.equals(field(playback,"episodesLoading")));settle();
+            assertFalse(((View)field(playback,"episodePanel")).isShown());assertSame(focused,playback.getCurrentFocus());assertEquals(0,server.stopped.size());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();assertNotNull(panelButton("第 2 集 ▶"));assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertFalse(playback.isFinishing());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MENU);settle();assertTrue(((AlertDialog)field(playback,"trackDialog")).isShowing());onMain(()->((AlertDialog)field(playback,"trackDialog")).dismiss());
+        }finally{cleanup();}
+    }
+    @Test public void timelineIsCenteredControlsAreAtBottomAndSpeedUsesOwnButton()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
+            onMain(()->{
+                View video=(View)field(playback,"video"),bar=video.findViewById(androidx.media3.ui.R.id.exo_progress),controls=(View)field(playback,"controls");Rect screen=new Rect(),timeline=new Rect(),bottom=new Rect();
+                assertTrue(video.getGlobalVisibleRect(screen));assertTrue(bar.getGlobalVisibleRect(timeline));assertTrue(controls.getGlobalVisibleRect(bottom));
+                assertEquals("进度条必须在画面垂直中央",screen.centerY(),timeline.centerY(),playback.dp(2));assertEquals(screen.bottom,bottom.bottom);
+                assertFalse("底部原生设置不能留在中央",video.findViewById(androidx.media3.ui.R.id.exo_settings)!=null);
+                ((Button)field(playback,"speedButton")).performClick();
+            });settle();
+            onMain(()->assertTrue("长选择列表必须给屏幕上下留出边距",((AlertDialog)field(playback,"speedDialog")).getWindow().getDecorView().getHeight()<=playback.getResources().getDisplayMetrics().heightPixels-playback.dp(48)));
+            screenshot("player-speed-dialog.png");
+            onMain(()->{ListView list=((AlertDialog)field(playback,"speedDialog")).getListView();list.performItemClick(null,5,list.getAdapter().getItemId(5));});settle();
+            onMain(()->{assertEquals(1.5f,((ExoPlayer)field(playback,"player")).getPlaybackParameters().speed,0.001f);assertEquals("倍速 · 1.5×",((Button)field(playback,"speedButton")).getText().toString());assertSame(field(playback,"speedButton"),playback.getCurrentFocus());});screenshot("player-centered-timeline-bottom-controls.png");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertFalse(playback.isFinishing());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();assertFalse(((View)field(playback,"episodePanel")).isShown());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();onMain(()->{Rect screen=new Rect(),timeline=new Rect();assertTrue(((View)field(playback,"video")).getGlobalVisibleRect(screen));assertTrue(((View)field(playback,"seekProgress")).getGlobalVisibleRect(timeline));assertEquals(screen.centerY(),timeline.centerY(),playback.dp(2));});
         }finally{cleanup();}
     }
 

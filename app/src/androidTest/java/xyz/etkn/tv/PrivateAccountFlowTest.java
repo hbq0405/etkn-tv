@@ -225,11 +225,44 @@ public class PrivateAccountFlowTest {
         await(()->server.logins>0);background();server.loginGate.countDown();
         Thread.sleep(300);assertEquals("",session.token());assertFalse(LoginGate.isSatisfied());
     }
+    private Object field(Object owner,String name){try{java.lang.reflect.Field value=owner.getClass().getDeclaredField(name);value.setAccessible(true);return value.get(owner);}catch(Exception error){throw new AssertionError(error);}}
+    @Test public void administratorCanOptIntoRememberedLoginAndDisableItAgain()throws Exception{
+        session.saveSession(server.origin(),"admin","admin","token-admin",SessionStore.PERSIST_ACCOUNT);LoginGate.satisfy();
+        SettingsActivity settings=start(SettingsActivity.class);await(()->field(settings,"adminRememberRow")!=null);
+        assertFalse(session.rememberAdmin(server.origin(),"admin"));clickText("记住管理员登录");
+        await(()->session.persist()==SessionStore.PERSIST_FULL&&session.rememberAdmin(server.origin(),"admin")&&field(settings,"adminRememberRow")!=null&&((View)field(settings,"adminRememberRow")).isEnabled());
+        assertFalse(context.getSharedPreferences("session",0).getAll().toString().contains("token-admin"));assertFalse(session.accounts().get(0).needsPassword);
+        SessionStore.endTemporarySession();assertEquals("token-admin",new SessionStore(context).token());assertEquals(SessionStore.PERSIST_FULL,new EtknApi(context).savedAccountPolicy("admin"));
+        device.sendKeyDownUpSync(KeyEvent.KEYCODE_HOME);await(()->!LoginGate.isSatisfied());assertEquals("token-admin",session.token());
+        returnToApp();await(()->resumed instanceof HomeActivity&&LoginGate.isSatisfied());assertFalse(hasPasswordInput());
+        SettingsActivity again=start(SettingsActivity.class);await(()->field(again,"adminRememberRow")!=null);clickText("记住管理员登录");
+        await(()->session.persist()==SessionStore.PERSIST_ACCOUNT&&!session.rememberAdmin(server.origin(),"admin"));
+        assertEquals("token-admin",session.token());assertEquals("",session.accountToken("admin"));assertTrue(session.accounts().get(0).needsPassword);
+        background();returnToApp();clickText("admin");await(this::hasPasswordInput);clickText("取消");
+    }
+    @Test public void rememberLoginSwitchIsHiddenForOrdinaryUsersAndCannotOverridePrivacy()throws Exception{
+        session.save(server.origin(),"normal","normal","token-normal");SettingsActivity normal=start(SettingsActivity.class);await(()->server.policyRequests>0);device.waitForIdleSync();Thread.sleep(300);
+        assertNull(field(normal,"adminRememberRow"));try{new EtknApi(context).rememberAdministrator(true);fail("普通用户不能设置管理员记住登录");}catch(Exception expected){assertTrue(expected.getMessage().contains("只有管理员"));}
+        assertFalse(session.rememberAdmin(server.origin(),"normal"));
+        onMain(normal::finish);await(normal::isDestroyed);server.adminPrivate=true;
+        session.saveSession(server.origin(),"admin","admin","token-admin",SessionStore.PERSIST_NONE);session.setRememberAdmin(server.origin(),"admin",true);LoginGate.satisfy();
+        SettingsActivity privateAdmin=start(SettingsActivity.class);await(()->field(privateAdmin,"adminRememberRow")!=null);assertFalse(((View)field(privateAdmin,"adminRememberRow")).isEnabled());
+        try{new EtknApi(context).rememberAdministrator(true);fail("私密规则必须优先");}catch(Exception expected){assertTrue(expected.getMessage().contains("私密账号"));}
+        assertEquals(SessionStore.PERSIST_NONE,session.persist());assertEquals("",session.accountToken("admin"));assertFalse(context.getSharedPreferences("session",0).getAll().toString().contains("token-admin"));
+        onMain(privateAdmin::finish);await(privateAdmin::isDestroyed);session.save(server.origin(),"admin","admin","token-admin");
+        assertEquals(SessionStore.PERSIST_NONE,new EtknApi(context).savedAccountPolicy("admin"));assertEquals("",session.token());assertTrue(session.accounts().stream().noneMatch(account->"admin".equals(account.userId)));assertTrue(session.accounts().stream().anyMatch(account->"normal".equals(account.userId)));
+    }
+    @Test public void delayedRememberSettingCannotRestoreAdminAfterBackground()throws Exception{
+        session.saveSession(server.origin(),"admin","admin","token-admin",SessionStore.PERSIST_ACCOUNT);LoginGate.satisfy();
+        SettingsActivity settings=start(SettingsActivity.class);await(()->field(settings,"adminRememberRow")!=null);int before=server.policyRequests;server.holdPolicy=true;clickText("记住管理员登录");
+        await(()->server.policyRequests>before);background();server.policyGate.countDown();await(()->!Boolean.TRUE.equals(field(settings,"adminRememberSaving")));
+        assertEquals("",session.token());assertEquals(SessionStore.PERSIST_ACCOUNT,session.persist());assertFalse(session.rememberAdmin(server.origin(),"admin"));
+    }
     private static final class Fixture implements AutoCloseable {
         private final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         private volatile boolean closed;
         volatile int logins;
-        volatile boolean holdLogin;
+        volatile boolean holdLogin,adminPrivate;
         volatile int policyRequests;
         volatile boolean holdPolicy;
         final java.util.concurrent.CountDownLatch loginGate=new java.util.concurrent.CountDownLatch(1);
@@ -239,7 +272,7 @@ public class PrivateAccountFlowTest {
             accept.setDaemon(true);accept.start();
         }
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
-        private JSONObject user(String name)throws Exception{return new JSONObject().put("Id",name).put("Name",name).put("PrivateAccount",name.equals("private")).put("Policy",new JSONObject().put("IsAdministrator",name.equals("admin")));}
+        private JSONObject user(String name)throws Exception{return new JSONObject().put("Id",name).put("Name",name).put("PrivateAccount",name.equals("private")||name.equals("admin")&&adminPrivate).put("Policy",new JSONObject().put("IsAdministrator",name.equals("admin")));}
         private void serve(Socket client)throws Exception{
             try(client){
                 BufferedReader input=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));

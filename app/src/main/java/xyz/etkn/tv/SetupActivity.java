@@ -86,7 +86,7 @@ public final class SetupActivity extends TvActivity {
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-2,-2);layout.setMargins(dp(6),dp(6),dp(6),dp(6));card.setLayoutParams(layout);
         return card;
     }
-    /** 需要密码的账号（如管理员）选择时先输入密码完成完整登录，令牌不落盘。 */
+    /** 未开启记住登录的管理员先输入密码；已允许保存的账号经在线策略校验后恢复。 */
     private void loginWithPasswordIfNeeded(SavedAccounts.Account account){selectAccount(this,account,this::openHome);}
     static void selectAccount(TvActivity host,SavedAccounts.Account account,Runnable onSuccess){
         if(account.needsPassword){promptPassword(host,account,onSuccess);return;}

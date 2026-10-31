@@ -39,6 +39,16 @@ public class SessionPersistTest {
     @Test public void administratorKeepsOnlyAccountEntry(){
         assertEquals(SessionStore.PERSIST_ACCOUNT,SessionStore.persistPolicy(false,true));
     }
+    @Test public void rememberedAdministratorIsOptInAndCannotOverridePrivacy(){
+        assertEquals(SessionStore.PERSIST_FULL,SessionStore.persistPolicy(false,true,true));
+        assertEquals(SessionStore.PERSIST_ACCOUNT,SessionStore.persistPolicy(false,true,false));
+        assertEquals(SessionStore.PERSIST_NONE,SessionStore.persistPolicy(true,true,true));
+    }
+    @Test public void adminRememberChoiceIsScopedByServerAndAccount()throws Exception{
+        assertFalse(session.rememberAdmin("http://fixture","admin"));session.setRememberAdmin("http://fixture","admin",true);
+        assertTrue(session.rememberAdmin("http://fixture","admin"));assertFalse(session.rememberAdmin("http://other","admin"));assertFalse(session.rememberAdmin("http://fixture","other"));
+        session.setRememberAdmin("http://fixture","admin",false);assertFalse(session.rememberAdmin("http://fixture","admin"));
+    }
     @Test public void regularAccountKeepsEncryptedToken(){
         assertEquals(SessionStore.PERSIST_FULL,SessionStore.persistPolicy(false,false));
     }

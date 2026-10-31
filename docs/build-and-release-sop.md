@@ -129,3 +129,8 @@
 - 同机同一 P8 文件对照显示：0.1.42 的 TextureView 将视频合成到 sRGB 应用层；AFU 使用独立 SurfaceView，视频层为 BT2020 / SMPTE 2084 / Limited range。两者实际使用相同 Amlogic HEVC 硬解器，不能把硬解成功等同于 HDR 输出正确。
 - 在创建播放器前读取所选源 MediaStreams 的视频 VideoRange、ExtendedVideoType、ColorTransfer；明确 HDR、DolbyVision、HLG 或 PQ/HLG 传递信息时，L055FCN 硬解选择 SurfaceView。SDR、缺少元数据仍使用已验证的 TextureView 旋转兼容，软件模式保持原样。
 - 先释放旧播放器，再按新源及解码模式选视图；禁止对运行中的 MediaCodec 跨 Surface 类型切换。测试覆盖输出决策、硬软硬切换、90°/270° 实际像素及退出生命周期。合成 SDR 素材即使带 HDR 测试元数据，也只能证明选择及生命周期；真实 HDR 仍须同片核验独立视频层 dataspace，并区分用户观感和完整杜比视界支持。
+
+## Release 遥控器界面验收
+
+- 默认 Android 仪器测试仅生成 Debug 变体。要验收正式签名 APK，在本轮独立目录的 Gradle init 脚本中通过 `androidComponents.finalizeDsl` 设置 `android.testBuildType = 'release'`，再执行 `assembleRelease` 和 `assembleReleaseAndroidTest`；不为一次验收修改正式构建类型。
+- 两个 APK 使用同一发行证书，安装后核对 `am instrument` 正文的测试数量与最终 `OK`。选择弹窗既检查遥控器切换和轨道效果，也提取截图核对边距与焦点；长列表必须限制窗口高度，不能仅验证列表存在。
