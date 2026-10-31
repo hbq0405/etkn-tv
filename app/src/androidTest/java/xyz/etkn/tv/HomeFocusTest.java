@@ -307,6 +307,17 @@ public class HomeFocusTest {
         }
     }
 
+    @Test public void deletionResultReloadsTheCurrentLibraryWithoutResettingNavigation()throws Exception{
+        try(Fixture server=new Fixture()){
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"delete-result-fixture","删除返回测试","loopback-only");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->library("library-0")!=null);instrumentation.runOnMainSync(()->library("library-0").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
+            call("setSort",new Class<?>[]{String.class,String.class},"DoubanRating","Descending");await(()->server.lastListingPath.contains("SortBy=DoubanRating")&&posterGrid().getChildCount()==60);
+            int before=server.listingCalls;instrumentation.runOnMainSync(()->home.onActivityResult(1001,android.app.Activity.RESULT_OK,null));await(()->server.listingCalls>before&&posterGrid()!=null&&posterGrid().getChildCount()==60);
+            assertEquals("items",field(HomeActivity.class,"mode"));assertEquals("library-0",field(HomeActivity.class,"parent"));assertTrue(server.lastListingPath.contains("SortBy=DoubanRating"));assertFalse(home.isDestroyed());
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+
     private void saveScreenshot(String name)throws Exception{
         Bitmap screenshot=instrumentation.getUiAutomation().takeScreenshot();
         try(FileOutputStream file=new FileOutputStream(new File(evidence,name))){screenshot.compress(Bitmap.CompressFormat.PNG,100,file);}screenshot.recycle();

@@ -136,6 +136,8 @@ abstract class TvActivity extends Activity {
         view.setImageResource(android.R.drawable.ic_menu_myplaces);
         async(()->api.get("/api/tv/Users/Me"),user->{String tag=user.optString("PrimaryImageTag");if(!tag.isEmpty())Images.load(api,api.server+api.userPath()+"/Images/Primary?maxWidth=160&tag="+EtknApi.encode(tag),view);});
     }
-    void detail(org.json.JSONObject item) { startActivity(new Intent(this,DetailActivity.class).putExtra("id",item.optString("Id"))); }
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==1001&&resultCode==RESULT_OK)mediaDeleted();}
+    void mediaDeleted(){recreate();}
+    void detail(org.json.JSONObject item) { startActivityForResult(new Intent(this,DetailActivity.class).putExtra("id",item.optString("Id")),1001); }
     void resumePlayback(org.json.JSONObject item){startActivity(new Intent(this,PlayerActivity.class).putExtra("id",item.optString("Id")).putExtra("title",EtknApi.resumeTitle(item)).putExtra("position",DetailPresentation.position(item)/10000).putExtra("seriesId",item.optString("Type").equals("Episode")?item.optString("SeriesId"):"").putExtra("seasonKey",PlaybackSelection.seasonKey(item)).putExtra("resume",true));}
 }

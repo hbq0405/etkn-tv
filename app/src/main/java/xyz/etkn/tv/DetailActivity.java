@@ -22,6 +22,9 @@ public final class DetailActivity extends TvActivity {
     private int sourceIndex,audio=PlaybackSelection.AUTO,subtitle=PlaybackSelection.AUTO;
     private Button playButton,versionButton,audioButton,subtitleButton,restartButton,favoriteButton,playedButton;
     private int stateTicket;
+    private Button refreshButton,deleteButton;
+    private boolean managementBusy;
+    private AlertDialog managementDialog;
     private LinearLayout episodeArea,preview;
     private TextView episodeTitle,episodeOverview;
     private ImageView backdrop,episodeImage;
@@ -75,6 +78,13 @@ public final class DetailActivity extends TvActivity {
         restartButton=button("从头播放",()->play(true));restartButton.setVisibility(View.GONE);actions.addView(restartButton);
         favoriteButton=button("",this::toggleFavorite);actions.addView(favoriteButton);
         playedButton=button("",this::togglePlayed);actions.addView(playedButton);refreshStateButtons();content.addView(actions);
+        LinearLayout management=row();management.setVisibility(View.GONE);
+        refreshButton=button("刷新元数据",this::confirmRefresh);deleteButton=button("删除",this::confirmDelete);
+        management.addView(refreshButton);management.addView(deleteButton);content.addView(management);
+        if(item.optString("Id").startsWith("item-"))async(()->api.get("/api/tv/Users/Me"),user->{
+            JSONObject policy=user.optJSONObject("Policy");
+            if(policy!=null&&policy.optBoolean("IsAdministrator"))management.setVisibility(View.VISIBLE);
+        });
         LinearLayout selections=row();versionButton=button("版本",this::chooseVersion);audioButton=button("音轨",()->chooseStream(false));subtitleButton=button("字幕",()->chooseStream(true));
         selections.addView(versionButton);selections.addView(audioButton);selections.addView(subtitleButton);
         HorizontalScrollView selectionScroll=new FocusScroll.Row(this);selectionScroll.setHorizontalScrollBarEnabled(false);selectionScroll.addView(selections);content.addView(selectionScroll);
@@ -137,6 +147,41 @@ public final class DetailActivity extends TvActivity {
             if(episodeGrid!=null&&playable!=null)showSeason(playable.optString("SeasonId"),playable);
         });
     }
+    private Switch refreshOption(String title,boolean checked){
+        Switch option=new Switch(this);option.setText(title);option.setTextColor(Color.WHITE);option.setTextSize(16);option.setChecked(checked);
+        option.setId(View.generateViewId());option.setFocusable(true);option.setPadding(dp(12),dp(8),dp(12),dp(8));option.setBackground(focusBackground());option.setMinHeight(dp(52));return option;
+    }
+    private void confirmRefresh(){
+        if(managementBusy||!refreshButton.isShown())return;
+        LinearLayout options=column();options.setPadding(dp(18),dp(8),dp(18),dp(8));
+        Switch metadata=refreshOption("替换所有元数据",true),images=refreshOption("替换现有图片",false);
+        options.addView(metadata,new LinearLayout.LayoutParams(-1,-2));options.addView(images,new LinearLayout.LayoutParams(-1,-2));
+        managementDialog=new AlertDialog.Builder(this).setTitle("刷新元数据").setView(options).setNegativeButton("取消",null)
+                .setPositiveButton("刷新",(dialog,which)->submitManagement(metadata.isChecked()?(images.isChecked()?"replace_metadata_images":"replace_metadata"):"replace_images")).create();
+        managementDialog.show();managementDialog.getWindow().setLayout(dp(440),-2);
+        Button confirm=managementDialog.getButton(AlertDialog.BUTTON_POSITIVE),cancel=managementDialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+        confirm.setBackground(focusBackground());cancel.setBackground(focusBackground());
+        CompoundButton.OnCheckedChangeListener changed=(view,checked)->confirm.setEnabled(metadata.isChecked()||images.isChecked());metadata.setOnCheckedChangeListener(changed);images.setOnCheckedChangeListener(changed);
+        cancel.setId(View.generateViewId());confirm.setId(View.generateViewId());metadata.setNextFocusDownId(images.getId());images.setNextFocusUpId(metadata.getId());images.setNextFocusDownId(cancel.getId());cancel.setNextFocusUpId(images.getId());confirm.setNextFocusUpId(images.getId());cancel.setNextFocusRightId(confirm.getId());confirm.setNextFocusLeftId(cancel.getId());metadata.requestFocus();
+    }
+    private void confirmDelete(){
+        if(managementBusy||!deleteButton.isShown())return;
+        String type=item.optString("Type");String scope=type.equals("Series")?"整部剧集及其全部季、分集":type.equals("Season")?"本季及其全部分集":"该媒体项的全部版本";
+        managementDialog=new AlertDialog.Builder(this).setTitle("删除媒体项").setMessage("确定删除“"+EtknApi.title(item)+"”吗？将删除"+scope+"，并进入联动删除流程，可能同时删除关联文件。")
+                .setNegativeButton("取消",null).setPositiveButton("确认删除",(dialog,which)->submitManagement("delete")).create();
+        managementDialog.show();managementDialog.getButton(AlertDialog.BUTTON_POSITIVE).setBackground(focusBackground());managementDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setBackground(focusBackground());managementDialog.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
+    }
+    private void submitManagement(String action){
+        if(managementBusy)return;
+        boolean deleting=action.equals("delete");String path="/api/tv/Items/"+EtknApi.encode(item.optString("Id"));
+        managementBusy=true;refreshButton.setEnabled(false);deleteButton.setEnabled(false);status.setText(deleting?"正在提交删除…":"正在提交元数据刷新…");
+        async(()->{try{return deleting?api.delete(path):api.post(path+"/Refresh?Action="+action,new JSONObject());}
+            finally{runOnUiThread(()->{managementBusy=false;refreshButton.setEnabled(true);deleteButton.setEnabled(true);});}},result->{
+            if(deleting){Toast.makeText(this,"删除任务已提交",Toast.LENGTH_SHORT).show();setResult(RESULT_OK);finish();}
+            else status.setText(result.optBoolean("submitted")?"元数据刷新任务已提交":"当前媒体无需提交刷新任务");
+        });
+    }
+    @Override protected void onDestroy(){if(managementDialog!=null)managementDialog.dismiss();super.onDestroy();}
     private void setPlayable(JSONObject value){
         boolean changed=playable==null||!playable.optString("Id").equals(value.optString("Id"));playable=value;
         sources=value.optJSONArray("MediaSources");if(sources==null)sources=new JSONArray();
