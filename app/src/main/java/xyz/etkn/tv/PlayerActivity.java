@@ -190,8 +190,7 @@ public final class PlayerActivity extends TvActivity {
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
             int locked=new TvPreferences(this,api).seasonAudio(seasonKey);
             if(locked>=0){audioIndex=PlaybackSelection.audioAt(source,locked);if(audioIndex==PlaybackSelection.AUTO&&missingSeasonAudio!=locked){missingSeasonAudio=locked;Toast.makeText(this,"本集缺少第 "+(locked+1)+" 音轨，使用默认音轨；本季锁定已保留",Toast.LENGTH_LONG).show();}}
-            String address=source.getString("DirectStreamUrl");if(address.startsWith("/"))address=api.server+address;
-            if(!Http.sameOrigin(address,api.server))throw new Exception("服务器返回了无效播放地址");
+            String address=PlaybackAddress.resolve(source,api.server);
             try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles);}
             catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
             video.setPlayer(player);

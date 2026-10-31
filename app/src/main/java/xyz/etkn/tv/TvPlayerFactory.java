@@ -55,7 +55,10 @@ final class TvPlayerFactory {
             };
             renderers=new AssRenderersFactory(ass,renderers);
         }
-        ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new DefaultMediaSourceFactory(data,new TvExtractorsFactory(extractors)).setSubtitleParserFactory(new TvSubtitleParserFactory(delegate))).build();
+        ExtractorsFactory videoExtractors=new TvExtractorsFactory(extractors);
+        SubtitleParser.Factory externalParsers=new TvSubtitleParserFactory(delegate);
+        DefaultMediaSourceFactory sources=new DefaultMediaSourceFactory(data,videoExtractors).setSubtitleParserFactory(externalParsers);
+        ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new BlurayMediaSourceFactory(sources,data,videoExtractors,externalParsers)).build();
         try{
             if(ass!=null){ass.init(player);if(subtitleView!=null)subtitleView.addView(new AssSubtitleView(context,ass));}
             return player;
