@@ -32,7 +32,7 @@ ETKvNext `api/tv.py` 增加 POST `/api/tv/Items/{item_id}/Refresh` 与 DELETE `/
 - `D:\work\ETKN-TV\outputs\etkn-tv-0.1.39\etkn-tv-0.1.39.apk`
 - 版本0.1.39/code40，包名xyz.etkn.tv，minSdk24/targetSdk35，沿用既有证书。
 - SHA256：`769ce4e0ede661519448651539ba23d99c664ed37403635a5f451786337942b8`。
-- TV 功能提交 `a473e465f4c5943279a97ed900c7ea35c0b6c84b` 已推送 main，发行标签 `v0.1.39` 固定指向该提交；ETKvNext 配套后端提交仍仅在本地，未推送。
+- TV 功能提交 `a473e465f4c5943279a97ed900c7ea35c0b6c84b` 已推送 main，发行标签 `v0.1.39` 固定指向该提交；收尾复核时，ETKvNext 远端 dev 已包含配套接口提交 a519ea16（远端提交1283870e）；本轮未执行后端推送或再次部署。
 
 ## 正式发布（2026-10-31）
 
