@@ -420,11 +420,23 @@ public class HomeFocusTest {
     }
     @Test public void serverImageEventUpdatesLoadedPosterPagesWithoutLosingPosition()throws Exception{
         try(Fixture server=new Fixture()){
-            openPosterFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==120);
+            server.admin=true;openPosterFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));assertEquals(0,field(HomeActivity.class,"notifiedHomeGeneration"));call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==120);
             instrumentation.runOnMainSync(()->posterGrid().getChildAt(75).requestFocus());settle();ScrollView scroll=(ScrollView)field(HomeActivity.class,"homeScroll");int before=scroll.getScrollY();
+            key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());chooseItemAction(2);instrumentation.runOnMainSync(()->itemMenu().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick());await(()->"元数据刷新任务已提交".contentEquals(home.status.getText()));
             server.changed=true;server.updateGate.countDown();await(()->posterGrid().getChildCount()==120&&((JSONObject)posterGrid().getChildAt(75).getTag()).optJSONObject("ImageTags").optString("Primary").equals("poster2"));
             await(()->{android.widget.ImageView image=(android.widget.ImageView)((ViewGroup)((ViewGroup)posterGrid().getChildAt(75)).getChildAt(0)).getChildAt(0);return image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap().getPixel(10,10)==Color.MAGENTA;});
-            assertEquals("item-75",((JSONObject)home.getCurrentFocus().getTag()).optString("Id"));assertEquals(before,scroll.getScrollY());assertEquals(120,field(HomeActivity.class,"offset"));saveScreenshot("live-poster-images.png");
+            assertTrue(descendants(posterGrid().getChildAt(75)).stream().anyMatch(view->view instanceof android.widget.TextView&&"9.4".equals(((android.widget.TextView)view).getText().toString())));
+            assertTrue(descendants(posterGrid().getChildAt(75)).stream().anyMatch(view->view instanceof android.widget.TextView&&"9.0".equals(((android.widget.TextView)view).getText().toString())));
+            await(()->"元数据/图片已刷新".contentEquals(home.status.getText()));assertEquals(1,field(HomeActivity.class,"homeGeneration"));assertEquals(1,field(HomeActivity.class,"notifiedHomeGeneration"));assertEquals(0,server.refreshStatusRequests);
+            assertEquals("item-75",((JSONObject)home.getCurrentFocus().getTag()).optString("Id"));assertEquals(before,scroll.getScrollY());assertEquals(120,field(HomeActivity.class,"offset"));settle();saveScreenshot("live-poster-images.png");
+        }finally{closePosterFixture();}
+    }
+    @Test public void scheduledHomeUpdateShowsRefreshNoticeWithoutSubmittingTask()throws Exception{
+        try(Fixture server=new Fixture()){
+            openMenuHomeFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));assertEquals(0,field(HomeActivity.class,"notifiedHomeGeneration"));
+            server.changed=true;server.updateGate.countDown();await(()->"元数据/图片已刷新".contentEquals(home.status.getText()));
+            await(()->descendants(home.content).stream().anyMatch(view->view instanceof android.widget.TextView&&((android.widget.TextView)view).getText().toString().startsWith("更新后的影片")));
+            assertTrue(server.mutations.isEmpty());assertEquals(1,field(HomeActivity.class,"notifiedHomeGeneration"));assertEquals(0,server.refreshStatusRequests);
         }finally{closePosterFixture();}
     }
     private static final class Fixture implements AutoCloseable {
@@ -437,6 +449,7 @@ public class HomeFocusTest {
         volatile String unexpectedPath;
         volatile String lastListingPath="";
         volatile int listingCalls;
+        volatile int refreshStatusRequests;
         volatile boolean holdFirstLatest,holdResume,holdCardImages,changed;
         final java.util.concurrent.CountDownLatch cardGate=new java.util.concurrent.CountDownLatch(1),heroLoaded=new java.util.concurrent.CountDownLatch(1),updateGate=new java.util.concurrent.CountDownLatch(1),eventsConnected=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.CountDownLatch latestGate=new java.util.concurrent.CountDownLatch(1),resumeGate=new java.util.concurrent.CountDownLatch(1);
@@ -463,9 +476,10 @@ public class HomeFocusTest {
                 }
                 if(path.endsWith("/Home/Events")){
                     OutputStream output=client.getOutputStream();output.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\nevent: home\ndata: {\"revision\":\"v1\"}\n\n".getBytes(StandardCharsets.UTF_8));output.flush();eventsConnected.countDown();
-                    updateGate.await(30,java.util.concurrent.TimeUnit.SECONDS);if(!closed){output.write("event: home\ndata: {\"revision\":\"v2\"}\n\n".getBytes(StandardCharsets.UTF_8));output.flush();while(!closed){Thread.sleep(1000);output.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8));output.flush();}}return;
+                    updateGate.await(30,java.util.concurrent.TimeUnit.SECONDS);if(!closed){output.write("event: home\ndata: {\"revision\":\"v2\"}\n\nevent: home\ndata: {\"revision\":\"v2\"}\n\n".getBytes(StandardCharsets.UTF_8));output.flush();while(!closed){Thread.sleep(1000);output.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8));output.flush();}}return;
                 }
                 if(path.contains("maxWidth=1280"))heroLoaded.countDown();
+                if(path.contains("/Refresh/"))refreshStatusRequests++;
                 if(holdCardImages&&path.contains("/Images/")&&!path.contains("maxWidth=1280"))cardGate.await(20,java.util.concurrent.TimeUnit.SECONDS);
                 if(path.endsWith("/Views"))viewCalls=views.incrementAndGet();
                 if(holdFirstLatest&&path.contains("/Items/Latest?ParentId=library-0&"))latestGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
@@ -482,7 +496,7 @@ public class HomeFocusTest {
             if(path.contains("/Users/")&&path.contains("/Items?")){
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
                 JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+60,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name","海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
-                for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
+                for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
                 if(deleted&&start==0)page.remove(0);
                 return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:120).put("EpisodeCountMode","unplayed");
             }

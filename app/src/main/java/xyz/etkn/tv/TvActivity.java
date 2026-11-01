@@ -17,6 +17,7 @@ abstract class TvActivity extends Activity {
     /** 媒体卡片聚焦放大比例；FocusScroll.MARGIN_DP 必须覆盖其对最宽卡片的单侧溢出。 */
     static final float FOCUS_SCALE = 1.08f;
     static final int INK = Color.rgb(11,17,26), PANEL = Color.rgb(25,36,50), ACCENT = Color.rgb(118,213,176), MUTED = Color.rgb(163,179,198);
+    static final int OVERLAY = Color.argb(150,0,0,0);
     static final ExecutorService IO = Executors.newFixedThreadPool(6);
     LinearLayout root, content, nav;
     TextView status;
@@ -32,6 +33,7 @@ abstract class TvActivity extends Activity {
     @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
     @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);if(LoginGate.isSatisfied()){IngestNotifications.resumed(this);noticeTimer.post(noticePoll);}}
     @Override protected void onPause(){noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
+    void metadataRefreshed(){status.setText("元数据/图片已刷新");Toast.makeText(this,"元数据/图片已刷新",Toast.LENGTH_SHORT).show();}
     void screen(String title, String subtitle) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(36),dp(20),dp(36),dp(18)); root.setBackgroundColor(INK);
         TextView brand = text("ETKN  /  TV", 12, ACCENT); root.addView(brand);
@@ -48,11 +50,16 @@ abstract class TvActivity extends Activity {
     private android.graphics.drawable.Drawable focusFill(int color){return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(color,0),new FocusPulse(12,dp(3),ACCENT)});}
     StateListDrawable focusBackground() { StateListDrawable state = new StateListDrawable(); state.addState(new int[]{android.R.attr.state_focused},focusFill(Color.rgb(39,69,73))); state.addState(new int[]{android.R.attr.state_pressed},shape(Color.rgb(39,69,73),ACCENT)); state.addState(new int[]{},shape(PANEL,0)); return state; }
     StateListDrawable transparentFocusBackground() { StateListDrawable state=new StateListDrawable();state.addState(new int[]{android.R.attr.state_focused},focusFill(Color.TRANSPARENT));state.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));state.addState(new int[]{},shape(Color.TRANSPARENT,0));return state; }
+    StateListDrawable selectionBackground(){
+        StateListDrawable background=new StateListDrawable();
+        background.addState(new int[]{android.R.attr.state_focused},new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(OVERLAY,0),focusOutline()}));
+        background.addState(new int[]{},shape(Color.argb(105,0,0,0),0));return background;
+    }
     android.graphics.drawable.Drawable episodeBackground(int progress){
         android.graphics.drawable.StateListDrawable outline=new android.graphics.drawable.StateListDrawable();
         outline.addState(new int[]{android.R.attr.state_focused},new FocusPulse(12,3,ACCENT));outline.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));outline.addState(new int[]{},shape(Color.TRANSPARENT,0));
-        android.graphics.drawable.ClipDrawable fill=new android.graphics.drawable.ClipDrawable(shape(Color.rgb(29,91,62),0),android.view.Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);fill.setLevel(progress);
-        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(PANEL,0),fill,outline});
+        android.graphics.drawable.ClipDrawable fill=new android.graphics.drawable.ClipDrawable(shape(Color.argb(160,29,91,62),0),android.view.Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);fill.setLevel(progress);
+        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(Color.argb(105,0,0,0),0),fill,outline});
     }
     View backdropShade(){View shade=new View(this);shade.setBackgroundColor(Color.argb(125,24,24,24));return shade;}
     Button button(String title, Runnable click) {

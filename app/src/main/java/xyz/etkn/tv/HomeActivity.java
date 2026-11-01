@@ -54,7 +54,7 @@ public final class HomeActivity extends TvActivity {
     private final java.util.Set<String> pendingShelves=new java.util.HashSet<>();
     private final java.util.Map<String,Integer> shelfTickets=new java.util.HashMap<>();
     private int shelfSerial;
-    private int homeGeneration;
+    private int homeGeneration,notifiedHomeGeneration;
     private boolean foreground,createdHome=true;
     private final Runnable fallbackRefresh=new Runnable(){@Override public void run(){refreshCurrent();homeTimer.postDelayed(this,60000);}};
     private final Runnable notifiedRefresh=()->refreshCurrent();
@@ -132,6 +132,7 @@ public final class HomeActivity extends TvActivity {
     }
     @Override protected void onPause(){foreground=false;homeTimer.removeCallbacksAndMessages(null);if(homeUpdates!=null){homeUpdates.close();homeUpdates=null;}super.onPause();}
     @Override void mediaDeleted(){if("items".equals(mode))refreshPosters();else if("home".equals(mode))refreshHome();else loadItems();}
+    private void showRefreshNotice(int generation){if(foreground&&generation==homeGeneration&&generation>notifiedHomeGeneration){notifiedHomeGeneration=generation;metadataRefreshed();}}
     private void refreshCurrent(){if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
     private void refreshHome(){if(!"home".equals(mode))return;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
     private void homeRequest(String path,int request,java.util.function.Consumer<JSONObject> done){
@@ -144,6 +145,7 @@ public final class HomeActivity extends TvActivity {
             if(!result.optBoolean("unavailable")){homeCache.put(path,result);String json=result.toString();if(!json.equals(renderedShelves.get(path))){renderedShelves.put(path,json);done.accept(result);}}
             else if(!renderedShelves.containsKey(path))done.accept(result);
             if(generation!=homeGeneration){Runnable reload=homeReloads.get(path);if(reload!=null)reload.run();}
+            else if(!result.optBoolean("unavailable"))showRefreshNotice(generation);
         });
     }
     private void refreshNavigation(){
@@ -321,7 +323,7 @@ public final class HomeActivity extends TvActivity {
     private void refreshPosters(){
         if(!"items".equals(mode)||posterGrid==null)return;
         if(loadingMore||refreshingPosters){pendingPosterRefresh=true;return;}
-        refreshingPosters=true;pendingPosterRefresh=false;int request=revision;
+        refreshingPosters=true;pendingPosterRefresh=false;int request=revision,generation=homeGeneration;
         java.util.List<String> paths=new java.util.ArrayList<>();for(int start=0;start<Math.max(60,offset);start+=60)paths.add(posterQuery(60,start));
         async(()->{try{org.json.JSONArray rows=new org.json.JSONArray();JSONObject page=new JSONObject();for(String path:paths){page=api.get(path);List<JSONObject> batch=EtknApi.rows(page);for(JSONObject row:batch)rows.put(row);if(batch.size()<60)break;}return page.put("Items",rows);}
             catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage());}},result->{
@@ -334,7 +336,9 @@ public final class HomeActivity extends TvActivity {
                 offset=rows.size();hasMore=offset<total;libraryMeta.setText(libraryMetaLabel(total));posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");
                 if(target==null&&index>=0&&posterGrid.getChildCount()>0)target=posterGrid.getChildAt(Math.min(index,posterGrid.getChildCount()-1));if(target!=null)target.requestFocus();
                 if(index>=0&&posterGrid.getChildCount()==0)playModeButton.requestFocus();homeScroll.scrollTo(0,y);
+                showRefreshNotice(generation);
             }
+            if(generation!=homeGeneration)pendingPosterRefresh=true;
             if(pendingPosterRefresh)refreshPosters();
         });
     }

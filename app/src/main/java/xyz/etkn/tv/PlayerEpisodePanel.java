@@ -23,14 +23,14 @@ final class PlayerEpisodePanel extends LinearLayout {
 
     PlayerEpisodePanel(TvActivity host,String currentId,Consumer<JSONObject> select,Runnable retry){
         super(host);this.host=host;this.currentId=currentId;this.select=select;this.retry=retry;
-        setOrientation(VERTICAL);setPadding(host.dp(24),host.dp(20),host.dp(24),host.dp(20));setBackgroundColor(Color.argb(245,11,17,26));setFocusable(true);setFocusableInTouchMode(true);
+        setOrientation(VERTICAL);setPadding(host.dp(24),host.dp(20),host.dp(24),host.dp(20));setBackgroundColor(TvActivity.OVERLAY);setFocusable(true);setFocusableInTouchMode(true);
         heading=host.text("选集",23,Color.WHITE);addView(heading);
         description=host.text("",14,TvActivity.MUTED);description.setMaxLines(2);addView(description,new LayoutParams(-1,host.dp(56)));
         body=host.column();addView(body,new LayoutParams(-1,0,1));
     }
     boolean contains(View view){while(view!=null){if(view==this)return true;view=view.getParent() instanceof View?(View)view.getParent():null;}return false;}
     void loading(){body.removeAllViews();body.addView(host.text("正在读取分集…",15,TvActivity.MUTED));requestFocus();}
-    void failed(){body.removeAllViews();body.addView(host.text("分集加载失败，当前播放不受影响",15,TvActivity.MUTED));Button again=host.button("重试",retry);body.addView(again);again.requestFocus();}
+    void failed(){body.removeAllViews();body.addView(host.text("分集加载失败，当前播放不受影响",15,TvActivity.MUTED));Button again=host.button("重试",retry);again.setBackground(host.selectionBackground());body.addView(again);again.requestFocus();}
     void showEpisodes(List<JSONObject> rows){
         episodes=rows;body.removeAllViews();currentCell=null;currentEpisode=null;
         if(rows.isEmpty()){body.addView(host.text("暂无可播放分集",15,TvActivity.MUTED));requestFocus();return;}
@@ -38,7 +38,7 @@ final class PlayerEpisodePanel extends LinearLayout {
         for(JSONObject episode:rows){seasons.add(episode.optInt("ParentIndexNumber"));if(currentId.equals(episode.optString("Id")))selected=episode;}
         LinearLayout matrix=host.column();
         if(seasons.size()>1){LinearLayout seasonRow=host.row();HorizontalScrollView scroll=new FocusScroll.Row(host);scroll.setHorizontalScrollBarEnabled(false);scroll.addView(seasonRow);body.addView(scroll);
-            for(int season:seasons)seasonRow.addView(host.button(season==0?"特别篇":"第 "+season+" 季",()->showSeason(matrix,season,null)));
+            for(int season:seasons){Button choice=host.button(season==0?"特别篇":"第 "+season+" 季",()->showSeason(matrix,season,null));choice.setBackground(host.selectionBackground());seasonRow.addView(choice);}
         }
         body.addView(matrix,new LayoutParams(-1,0,1));showSeason(matrix,selected.optInt("ParentIndexNumber"),selected);
     }

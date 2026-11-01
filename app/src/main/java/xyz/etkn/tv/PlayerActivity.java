@@ -92,7 +92,7 @@ public final class PlayerActivity extends TvActivity {
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
         seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.CENTER_VERTICAL);seekLayout.setMargins(dp(28),0,dp(28),0);stage.addView(seekProgress,seekLayout);
-        controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(android.graphics.Color.argb(205,0,0,0));
+        controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(OVERLAY);
         controls.addView(text(getIntent().getStringExtra("title"),18,android.graphics.Color.WHITE));
         videoInfo=text("",12,MUTED);controls.addView(videoInfo);
         LinearLayout actions=row();actions.addView(button("版本",this::chooseVersion));
@@ -100,9 +100,10 @@ public final class PlayerActivity extends TvActivity {
         speedButton=button("倍速 · "+speedLabel(),this::chooseSpeed);
         actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(speedButton);actions.addView(decoderButton);
         nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);actions.addView(nextButton);
+        for(int i=0;i<actions.getChildCount();i++)actions.getChildAt(i).setBackground(selectionBackground());
         HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=0;stage.addView(controls,overlay);controls.setVisibility(View.GONE);
-        skipButton=button("跳过片头",this::skipSegment);skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
+        skipButton=button("跳过片头",this::skipSegment);skipButton.setBackground(selectionBackground());skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
         status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
         episodePanel=new PlayerEpisodePanel(this,itemId,this::playEpisode,this::loadNextEpisode);
         episodePanel.setVisibility(View.GONE);stage.addView(episodePanel,new FrameLayout.LayoutParams(dp(Math.min(480,getResources().getConfiguration().screenWidthDp*3/5)),-1,Gravity.END));
