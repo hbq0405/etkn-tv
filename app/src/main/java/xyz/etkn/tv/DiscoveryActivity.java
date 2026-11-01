@@ -15,6 +15,7 @@ public final class DiscoveryActivity extends TvActivity {
     private String kind="movie",query="";
     private int page=1,totalPages=1,revision,browseRevision,eraIndex;
     private boolean allowed,loadingMore,hasMore;
+    private boolean directCloudOpened;
     private GridLayout posterGrid;
     private TextView posterStatus,detailOverview;
     private ImageView detailBackdrop;
@@ -66,7 +67,10 @@ public final class DiscoveryActivity extends TvActivity {
             JSONObject user=result.optJSONObject("user");allowed=user!=null&&user.optBoolean("can_access_discovery");
             if(!allowed){content.removeAllViews();browseView=null;status.setText("当前账号没有影视探索权限。请检查实例会员与用户模板设置。");return;}
             navigation();
-            if(browseView==null)browse();
+            if(!directCloudOpened&&getIntent().hasExtra("cloudItem")){
+                try{selected=new JSONObject(getIntent().getStringExtra("cloudItem"));int number=getIntent().getIntExtra("cloudSeason",-1);season=number>=0?number:null;kind=mediaTypeOf(selected,"movie").equals("tv")?"series":"movie";directCloudOpened=true;showCloud();}
+                catch(JSONException error){status.setText("媒体信息无效，请返回详情页重试");}
+            }else if(browseView==null&&!directCloudOpened)browse();
         });
     }
     private void navigation(){
@@ -643,19 +647,20 @@ public final class DiscoveryActivity extends TvActivity {
         String label=CloudResources.label(row,row.source.optInt("_version_index",1)-1);
         new AlertDialog.Builder(this).setTitle("确认获取此版本").setMessage(label+"\n\n将按 ETKN 配置转存或获取并入库；可能消耗服务端资源积分。").setPositiveButton("确认获取",(dialog,which)->{
             status.setText("正在提交获取任务…");
+            String watch="?TmdbId="+EtknApi.encode(item.optString("id"))+"&MediaType="+(type.equals("movie")?"movie":"series")+(wantedSeason==null?"":"&SeasonNumber="+wantedSeason);
             async(()->{try{
-                if(row.provider.equals("shared_pool"))return api.post("/api/tv/discover/shared-resources/acquire",new JSONObject().put("source",CloudResources.sharedSource(row.source)));
-                if(row.provider.equals("channel"))return api.post("/api/tv/discover/channel-resources/acquire",new JSONObject().put("resource",row.source));
+                if(row.provider.equals("shared_pool"))return api.post("/api/tv/discover/shared-resources/acquire"+watch,new JSONObject().put("source",CloudResources.sharedSource(row.source)));
+                if(row.provider.equals("channel"))return api.post("/api/tv/discover/channel-resources/acquire"+watch,new JSONObject().put("resource",row.source));
                 JSONObject body=new JSONObject().put("slug",row.source.optString("slug",row.source.optString("id"))).put("title",EtknApi.title(item)).put("tmdb_id",item.optString("id")).put("media_type",type);
                 if(wantedSeason!=null)body.put("season_number",wantedSeason);
-                return api.post("/api/tv/discover/re0-resources/acquire",body);
+                return api.post("/api/tv/discover/re0-resources/acquire"+watch,body);
             }catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_error",error.getMessage());}},result->{
                 status.setText("");
                 if(result.has("_error")){new AlertDialog.Builder(this).setTitle("获取提交失败").setMessage(result.optString("_error")).setPositiveButton("关闭",null).show();return;}
                 long runId=result.optLong("workflow_run_id",0);
                 AcquireTracker.track(this,runId,EtknApi.title(item));
                 markAcquired(card);
-                new AlertDialog.Builder(this).setTitle("获取任务已提交").setMessage((runId>0?"任务 #"+runId+" 已创建，":"获取任务已创建，")+"入库完成后即可在片库观看；转存失败时会收到通知，成功后由入库通知提醒。").setPositiveButton("刷新入库状态",(dialog2,which2)->libraryMatches()).setNegativeButton("关闭",null).show();
+                new AlertDialog.Builder(this).setTitle("获取任务已提交").setMessage((runId>0?"任务 #"+runId+" 已创建，":"获取任务已创建，")+"入库完成后会提醒已入库、洗版成功或新增版本；获取失败也会收到通知。").setPositiveButton("刷新入库状态",(dialog2,which2)->libraryMatches()).setNegativeButton("关闭",null).show();
             });
         }).setNegativeButton("取消",null).show();
     }

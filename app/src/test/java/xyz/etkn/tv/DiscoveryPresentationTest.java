@@ -7,6 +7,26 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class DiscoveryPresentationTest {
+    @Test public void sharedVersionsAggregateSameSha1AndPreferShareSource()throws Exception{
+        JSONObject parent=new JSONObject().put("title","测试电影").put("versions",new JSONArray()
+            .put(new JSONObject().put("sha1"," abc ").put("source_id","rapid").put("source_count",2))
+            .put(new JSONObject().put("file_sha1","ABC").put("source_id","share").put("share_channel_status","valid"))
+            .put(new JSONObject().put("sha1","def").put("source_id","other")));
+        List<CloudResources.Resource> rows=CloudResources.parse("shared_pool",new JSONObject().put("resources",new JSONArray().put(parent)),null);
+        assertEquals(2,rows.size());assertEquals("版本 1/2",CloudResources.versionLabel(rows.get(0)));assertEquals("share",rows.get(0).source.optString("source_id"));
+        assertEquals(3,rows.get(0).source.optInt("_shared_pool_source_count"));assertEquals("可转存",CloudResources.transferLabel(rows.get(0)));
+        assertEquals(2,rows.get(0).source.getJSONArray("_shared_pool_alternative_sources").length());assertEquals("ABC",CloudResources.sharedSource(rows.get(0).source).getString("file_sha1"));
+        assertTrue(CloudResources.chips(rows.get(0)).stream().anyMatch(chip->chip.text.equals("共享源 3")));
+        assertEquals(3,parent.getJSONArray("versions").length());
+    }
+    @Test public void sharedVersionsKeepLogicalGroupsAndAnonymousRowsSeparate()throws Exception{
+        JSONArray versions=new JSONArray().put(new JSONObject().put("logical_group",new JSONObject().put("logical_group_id","group-a")))
+            .put(new JSONObject().put("logical_group_id","GROUP-A"))
+            .put(new JSONObject().put("logical_group_id","group-b"))
+            .put(new JSONObject()).put(new JSONObject());
+        List<CloudResources.Resource> rows=CloudResources.parse("shared_pool",new JSONObject().put("resources",new JSONArray().put(new JSONObject().put("versions",versions))),null);
+        assertEquals(4,rows.size());assertEquals(2,rows.get(0).source.optInt("_shared_pool_source_count"));
+    }
     // ---------- 订阅状态缎带 ----------
     @Test public void libraryAndSubscriptionStatusesRenderChineseRibbons() throws Exception {
         assertEquals("已入库",DiscoveryPresentation.statusLabel(new JSONObject().put("in_library",true).put("subscription_status","NONE")));

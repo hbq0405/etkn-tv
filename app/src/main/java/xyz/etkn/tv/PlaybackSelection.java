@@ -55,6 +55,16 @@ final class PlaybackSelection {
     static int audioAt(JSONObject source,int ordinal){List<JSONObject> tracks=streams(source,false);return ordinal>=0&&ordinal<tracks.size()?tracks.get(ordinal).optInt("Index",AUTO):AUTO;}
     static int sourceIndex(JSONArray sources,String id){if(id==null||id.isEmpty())return -1;for(int i=0;i<sources.length();i++)if(id.equals(sources.optJSONObject(i).optString("Id")))return i;return -1;}
     static String sourceLabel(JSONObject source,int index){return source==null?"默认":source.optString("Name","版本 "+(index+1));}
+    static String slotLabel(JSONObject source){
+        if(source==null)return "默认";
+        String name=source.optString("Name","").trim();JSONArray streams=source.optJSONArray("MediaStreams");
+        if(streams!=null)for(int i=0;i<streams.length();i++){
+            JSONObject video=streams.optJSONObject(i);if(video==null||!"Video".equalsIgnoreCase(video.optString("Type")))continue;
+            String technical=video.optString("DisplayTitle","").trim();
+            if(!technical.isEmpty()&&name.endsWith(" · "+technical))return name.substring(0,name.length()-technical.length()-3).trim();
+        }
+        return "主版本";
+    }
     static List<JSONObject> streams(JSONObject source,boolean subtitles){
         List<JSONObject> result=new ArrayList<>();JSONArray streams=source==null?null:source.optJSONArray("MediaStreams");
         if(streams!=null)for(int i=0;i<streams.length();i++){JSONObject stream=streams.optJSONObject(i);if(stream!=null&&stream.optString("Type").equalsIgnoreCase(subtitles?"Subtitle":"Audio"))result.add(stream);}return result;

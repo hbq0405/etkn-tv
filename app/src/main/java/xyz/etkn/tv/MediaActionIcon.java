@@ -17,6 +17,7 @@ final class MediaActionIcon extends Drawable {
             case "favorite"->"M12 21 L4 13 C-2 7 6 0 12 7 C18 0 26 7 20 13 Z";
             case "played"->"M8 12 L11 15 L17 9";
             case "refresh"->"M20 9 A8 8 0 0 0 6 6 L3 9 M3 4 V9 H8 M4 15 A8 8 0 0 0 18 18 L21 15 M16 15 H21 V20";
+            case "search"->"M16 10 A6 6 0 1 1 4 10 A6 6 0 1 1 16 10 M14.5 14.5 L21 21";
             default->"M4 6 H20 M9 6 V3 H15 V6 M6 6 L7 21 H17 L18 6 M10 10 V17 M14 10 V17";
         };
         if(name.equals("play")||name.equals("resume")||name.equals("favorite")&&active)paint.setStyle(Paint.Style.FILL);

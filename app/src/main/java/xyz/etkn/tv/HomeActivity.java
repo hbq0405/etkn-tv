@@ -42,6 +42,7 @@ public final class HomeActivity extends TvActivity {
     private ScrollView homeScroll;
     private View heroSpacer;
     private View previousFocus;
+    private int menuTransitionKey;
     private FocusBackdrop homeBackdrop;
     private LinearLayout latestSections;
     private String latestLibraries="";
@@ -54,7 +55,7 @@ public final class HomeActivity extends TvActivity {
     private final java.util.Set<String> pendingShelves=new java.util.HashSet<>();
     private final java.util.Map<String,Integer> shelfTickets=new java.util.HashMap<>();
     private int shelfSerial;
-    private int homeGeneration,notifiedHomeGeneration;
+    private int homeGeneration;
     private boolean foreground,createdHome=true;
     private final Runnable fallbackRefresh=new Runnable(){@Override public void run(){refreshCurrent();homeTimer.postDelayed(this,60000);}};
     private final Runnable notifiedRefresh=()->refreshCurrent();
@@ -96,20 +97,22 @@ public final class HomeActivity extends TvActivity {
         stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->homeBackdrop.resumeFocused("home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView())));
     }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
-    private void showMenu(){previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
-    private void hideMenu(){menu.setVisibility(View.GONE);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
+    private void showMenu(){previousFocus=getCurrentFocus();homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
+    private void hideMenu(){menu.setVisibility(View.GONE);homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(menuTransitionKey!=0&&event.getKeyCode()==menuTransitionKey){if(event.getAction()==KeyEvent.ACTION_UP)menuTransitionKey=0;return true;}
         if(event.getKeyCode()==KeyEvent.KEYCODE_MENU&&getCurrentFocus()!=null&&(actionItems.containsKey(getCurrentFocus())||"items".equals(mode)&&getCurrentFocus().getTag() instanceof JSONObject)){
             if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)showItemMenu(getCurrentFocus());
             return true;
         }
         if(event.getAction()==KeyEvent.ACTION_DOWN){
+            if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()==View.VISIBLE)return true;
             if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP){
                 View focused=getCurrentFocus();View next=focused==null?null:focused.focusSearch(View.FOCUS_UP);
                 if(next!=null&&resumeCards.contains(next)){lowerResumeRow(next);return true;}
             }
-            if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()!=View.VISIBLE){View focused=getCurrentFocus();if(focused==null||focused.focusSearch(View.FOCUS_UP)==null){showMenu();return true;}}
-            if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&menu.getVisibility()==View.VISIBLE){hideMenu();return true;}
+            if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()!=View.VISIBLE){View focused=getCurrentFocus();if(focused==null||focused.focusSearch(View.FOCUS_UP)==null){showMenu();menuTransitionKey=event.getKeyCode();return true;}}
+            if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&menu.getVisibility()==View.VISIBLE){hideMenu();menuTransitionKey=event.getKeyCode();return true;}
         }
         return super.dispatchKeyEvent(event);
     }
@@ -132,7 +135,7 @@ public final class HomeActivity extends TvActivity {
     }
     @Override protected void onPause(){foreground=false;homeTimer.removeCallbacksAndMessages(null);if(homeUpdates!=null){homeUpdates.close();homeUpdates=null;}super.onPause();}
     @Override void mediaDeleted(){if("items".equals(mode))refreshPosters();else if("home".equals(mode))refreshHome();else loadItems();}
-    private void showRefreshNotice(int generation){if(foreground&&generation==homeGeneration&&generation>notifiedHomeGeneration){notifiedHomeGeneration=generation;metadataRefreshed();}}
+    @Override void metadataRefreshed(){super.metadataRefreshed();refreshCurrent();}
     private void refreshCurrent(){if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
     private void refreshHome(){if(!"home".equals(mode))return;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
     private void homeRequest(String path,int request,java.util.function.Consumer<JSONObject> done){
@@ -145,7 +148,6 @@ public final class HomeActivity extends TvActivity {
             if(!result.optBoolean("unavailable")){homeCache.put(path,result);String json=result.toString();if(!json.equals(renderedShelves.get(path))){renderedShelves.put(path,json);done.accept(result);}}
             else if(!renderedShelves.containsKey(path))done.accept(result);
             if(generation!=homeGeneration){Runnable reload=homeReloads.get(path);if(reload!=null)reload.run();}
-            else if(!result.optBoolean("unavailable"))showRefreshNotice(generation);
         });
     }
     private void refreshNavigation(){
@@ -336,7 +338,6 @@ public final class HomeActivity extends TvActivity {
                 offset=rows.size();hasMore=offset<total;libraryMeta.setText(libraryMetaLabel(total));posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");
                 if(target==null&&index>=0&&posterGrid.getChildCount()>0)target=posterGrid.getChildAt(Math.min(index,posterGrid.getChildCount()-1));if(target!=null)target.requestFocus();
                 if(index>=0&&posterGrid.getChildCount()==0)playModeButton.requestFocus();homeScroll.scrollTo(0,y);
-                showRefreshNotice(generation);
             }
             if(generation!=homeGeneration)pendingPosterRefresh=true;
             if(pendingPosterRefresh)refreshPosters();
@@ -378,7 +379,7 @@ public final class HomeActivity extends TvActivity {
         boolean state=action.equals("favorite")||action.equals("played");boolean current=data!=null&&data.optBoolean(action.equals("favorite")?"IsFavorite":"Played");
         String path=state?api.userPath()+"/"+(action.equals("favorite")?"FavoriteItems":"PlayedItems")+"/"+EtknApi.encode(item.optString("Id")):action.equals("hide")?api.userPath()+"/Items/"+EtknApi.encode(item.optString("Id"))+"/HideFromResume":"/api/tv/Items/"+EtknApi.encode(item.optString("Id"));
         async(()->{try{return state?(current?api.delete(path):api.post(path,new JSONObject())):action.equals("delete")?api.delete(path):api.post(path+(action.equals("hide")?"":action.equals("scan")?"/Scan":"/Refresh?Action="+action),new JSONObject());}
-            finally{runOnUiThread(()->mediaActionBusy=false);}},result->{if(state){JSONObject updated=item.optJSONObject("UserData");if(updated==null)updated=new JSONObject();for(java.util.Iterator<String> keys=result.keys();keys.hasNext();){String key=keys.next();try{updated.put(key,result.get(key));}catch(Exception ignored){}}try{item.put("UserData",updated);}catch(Exception ignored){}}status.setText(state?"状态已更新":action.equals("hide")?"已从继续观看中移除":action.equals("scan")?"媒体库扫描任务已提交":action.equals("delete")?"删除任务已提交":result.optBoolean("submitted")?"元数据刷新任务已提交":"当前媒体无需提交刷新任务");refreshCurrent();});
+            finally{runOnUiThread(()->mediaActionBusy=false);}},result->{if(state){JSONObject updated=item.optJSONObject("UserData");if(updated==null)updated=new JSONObject();for(java.util.Iterator<String> keys=result.keys();keys.hasNext();){String key=keys.next();try{updated.put(key,result.get(key));}catch(Exception ignored){}}try{item.put("UserData",updated);}catch(Exception ignored){}}status.setText(state?"状态已更新":action.equals("hide")?"已从继续观看中移除":action.equals("scan")?"媒体库扫描任务已提交":action.equals("delete")?"删除任务已提交":"");if(!state&&!action.equals("hide")&&!action.equals("scan")&&!action.equals("delete"))refreshSubmitted(item.optString("Id"),result);refreshCurrent();});
     }
     @Override protected void onDestroy(){if(itemMenu!=null)itemMenu.dismiss();super.onDestroy();}
     private String posterQuery(int limit,int start){

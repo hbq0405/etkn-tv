@@ -29,11 +29,12 @@ public final class DetailActivity extends TvActivity {
     private TextView episodeTitle,episodeOverview;
     private ImageView backdrop,episodeImage,detailLogo;
     private TextView detailTitle,detailDouban,detailTmdb,detailYear,detailDuration,detailRating,detailCategories,detailOverview;
+    private Button cloudButton;
+    private boolean canDiscover,cloudSearching;
     private JSONObject previewEpisode;
     private HomeUpdates artworkUpdates;
     private boolean artworkForeground,artworkLoading,artworkPending;
     private String artworkRevision="";
-    private int artworkGeneration,artworkNotifiedGeneration;
     private final android.os.Handler artworkTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable artworkRefresh=()->refreshArtwork();
     private final Runnable artworkFallback=new Runnable(){@Override public void run(){refreshArtwork();artworkTimer.postDelayed(this,60000);}};
@@ -88,6 +89,7 @@ public final class DetailActivity extends TvActivity {
         playedButton=actionButton("played","标记已播放",this::togglePlayed);actions.addView(playedButton);refreshStateButtons();
         refreshButton=actionButton("refresh","刷新元数据",this::confirmRefresh);deleteButton=actionButton("delete","删除",this::confirmDelete);
         refreshButton.setVisibility(View.GONE);deleteButton.setVisibility(View.GONE);actions.addView(refreshButton);actions.addView(deleteButton);
+        cloudButton=actionButton("search","搜索云资源",this::searchCloudResources);cloudButton.setVisibility(View.GONE);actions.addView(cloudButton);updateDiscoveryPermission();
         HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);content.addView(actionScroll);
         if(item.optString("Id").startsWith("item-"))async(()->api.get("/api/tv/Users/Me"),user->{
             JSONObject policy=user.optJSONObject("Policy"),permissions=user.optJSONObject("TvPermissions");
@@ -113,7 +115,7 @@ public final class DetailActivity extends TvActivity {
     private TextView meta(String value,int color){TextView label=text(value,13,color);label.setGravity(Gravity.CENTER_VERTICAL);return label;}
     private void updateMetadata(){
         detailTitle.setText(EtknApi.title(item));detailDouban.setText(" "+DetailPresentation.rating(item,"DoubanRating")+"    ");detailTmdb.setText(" "+DetailPresentation.rating(item,"TMDbRating")+"    ");
-        String year=item.optString("ProductionYear"),duration=DetailPresentation.duration(item.optLong("RunTimeTicks")),rating=item.optString("OfficialRating"),categories=DetailPresentation.categories(item);
+        String year=item.optString("ProductionYear"),duration=DetailPresentation.duration(item.optLong("RunTimeTicks")),rating=DetailPresentation.contentRating(item),categories=DetailPresentation.categories(item);
         detailYear.setText(year+"    ");detailYear.setVisibility(year.isEmpty()?View.GONE:View.VISIBLE);detailDuration.setText(duration+"    ");detailDuration.setVisibility(duration.isEmpty()?View.GONE:View.VISIBLE);
         detailRating.setText(rating);detailRating.setVisibility(rating.isEmpty()?View.GONE:View.VISIBLE);detailCategories.setText(categories);detailCategories.setVisibility(categories.isEmpty()?View.GONE:View.VISIBLE);
         boolean hasOverview=!item.optString("Overview").trim().isEmpty();detailOverview.setText(hasOverview?item.optString("Overview"):"暂无简介");
@@ -121,7 +123,7 @@ public final class DetailActivity extends TvActivity {
         detailOverview.setClickable(hasOverview);
     }
     private void copyPresentation(JSONObject target,JSONObject value){
-        for(String key:new String[]{"Name","Overview","ProductionYear","RunTimeTicks","OfficialRating","DoubanRating","TMDbRating","Genres","Tags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
+        for(String key:new String[]{"Name","Overview","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
     }
     private Button actionButton(String icon,String label,Runnable click){
         Button button=button("",click);button.setBackground(selectionBackground());button.setPadding(dp(16),dp(8),dp(16),dp(8));button.setMinWidth(0);button.setMinimumWidth(0);
@@ -176,6 +178,18 @@ public final class DetailActivity extends TvActivity {
         if(managementBusy||!refreshButton.isShown())return;
         managementDialog=MediaActions.refresh(this,this::submitManagement);
     }
+    private void updateDiscoveryPermission(){
+        async(()->api.get("/api/tv/auth/check_status"),result->{JSONObject user=result.optJSONObject("user");canDiscover=user!=null&&user.optBoolean("can_access_discovery");if(cloudButton!=null)cloudButton.setVisibility(canDiscover?View.VISIBLE:View.GONE);});
+    }
+    private void searchCloudResources(){
+        if(!canDiscover||cloudSearching)return;
+        cloudSearching=true;String type=item.optString("Type");int season=type.equals("Season")?item.optInt("IndexNumber",-1):type.equals("Episode")?item.optInt("ParentIndexNumber",-1):-1;
+        async(()->{try{
+            JSONObject root=item;if(type.equals("Season")||type.equals("Episode")){String series=item.optString("SeriesId");if(series.isEmpty())throw new Exception("当前媒体缺少剧集身份");root=api.get(api.userPath()+"/Items/"+EtknApi.encode(series));}
+            JSONObject providers=root.optJSONObject("ProviderIds");String tmdb=providers==null?"":providers.optString("Tmdb");if(!tmdb.matches("[1-9][0-9]*"))throw new Exception("当前媒体缺少 TMDb 身份，无法搜索云资源");
+            return new JSONObject().put("id",tmdb).put("title",EtknApi.title(root)).put("media_type",root.optString("Type").equals("Movie")?"movie":"tv");
+        }finally{runOnUiThread(()->cloudSearching=false);}},target->startActivity(new Intent(this,DiscoveryActivity.class).putExtra("cloudItem",target.toString()).putExtra("cloudSeason",season)));
+    }
     private void confirmDelete(){
         if(managementBusy||!deleteButton.isShown())return;
         managementDialog=MediaActions.delete(this,item,()->submitManagement("delete"));
@@ -187,7 +201,7 @@ public final class DetailActivity extends TvActivity {
         async(()->{try{return deleting?api.delete(path):api.post(path+"/Refresh?Action="+action,new JSONObject());}
             finally{runOnUiThread(()->{managementBusy=false;refreshButton.setEnabled(true);deleteButton.setEnabled(true);});}},result->{
             if(deleting){Toast.makeText(this,"删除任务已提交",Toast.LENGTH_SHORT).show();setResult(RESULT_OK);finish();}
-            else status.setText(result.optBoolean("submitted")?"元数据刷新任务已提交":"当前媒体无需提交刷新任务");
+            else refreshSubmitted(item.optString("Id"),result);
         });
     }
     @Override protected void onDestroy(){if(managementDialog!=null)managementDialog.dismiss();super.onDestroy();}
@@ -198,33 +212,44 @@ public final class DetailActivity extends TvActivity {
         playButton.setEnabled(true);updatePlayAction();updateChoices();
     }
     private JSONObject selectedSource(){return sources.optJSONObject(sourceIndex);}
+    private void mergeSources(JSONObject value){
+        JSONArray updated=value.optJSONArray("MediaSources");if(updated==null)return;
+        String id=value.optString("Id");
+        for(JSONObject episode:allEpisodes)if(id.equals(episode.optString("Id")))try{episode.put("MediaSources",updated);}catch(Exception ignored){}
+        if(playable==null||!id.equals(playable.optString("Id"))||sources.toString().equals(updated.toString()))return;
+        String selected=selectedSource()==null?"":selectedSource().optString("Id");int index=PlaybackSelection.sourceIndex(updated,selected);
+        boolean retained=index>=0;sourceIndex=retained?index:0;sources=updated;
+        try{playable.put("MediaSources",updated);}catch(Exception ignored){}
+        if(!retained)audio=subtitle=PlaybackSelection.AUTO;
+        updateChoices();
+    }
     @Override protected void onResume(){
         super.onResume();if(isFinishing())return;artworkForeground=true;
+        if(cloudButton!=null)updateDiscoveryPermission();
         if(!PlaybackSelection.seasonKey(playable).isEmpty()){audio=PlaybackSelection.AUTO;updateChoices();}
         refreshArtwork();artworkTimer.postDelayed(artworkFallback,60000);
         artworkUpdates=new HomeUpdates(api,value->runOnUiThread(()->{
             if(!artworkForeground||value.equals(artworkRevision))return;
-            if(!artworkRevision.isEmpty())artworkGeneration++;
             artworkRevision=value;artworkTimer.removeCallbacks(artworkRefresh);artworkTimer.postDelayed(artworkRefresh,250);
         }),()->runOnUiThread(()->{if(artworkForeground){api.session.clear();startActivity(new Intent(this,SetupActivity.class));finish();}}));
     }
     @Override protected void onPause(){artworkForeground=false;artworkTimer.removeCallbacksAndMessages(null);if(artworkUpdates!=null){artworkUpdates.close();artworkUpdates=null;}super.onPause();}
     private void refreshArtwork(){
         if(!artworkForeground||item==null)return;if(artworkLoading){artworkPending=true;return;}
-        artworkLoading=true;int generation=artworkGeneration;String path=api.userPath()+"/Items/"+EtknApi.encode(item.optString("Id"));
+        artworkLoading=true;String path=api.userPath()+"/Items/"+EtknApi.encode(item.optString("Id"));
         String episodeId=previewEpisode==null?"":previewEpisode.optString("Id");
         async(()->{try{JSONObject result=api.get(path);if(!episodeId.isEmpty())result.put("_preview",api.get(api.userPath()+"/Items/"+EtknApi.encode(episodeId)));return result;}
             catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject();}},result->{
             artworkLoading=false;if(artworkForeground&&!result.optString("Id").isEmpty()){
-                copyPresentation(item,result);updateMetadata();
+                copyPresentation(item,result);mergeSources(result);updateMetadata();
                 Images.load(api,api.artwork(result,"Backdrop",1920),backdrop);
                 Images.load(api,api.artwork(result,"Logo",720),detailLogo,ok->{detailLogo.setVisibility(ok?View.VISIBLE:View.GONE);detailTitle.setVisibility(ok?View.GONE:View.VISIBLE);});
-                JSONObject episode=result.optJSONObject("_preview");if(episode!=null&&previewEpisode!=null&&episodeId.equals(previewEpisode.optString("Id"))){copyPresentation(previewEpisode,episode);updatePreviewText(previewEpisode);Images.load(api,api.artwork(episode,"Primary",640),episodeImage);}
-                if(generation==artworkGeneration&&generation>artworkNotifiedGeneration){artworkNotifiedGeneration=generation;metadataRefreshed();}
+                JSONObject episode=result.optJSONObject("_preview");if(episode!=null&&previewEpisode!=null&&episodeId.equals(previewEpisode.optString("Id"))){copyPresentation(previewEpisode,episode);mergeSources(episode);updatePreviewText(previewEpisode);Images.load(api,api.artwork(episode,"Primary",640),episodeImage);}
             }
             if(artworkPending){artworkPending=false;refreshArtwork();}
         });
     }
+    @Override void metadataRefreshed(){super.metadataRefreshed();refreshArtwork();}
     private void updateChoices(){
         int locked=new TvPreferences(this,api).seasonAudio(PlaybackSelection.seasonKey(playable));
         if(locked>=0)audio=PlaybackSelection.audioAt(selectedSource(),locked);
@@ -233,8 +258,8 @@ public final class DetailActivity extends TvActivity {
         audioButton.setText("音轨 · "+PlaybackSelection.selectionLabel(selectedSource(),audio,false)+(locked>=0?" · 本季第 "+(locked+1)+" 音轨":""));subtitleButton.setText("字幕 · "+PlaybackSelection.selectionLabel(selectedSource(),subtitle,true));
     }
     private void chooseVersion(){
-        String[] labels=new String[sources.length()];for(int i=0;i<labels.length;i++)labels[i]=PlaybackSelection.sourceLabel(sources.optJSONObject(i),i);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("版本").setSingleChoiceItems(labels,sourceIndex,(choice,index)->{sourceIndex=index;audio=subtitle=PlaybackSelection.AUTO;updateChoices();choice.dismiss();}).setNegativeButton("取消",null).show();
+        JSONArray choices=sources;String[] labels=new String[choices.length()];for(int i=0;i<labels.length;i++)labels[i]=PlaybackSelection.sourceLabel(choices.optJSONObject(i),i);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("版本").setSingleChoiceItems(labels,sourceIndex,(choice,index)->{int selected=PlaybackSelection.sourceIndex(sources,choices.optJSONObject(index).optString("Id"));if(selected>=0){sourceIndex=selected;audio=subtitle=PlaybackSelection.AUTO;updateChoices();}else Toast.makeText(this,"版本已变化，请重新选择",Toast.LENGTH_SHORT).show();choice.dismiss();}).setNegativeButton("取消",null).show();
         dialog.getWindow().setBackgroundDrawable(shape(OVERLAY,0));dialog.getWindow().setDimAmount(0.15f);
     }
     private void chooseStream(boolean subtitles){

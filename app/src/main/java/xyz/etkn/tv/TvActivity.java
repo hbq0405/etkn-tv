@@ -27,12 +27,38 @@ abstract class TvActivity extends Activity {
     @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
     private final android.os.Handler noticeTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable noticePoll=new Runnable(){@Override public void run(){IngestNotifications.check(TvActivity.this);noticeTimer.postDelayed(this,60000);}};
+    private final java.util.Map<Long,String> refreshTasks=new java.util.LinkedHashMap<>();
+    private boolean refreshForeground,refreshChecking;
+    private final Runnable refreshPoll=()->pollRefreshTasks();
     /** 前台 Activity 计数：归零表示应用整体退到后台，按登录方式配置重置门禁。 */
     private static int foregroundActivities;
     @Override protected void onStart(){super.onStart();foregroundActivities++;}
     @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
-    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);if(LoginGate.isSatisfied()){IngestNotifications.resumed(this);noticeTimer.post(noticePoll);}}
-    @Override protected void onPause(){noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
+    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);if(LoginGate.isSatisfied()){IngestNotifications.resumed(this);noticeTimer.post(noticePoll);refreshForeground=true;noticeTimer.post(refreshPoll);}}
+    @Override protected void onPause(){refreshForeground=false;noticeTimer.removeCallbacks(refreshPoll);noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
+    void refreshSubmitted(String itemId,org.json.JSONObject result){
+        status.setText(result.optBoolean("submitted")?"元数据刷新任务已提交":"task_already_running".equals(result.optString("reason"))?"已有元数据刷新任务正在运行":"当前媒体无需提交刷新任务");
+        long runId=result.optLong("RefreshRunId");
+        if(result.optBoolean("submitted")&&runId>0){refreshTasks.put(runId,"/api/tv/Items/"+EtknApi.encode(itemId)+"/Refresh/"+runId);noticeTimer.removeCallbacks(refreshPoll);noticeTimer.postDelayed(refreshPoll,3000);}
+    }
+    private void pollRefreshTasks(){
+        if(!api.token.equals(api.session.token())||!api.server.equals(api.session.server())){refreshTasks.clear();return;}
+        if(!refreshForeground||refreshChecking||refreshTasks.isEmpty())return;
+        refreshChecking=true;java.util.Map<Long,String> pending=new java.util.LinkedHashMap<>(refreshTasks);
+        async(()->{java.util.Map<Long,org.json.JSONObject> results=new java.util.LinkedHashMap<>();for(java.util.Map.Entry<Long,String> task:pending.entrySet()){try{results.put(task.getKey(),api.get(task.getValue()));}catch(Exception ignored){}}return results;},results->{
+            refreshChecking=false;
+            if(!refreshForeground)return;
+            if(!api.token.equals(api.session.token())||!api.server.equals(api.session.server())){refreshTasks.clear();return;}
+            for(java.util.Map.Entry<Long,org.json.JSONObject> task:results.entrySet()){
+                org.json.JSONObject result=task.getValue();
+                if(result.optLong("RefreshRunId")!=task.getKey()||!result.optBoolean("finished")||refreshTasks.remove(task.getKey())==null)continue;
+                String state=result.optString("status");
+                if(state.equals("succeeded"))metadataRefreshed();
+                else{String message=state.equals("cancelled")?"元数据/图片刷新已取消":state.equals("partial")?"元数据/图片刷新部分失败":"元数据/图片刷新失败";status.setText(message);Toast.makeText(this,message,Toast.LENGTH_SHORT).show();}
+            }
+            if(!refreshTasks.isEmpty())noticeTimer.postDelayed(refreshPoll,3000);
+        });
+    }
     void metadataRefreshed(){status.setText("元数据/图片已刷新");Toast.makeText(this,"元数据/图片已刷新",Toast.LENGTH_SHORT).show();}
     void screen(String title, String subtitle) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(36),dp(20),dp(36),dp(18)); root.setBackgroundColor(INK);

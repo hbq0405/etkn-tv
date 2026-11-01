@@ -188,7 +188,9 @@ public class DetailFlowTest {
         PlayerActivity previous=playback;
         onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());settle();
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
-        assertSame(field(playback,"nextButton"),playback.getCurrentFocus());screenshot("next-episode-controls.png");
+        assertSame(field(playback,"nextButton"),playback.getCurrentFocus());
+        ViewGroup actions=(ViewGroup)((View)field(playback,"nextButton")).getParent();assertEquals(3,actions.indexOfChild((View)field(playback,"nextButton")));assertEquals(4,actions.indexOfChild((View)field(playback,"speedButton")));
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT);assertSame(field(playback,"subtitleButton"),playback.getCurrentFocus());instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);assertSame(field(playback,"speedButton"),playback.getCurrentFocus());instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT);screenshot("next-episode-controls.png");
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
         playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
         await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);
@@ -643,6 +645,15 @@ public class DetailFlowTest {
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();onMain(()->{Rect screen=new Rect(),timeline=new Rect();assertTrue(((View)field(playback,"video")).getGlobalVisibleRect(screen));assertTrue(((View)field(playback,"seekProgress")).getGlobalVisibleRect(timeline));assertEquals(screen.centerY(),timeline.centerY(),playback.dp(2));});
         }finally{cleanup();}
     }
+    @Test public void timelineShowsIntroAndCreditsBoundariesOnBothBars()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
+            onMain(()->{View bar=((View)field(playback,"video")).findViewById(androidx.media3.ui.R.id.exo_progress);assertEquals(4,field(bar,"adGroupCount"));long[] expected={1000,3000,10000,((ExoPlayer)field(playback,"player")).getDuration()};assertArrayEquals(expected,java.util.Arrays.copyOf((long[])field(bar,"adGroupTimesMs"),4));});screenshot("timeline-intro-credits-markers.png");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
+            onMain(()->{Object bar=field(playback,"seekProgress");assertEquals(4,field(bar,"adGroupCount"));assertEquals(View.VISIBLE,((View)bar).getVisibility());});screenshot("seek-intro-credits-markers.png");
+        }finally{cleanup();}
+    }
 
     @Test public void skipModesHonorExplicitMarkersAndPersistAcrossSettingsReopen()throws Exception{
         try(Fixture server=new Fixture(true)){
@@ -656,14 +667,40 @@ public class DetailFlowTest {
 
     @Test public void movieChoicesReachRealPlayerAndSurviveSourceReordering()throws Exception{
         try(Fixture server=new Fixture()){
-            open(server,"movie");assertEquals(View.VISIBLE,button("版本").getVisibility());
+            server.slotLabels=true;open(server,"movie");assertEquals(View.VISIBLE,button("版本").getVisibility());assertTrue(button("版本").getText().toString().contains("4K HEVC HDR10"));
             assertTrue(descendants(detail.content).stream().anyMatch(view->view instanceof TextView&&view.isShown()&&((TextView)view).getText().toString().equals("合成电影")));
             screenshot("movie.png");choose("版本",1);choose("音轨",2);choose("字幕",3);
             assertTrue(button("音轨").getText().toString().contains("音轨二"));assertTrue(button("字幕").getText().toString().contains("内封二"));screenshot("movie-choices.png");
             play();assertEquals("source-b",playback.getIntent().getStringExtra("sourceId"));assertEquals(4,playback.getIntent().getIntExtra("audioIndex",-1));assertEquals(8,playback.getIntent().getIntExtra("subtitleIndex",-1));
             await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO))&&"4".equals(selected(C.TRACK_TYPE_TEXT)));
-            assertEquals("source-b",((JSONObject)field(playback,"source")).getString("Id"));closePlayer();
+            assertEquals("source-b",((JSONObject)field(playback,"source")).getString("Id"));assertEquals("版本 · 压制",((Button)field(playback,"versionButton")).getText().toString());
+            onMain(()->((Button)field(playback,"versionButton")).performClick());settle();instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+            await(()->"source-a".equals(((JSONObject)field(playback,"source")).optString("Id")));await(()->"版本 · 原盘".contentEquals(((Button)field(playback,"versionButton")).getText()));await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);settle();instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();screenshot("player-current-version-slot.png");closePlayer();
             assertNull("客户端只能访问 TV 接口",server.unexpectedPath);assertTrue(server.reports>0);
+        }finally{cleanup();}
+    }
+    @Test public void newMovieVersionUpdatesInPlaceAndKeepsSelectedSourceAndTracks()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.liveArtwork=true;server.versionUpdates=true;open(server,"movie");choose("版本",1);choose("音轨",2);choose("字幕",3);
+            Button version=button("版本");onMain(version::requestFocus);Object actions=version.getParent();onMain(version::performClick);settle();
+            assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));server.changed=true;server.updateGate.countDown();
+            await(()->((JSONArray)field(detail,"sources")).length()==3);
+            JSONArray sources=(JSONArray)field(detail,"sources");assertEquals("source-b",sources.getJSONObject((Integer)field(detail,"sourceIndex")).getString("Id"));
+            assertEquals(4,field(detail,"audio"));assertEquals(8,field(detail,"subtitle"));assertSame(version,detail.getCurrentFocus());assertSame(actions,version.getParent());
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();
+            assertEquals("source-a",((JSONArray)field(detail,"sources")).getJSONObject((Integer)field(detail,"sourceIndex")).getString("Id"));
+            onMain(version::performClick);settle();assertTrue(instrumentation.getUiAutomation().getRootInActiveWindow().findAccessibilityNodeInfosByText("新增版本").size()>0);
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();screenshot("detail-new-version-in-place.png");
+        }finally{cleanup();}
+    }
+    @Test public void newEpisodeVersionKeepsMatrixAndIgnoresLateOtherEpisodeSources()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.liveArtwork=true;server.versionUpdates=true;open(server,"series-one");Button cell=button("第 3 集");onMain(cell::requestFocus);settle();Object grid=field(detail,"episodeGrid");
+            assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));server.changed=true;server.updateGate.countDown();await(()->((JSONArray)field(detail,"sources")).length()==2);
+            assertSame(grid,field(detail,"episodeGrid"));assertSame(cell,detail.getCurrentFocus());assertEquals(24,((GridLayout)grid).getChildCount());
+            Object sources=field(detail,"sources");JSONObject late=new JSONObject().put("Id","episode-1-2").put("MediaSources",new JSONArray());
+            onMain(()->{try{java.lang.reflect.Method merge=DetailActivity.class.getDeclaredMethod("mergeSources",JSONObject.class);merge.setAccessible(true);merge.invoke(detail,late);}catch(Exception error){throw new AssertionError(error);}});
+            assertSame(sources,field(detail,"sources"));assertSame(cell,detail.getCurrentFocus());screenshot("detail-new-episode-version-matrix.png");
         }finally{cleanup();}
     }
     @Test public void chapterArtworkAppearsOnlyWhenDetailProvidesChapterImages()throws Exception{
@@ -762,12 +799,14 @@ public class DetailFlowTest {
     private int iconCenter(Button button){android.graphics.drawable.Drawable icon=button.getCompoundDrawables()[0];Bitmap bitmap=Bitmap.createBitmap(icon.getBounds().width(),icon.getBounds().height(),Bitmap.Config.ARGB_8888);icon.draw(new Canvas(bitmap));int pixel=bitmap.getPixel(bitmap.getWidth()/2,bitmap.getHeight()/2);bitmap.recycle();return pixel;}
     @Test public void detailServerEventRefreshesMetadataAndArtworkWithoutRebuildingChoices()throws Exception{
         try(Fixture server=new Fixture()){
-            server.liveArtwork=true;open(server,"movie-single");await(()->server.eventsConnected.getCount()==0);assertEquals(0,field(detail,"artworkNotifiedGeneration"));choose("音轨",2);choose("字幕",4);Button audio=(Button)field(detail,"audioButton");onMain(audio::requestFocus);ScrollView scroll=(ScrollView)field(detail,"scroll");int y=scroll.getScrollY();Object playable=field(detail,"playable"),sources=field(detail,"sources");Object audioChoice=field(detail,"audio"),subtitleChoice=field(detail,"subtitle");server.changed=true;server.updateGate.countDown();
+            server.liveArtwork=true;open(server,"movie-single");await(()->server.eventsConnected.getCount()==0);choose("音轨",2);choose("字幕",4);Button audio=(Button)field(detail,"audioButton");onMain(audio::requestFocus);ScrollView scroll=(ScrollView)field(detail,"scroll");int y=scroll.getScrollY();Object playable=field(detail,"playable"),sources=field(detail,"sources");Object audioChoice=field(detail,"audio"),subtitleChoice=field(detail,"subtitle");server.changed=true;server.updateGate.countDown();
             await(()->{ImageView background=(ImageView)field(detail,"backdrop");return background.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&((android.graphics.drawable.BitmapDrawable)background.getDrawable()).getBitmap().getPixel(10,10)==Color.MAGENTA;});
             await(()->{boolean douban=false,tmdb=false,overview=false;for(View view:descendants(detail.content))if(view instanceof TextView){String text=((TextView)view).getText().toString();douban|=text.trim().equals("9.1");tmdb|=text.trim().equals("8.2");overview|=text.equals("服务器已更新的简介");}return douban&&tmdb&&overview;});
             assertEquals("服务器更新后的片名",((TextView)field(detail,"detailTitle")).getText().toString());
+            assertTrue(descendants(detail.content).stream().anyMatch(view->view instanceof TextView&&((TextView)view).getText().toString().contains("自定义 16+")));
+            assertFalse(descendants(detail.content).stream().anyMatch(view->view instanceof TextView&&((TextView)view).getText().toString().contains("PG-13")));
             assertSame(sources,field(detail,"sources"));assertEquals(audioChoice,field(detail,"audio"));assertEquals(subtitleChoice,field(detail,"subtitle"));
-            await(()->"元数据/图片已刷新".contentEquals(detail.status.getText()));assertEquals(1,field(detail,"artworkGeneration"));assertEquals(1,field(detail,"artworkNotifiedGeneration"));assertEquals(0,server.refreshStatusRequests);
+            assertFalse("元数据/图片已刷新".contentEquals(detail.status.getText()));assertEquals(0,server.refreshStatusRequests);
             assertSame(audio,field(detail,"audioButton"));assertSame(audio,detail.getCurrentFocus());assertSame(playable,field(detail,"playable"));assertEquals(y,scroll.getScrollY());settle();screenshot("detail-live-artwork.png");
         }finally{cleanup();}
     }
@@ -777,18 +816,57 @@ public class DetailFlowTest {
             onMain(()->((Button)field(detail,"refreshButton")).performClick());settle();onMain(()->((AlertDialog)field(detail,"managementDialog")).getButton(AlertDialog.BUTTON_POSITIVE).performClick());
             await(()->"元数据刷新任务已提交".contentEquals(detail.status.getText()));server.holdMetadata=true;
             onMain(()->{try{java.lang.reflect.Method method=DetailActivity.class.getDeclaredMethod("refreshArtwork");method.setAccessible(true);method.invoke(detail);}catch(Exception error){throw new AssertionError(error);}});
-            assertTrue(server.metadataRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));server.changed=true;server.updateGate.countDown();await(()->Boolean.TRUE.equals(field(detail,"artworkPending")));
-            assertEquals("元数据刷新任务已提交",detail.status.getText().toString());server.metadataGate.countDown();await(()->"元数据/图片已刷新".contentEquals(detail.status.getText()));
-            assertEquals("服务器更新后的片名",((TextView)field(detail,"detailTitle")).getText().toString());assertEquals(0,server.refreshStatusRequests);
+            assertTrue(server.metadataRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));server.changed=true;server.updateGate.countDown();await(()->"v2".equals(field(detail,"artworkRevision")));
+            assertEquals("元数据刷新任务已提交",detail.status.getText().toString());server.metadataGate.countDown();
+            await(()->"服务器更新后的片名".contentEquals(((TextView)field(detail,"detailTitle")).getText()));await(()->server.refreshStatusRequests>0);
+            assertEquals("元数据刷新任务已提交",detail.status.getText().toString());server.taskStatus="succeeded";await(()->"元数据/图片已刷新".contentEquals(detail.status.getText()));
+            int checked=server.refreshStatusRequests;Thread.sleep(3300);assertEquals(checked,server.refreshStatusRequests);
         }finally{cleanup();}
     }
     @Test public void scheduledEpisodeUpdateRefreshesPreviewAndKeepsMatrix()throws Exception{
         try(Fixture server=new Fixture()){
             server.liveArtwork=true;open(server,"series-one");Button cell=button("第 3 集");onMain(cell::requestFocus);settle();Object grid=field(detail,"episodeGrid"),sources=field(detail,"sources");
             assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));server.changed=true;server.updateGate.countDown();
-            await(()->"服务器已更新的简介".contentEquals(((TextView)field(detail,"episodeOverview")).getText()));await(()->"元数据/图片已刷新".contentEquals(detail.status.getText()));
+            await(()->"服务器已更新的简介".contentEquals(((TextView)field(detail,"episodeOverview")).getText()));assertFalse("元数据/图片已刷新".contentEquals(detail.status.getText()));
             assertSame(grid,field(detail,"episodeGrid"));assertSame(cell,detail.getCurrentFocus());assertSame(sources,field(detail,"sources"));assertEquals(24,((GridLayout)grid).getChildCount());assertEquals(0,server.refreshStatusRequests);
         }finally{cleanup();}
+    }
+    @Test public void failedManualRefreshDoesNotReportSuccess()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.admin=true;server.taskStatus="failed";open(server,"item-refresh");await(()->((View)field(detail,"refreshButton")).isShown());
+            onMain(()->((Button)field(detail,"refreshButton")).performClick());onMain(()->((AlertDialog)field(detail,"managementDialog")).getButton(AlertDialog.BUTTON_POSITIVE).performClick());
+            await(()->"元数据/图片刷新失败".contentEquals(detail.status.getText()));int checked=server.refreshStatusRequests;Thread.sleep(3300);assertEquals(checked,server.refreshStatusRequests);
+        }finally{cleanup();}
+    }
+    @Test public void manualRefreshCompletionWaitsUntilReturningFromPlayer()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.admin=true;open(server,"item-refresh");await(()->((View)field(detail,"refreshButton")).isShown());onMain(()->((Button)field(detail,"refreshButton")).performClick());onMain(()->((AlertDialog)field(detail,"managementDialog")).getButton(AlertDialog.BUTTON_POSITIVE).performClick());
+            await(()->"元数据刷新任务已提交".contentEquals(detail.status.getText()));play();int checked=server.refreshStatusRequests;server.taskStatus="succeeded";Thread.sleep(3500);
+            assertEquals(checked,server.refreshStatusRequests);assertEquals("元数据刷新任务已提交",detail.status.getText().toString());closePlayer();await(()->"元数据/图片已刷新".contentEquals(detail.status.getText()));
+        }finally{cleanup();}
+    }
+    @Test public void detailCloudSearchOpensCurrentMediaForDiscoveryUsers()throws Exception{
+        DiscoveryActivity cloud=null;
+        try(Fixture server=new Fixture()){
+            server.discoveryAllowed=true;open(server,"movie-single");await(()->((View)field(detail,"cloudButton")).isShown());assertFalse(server.admin);
+            Button search=(Button)field(detail,"cloudButton");onMain(search::requestFocus);screenshot("detail-cloud-search-icon.png");
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(DiscoveryActivity.class.getName(),null,false);onMain(search::performClick);cloud=(DiscoveryActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(cloud);
+            await(()->server.cloudPaths.size()==3);for(String path:server.cloudPaths){assertTrue(path.contains("tmdb_id=123"));assertTrue(path.contains("movie"));}assertEquals("123",new JSONObject(cloud.getIntent().getStringExtra("cloudItem")).getString("id"));
+            DiscoveryActivity opened=cloud;await(()->"搜索完成，选择资源版本并确认获取。".contentEquals(opened.status.getText()));screenshot("detail-direct-cloud-results.png");onMain(opened::onBackPressed);await(opened::isDestroyed);cloud=null;await(search::isShown);assertSame(search,detail.getCurrentFocus());
+        }finally{if(cloud!=null){DiscoveryActivity opened=cloud;onMain(opened::finish);}cleanup();}
+    }
+    @Test public void administratorWithoutDiscoveryPermissionDoesNotSeeCloudIcon()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.admin=true;open(server,"item-refresh");await(()->server.discoveryChecks>0);settle();assertEquals(View.GONE,((View)field(detail,"cloudButton")).getVisibility());assertTrue(server.cloudPaths.isEmpty());
+        }finally{cleanup();}
+    }
+    @Test public void episodeCloudSearchUsesSeriesIdentityAndCurrentSeason()throws Exception{
+        DiscoveryActivity cloud=null;
+        try(Fixture server=new Fixture()){
+            server.discoveryAllowed=true;open(server,"episode-1-3");await(()->((View)field(detail,"cloudButton")).isShown());JSONObject item=(JSONObject)field(detail,"item");onMain(()->{try{item.put("ParentIndexNumber",1);item.getJSONObject("ProviderIds").put("Tmdb","999");}catch(Exception error){throw new AssertionError(error);}});
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(DiscoveryActivity.class.getName(),null,false);onMain(()->((Button)field(detail,"cloudButton")).performClick());cloud=(DiscoveryActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(cloud);
+            await(()->server.cloudPaths.size()==3);for(String path:server.cloudPaths)assertTrue(path.contains("tmdb_id=123"));assertTrue(server.cloudPaths.stream().anyMatch(path->path.contains("media_type=tv")&&path.contains("season=1")));assertEquals(1,cloud.getIntent().getIntExtra("cloudSeason",-1));
+        }finally{if(cloud!=null){DiscoveryActivity opened=cloud;onMain(opened::finish);}cleanup();}
     }
     @Test public void detailPlaceholderDatesKeepAllMatrixCellsAligned()throws Exception{
         try(Fixture server=new Fixture()){
@@ -806,8 +884,12 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
     private final class Fixture implements AutoCloseable{
-        volatile boolean placeholderDates,admin,favorite,watched,liveArtwork,changed,holdMetadata;
+        volatile boolean placeholderDates,admin,favorite,watched,liveArtwork,changed,holdMetadata,slotLabels,versionUpdates;
         volatile int refreshStatusRequests;
+        volatile String taskStatus="running";
+        volatile boolean discoveryAllowed;
+        volatile int discoveryChecks;
+        final List<String> cloudPaths=Collections.synchronizedList(new ArrayList<>());
         final java.util.concurrent.CountDownLatch metadataRequested=new java.util.concurrent.CountDownLatch(1),metadataGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.CountDownLatch updateGate=new java.util.concurrent.CountDownLatch(1),eventsConnected=new java.util.concurrent.CountDownLatch(1);
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
@@ -841,12 +923,16 @@ public class DetailFlowTest {
             if(ordinalFixture){streams.getJSONObject(0).put("Index",audioOffset).put("Title","国语");streams.getJSONObject(1).put("Index",audioOffset+4).put("Title","国语");if(missingAudio)streams.remove(1);}
             JSONArray sources=new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","1080P").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",preferSecond?4:0).put("DefaultSubtitleStreamIndex",preferSecond?8:-1));
             if(ordinalFixture)sources.getJSONObject(0).put("DefaultAudioStreamIndex",audioOffset);
-            if(multi)sources.put(new JSONObject(sources.getJSONObject(0).toString()).put("Id","source-b").put("Name","4K 版本"));return sources;
+            if(multi)sources.put(new JSONObject(sources.getJSONObject(0).toString()).put("Id","source-b").put("Name","4K 版本"));
+            if(slotLabels)for(int i=0;i<sources.length();i++){JSONObject source=sources.getJSONObject(i);source.put("Name",(i==0?"原盘":"压制")+" · 4K HEVC HDR10");source.getJSONArray("MediaStreams").put(new JSONObject().put("Type","Video").put("Index",99).put("DisplayTitle","4K HEVC HDR10"));}
+            if(versionUpdates&&changed){sources.put(new JSONObject(sources.getJSONObject(0).toString()).put("Id","source-c").put("Name","新增版本"));JSONArray reordered=new JSONArray();for(int i=sources.length()-1;i>=0;i--)reordered.put(sources.get(i));sources=reordered;}return sources;
         }
-        JSONObject base(String id,String type)throws Exception{return new JSONObject().put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演"))).put("UserData",new JSONObject().put("IsFavorite",favorite).put("Played",watched)).put("BackdropImageTags",new JSONArray().put(changed?"art2":"art1")).put("ImageTags",new JSONObject().put("Logo",changed?"art2":"art1"));}
+        JSONObject base(String id,String type)throws Exception{return new JSONObject().put("ProviderIds",new JSONObject().put("Tmdb","123")).put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演"))).put("UserData",new JSONObject().put("IsFavorite",favorite).put("Played",watched)).put("BackdropImageTags",new JSONArray().put(changed?"art2":"art1")).put("ImageTags",new JSONObject().put("Logo",changed?"art2":"art1"));}
         JSONObject response(String path)throws Exception{
+            if(path.contains("check_status")){discoveryChecks++;return new JSONObject().put("user",new JSONObject().put("can_access_discovery",discoveryAllowed));}
+            if(path.contains("-resources?")){cloudPaths.add(path);return new JSONObject().put("resources",new JSONArray());}
             if(path.contains("/Refresh?"))return new JSONObject().put("submitted",true).put("RefreshRunId",123);
-            if(path.contains("/Refresh/"))refreshStatusRequests++;
+            if(path.contains("/Refresh/")){refreshStatusRequests++;return new JSONObject().put("RefreshRunId",123).put("status",taskStatus).put("finished",!taskStatus.equals("running"));}
             if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin));
             if(path.contains("/FavoriteItems/")||path.contains("/PlayedItems/"))return new JSONObject().put("IsFavorite",favorite).put("Played",watched);
             if(path.contains("/Episodes")&&!path.contains("Fields=")&&nextGate!=null){nextRequested.countDown();if(!nextGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic next-episode gate timed out");}
@@ -858,7 +944,7 @@ public class DetailFlowTest {
             if(path.contains("/PlaybackInfo")){JSONArray original=sources(!path.contains("movie-single")),reversed=new JSONArray();for(int i=original.length()-1;i>=0;i--)reversed.put(original.get(i));return new JSONObject().put("MediaSources",reversed).put("PlaySessionId","synthetic-play");}
             if(path.contains("/Seasons")){JSONArray seasons=new JSONArray().put(new JSONObject().put("Id","season-1").put("Name","第 1 季"));if(path.contains("series-many"))seasons.put(new JSONObject().put("Id","season-2").put("Name","第 2 季"));return new JSONObject().put("Items",seasons);}
             if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeriesId",seasons==2?"series-many":"series-one").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("RunTimeTicks",100000000).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",!noProgress&&s==seasons&&e==3?30000000:0).put("Played",e==1)));if(placeholderDates)for(int i=0;i<episodes.length();i++){JSONObject ep=episodes.getJSONObject(i);int n=ep.optInt("IndexNumber");if(n>=4&&n<=7){ep.put("IsMissing",true).put("LocationType","Virtual");if(n<=6)ep.put("PremiereDate",placeholderDate(n-4)+"T00:00:00Z");}}if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
-            String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(liveArtwork&&changed)item.put("Name","服务器更新后的片名").put("Overview","服务器已更新的简介").put("TMDbRating",8.2).put("DoubanRating",9.1);if(id.equals("movie-no-overview"))item.put("Overview","");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));if(id.equals("movie-chapters")||id.equals("movie-no-overview"))item.put("Chapters",new JSONArray().put(new JSONObject().put("Name","开场").put("ChapterIndex",0).put("StartPositionTicks",0).put("ImageTag","chapter-0").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/0")).put(new JSONObject().put("Name","转折").put("ChapterIndex",1).put("StartPositionTicks",600000000).put("ImageTag","chapter-1").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/1")));return item;
+            String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(liveArtwork&&changed)item.put("Name","服务器更新后的片名").put("Overview","服务器已更新的简介").put("TMDbRating",8.2).put("DoubanRating",9.1).put("CustomRating","自定义 16+");if(id.equals("movie-no-overview"))item.put("Overview","");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));if(id.equals("movie-chapters")||id.equals("movie-no-overview"))item.put("Chapters",new JSONArray().put(new JSONObject().put("Name","开场").put("ChapterIndex",0).put("StartPositionTicks",0).put("ImageTag","chapter-0").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/0")).put(new JSONObject().put("Name","转折").put("ChapterIndex",1).put("StartPositionTicks",600000000).put("ImageTag","chapter-1").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/1")));return item;
         }
         void serve(Socket client)throws Exception{
             try(client){BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));String line=reader.readLine();if(line==null)return;String path=line.split(" ")[1];boolean post=line.startsWith("POST ");int range=0,length=0;while((line=reader.readLine())!=null&&!line.isEmpty()){if(line.toLowerCase(Locale.ROOT).startsWith("range: bytes="))range=Integer.parseInt(line.substring(13).split("-")[0]);if(line.toLowerCase(Locale.ROOT).startsWith("content-length:"))length=Integer.parseInt(line.substring(15).trim());}

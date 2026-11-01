@@ -16,16 +16,21 @@ import java.security.MessageDigest;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** TV 端转存结果跟踪：记录确认获取返回的任务号并轮询终态；失败才提醒，成功交由入库通知。 */
+/** 获取任务成功后继续等待实际可播放版本，按版本变化提醒并与追更通知去重。 */
 final class AcquireTracker {
     private static final String CHANNEL="acquire-failures";
     private static final long MAX_AGE_MS=7L*24*60*60*1000;
+    private static final java.util.concurrent.atomic.AtomicBoolean checking=new java.util.concurrent.atomic.AtomicBoolean();
     static void track(Context context,long runId,String title){
         if(runId<=0||title==null)return;
         title=title.replace("\n"," ");
         prefs(context).edit().putString(account(context)+"."+runId,title+"\n"+System.currentTimeMillis()).apply();
+        IngestNotifications.schedule(context);
     }
+    static boolean hasPending(Context context){String prefix=account(context)+".";for(String key:prefs(context).getAll().keySet())if(key.startsWith(prefix))return true;return false;}
     static void poll(Context context){
+        if(!checking.compareAndSet(false,true))return;
+        try{
         SharedPreferences preferences=prefs(context);
         String identity=account(context);
         Map<String,?> entries=preferences.getAll();
@@ -44,12 +49,16 @@ final class AcquireTracker {
             if(started>0&&System.currentTimeMillis()-started>MAX_AGE_MS){preferences.edit().remove(key).apply();continue;}
             try{
                 JSONObject result=api.get("/api/tv/discover/acquire-status/"+runId);
+                if(!identity.equals(account(context)))return;
+                org.json.JSONArray ingested=result.optJSONArray("ingest_items");
+                if(ingested!=null)for(int i=0;i<ingested.length();i++)IngestNotifications.notifyIngest(context,ingested.optJSONObject(i));
                 if(!result.optBoolean("finished"))continue;
                 preferences.edit().remove(key).apply();
                 if(result.optBoolean("failed"))notify(context,runId,title,result.optString("error"));
             }catch(EtknApi.AuthException error){return;}
             catch(Exception ignored){return;}
         }
+        }finally{checking.set(false);}
     }
     private static long parseTime(String text){
         try{return Long.parseLong(text.trim());}catch(NumberFormatException error){return 0;}

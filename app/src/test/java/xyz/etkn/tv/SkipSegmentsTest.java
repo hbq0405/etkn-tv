@@ -6,6 +6,15 @@ import static org.junit.Assert.*;
 
 public class SkipSegmentsTest {
     private JSONObject marker(String type,long time)throws Exception{return new JSONObject().put("MarkerType",type).put("StartPositionTicks",time*10000);}
+    @Test public void timelineUsesExplicitBoundariesAndMediaEndForCredits()throws Exception{
+        JSONArray markers=new JSONArray().put(marker("CreditsStart",8000)).put(marker("IntroEnd",4000)).put(marker("IntroStart",0)).put(marker("Chapter",6000));
+        assertArrayEquals(new long[]{0,4000,8000,10000},SkipSegments.boundaries(markers,10000));
+        assertArrayEquals(new long[0],SkipSegments.boundaries(markers,-1));assertArrayEquals(new long[0],SkipSegments.boundaries(null,10000));
+    }
+    @Test public void timelineIgnoresInvalidRangesAndClearsSourcesWithoutMarkers()throws Exception{
+        assertArrayEquals(new long[0],SkipSegments.boundaries(new JSONArray().put(marker("IntroStart",4000)).put(marker("IntroEnd",1000)).put(marker("CreditsStart",12000)),10000));
+        assertArrayEquals(new long[0],SkipSegments.boundaries(new JSONArray(),10000));
+    }
     @Test public void skipsOnlyWithinExplicitValidRanges()throws Exception{
         JSONArray markers=new JSONArray().put(marker("IntroStart",1000)).put(marker("IntroEnd",4000)).put(marker("CreditsStart",8000));
         assertNull(SkipSegments.at(markers,999,10000));assertEquals(4000,SkipSegments.at(markers,1000,10000).end);assertNull(SkipSegments.at(markers,4000,10000));

@@ -20,9 +20,7 @@ final class CloudResources {
         for(JSONObject parent:EtknApi.rows(payload)) {
             JSONArray versions=provider.equals("shared_pool")?parent.optJSONArray("versions"):null;
             if(versions==null||versions.length()==0){add(result,provider,new JSONObject(parent.toString()),season);continue;}
-            int count=0;
-            for(int i=0;i<versions.length();i++)if(versions.optJSONObject(i)!=null)count++;
-            int index=0;
+            Map<String,List<JSONObject>> groups=new LinkedHashMap<>();
             for(int i=0;i<versions.length();i++){
                 JSONObject version=versions.optJSONObject(i);if(version==null)continue;
                 JSONObject exact=new JSONObject(version.toString());
@@ -30,11 +28,27 @@ final class CloudResources {
                 for(String key:new String[]{"title","name","tmdb_id","season_number","pan_type","release_year","year","poster_path"})
                     if(!exact.has(key)||exact.isNull(key)||exact.optString(key).isEmpty())if(parent.has(key))exact.put(key,parent.get(key));
                 exact.remove("versions");
-                exact.put("_version_index",++index);exact.put("_version_count",count);
+                groups.computeIfAbsent(sharedVersionKey(exact,i),key->new ArrayList<>()).add(exact);
+            }
+            int index=0;
+            for(List<JSONObject> sources:groups.values()){
+                sources.sort(Comparator.comparingInt(item->transferLabel(new Resource(provider,item)).equals("可转存")?0:1));
+                JSONObject exact=new JSONObject(sources.get(0).toString());int count=0;JSONArray alternatives=new JSONArray();
+                for(JSONObject source:sources){count+=Math.max(1,source.optInt("_shared_pool_source_count",source.optInt("source_count",1)));if(alternatives.length()<20)alternatives.put(source);}
+                exact.put("_version_index",++index);exact.put("_version_count",groups.size());exact.put("_shared_pool_source_count",count);exact.put("_shared_pool_alternative_sources",alternatives);
                 add(result,provider,exact,season);
             }
         }
         return result;
+    }
+    private static String sharedVersionKey(JSONObject item,int fallback)throws JSONException{
+        JSONObject exact=sharedSource(item);
+        for(String key:new String[]{"logical_group_id","content_version_key"})if(!exact.optString(key).trim().isEmpty())return key+":"+exact.optString(key).trim().toUpperCase(Locale.ROOT);
+        String sha=firstValue(exact,"sha1","file_sha1");if(!sha.isEmpty())return "sha1:"+sha.toUpperCase(Locale.ROOT);
+        JSONObject map=exact.optJSONObject("best_asset_map");StringBuilder episodes=new StringBuilder();
+        if(map!=null)for(Iterator<String> keys=map.keys();keys.hasNext();){String episode=keys.next();JSONObject asset=map.optJSONObject(episode);if(asset==null)continue;String hash=firstValue(asset,"sha1","file_sha1");if(!hash.isEmpty())episodes.append(episode).append(':').append(hash).append('|');}
+        if(episodes.length()>0)return "episode_sha1:"+episodes.toString().toUpperCase(Locale.ROOT);
+        String source=firstValue(exact,"source_id","source_ref_id","id","hub_id");return source.isEmpty()?"row:"+fallback:"source_id:"+source.toUpperCase(Locale.ROOT);
     }
     private static void add(List<Resource> rows,String provider,JSONObject item,Integer requested){
         Integer season=season(item);if(requested!=null&&((season==null&&provider.equals("shared_pool"))||(season!=null&&!requested.equals(season))))return;
@@ -48,7 +62,7 @@ final class CloudResources {
     static JSONObject sharedSource(JSONObject original)throws JSONException {
         JSONObject exact=new JSONObject(original.toString()),group=exact.optJSONObject("logical_group");
         for(String key:new String[]{"logical_group_id","content_version_key","best_asset_map"})if((!exact.has(key)||exact.isNull(key))&&group!=null&&group.has(key))exact.put(key,group.get(key));
-        Object map=exact.opt("best_asset_map");if(map instanceof String)exact.put("best_asset_map",new JSONObject((String)map));
+        Object map=exact.opt("best_asset_map");if(map instanceof String){try{exact.put("best_asset_map",new JSONObject((String)map));}catch(JSONException ignored){exact.put("best_asset_map",new JSONObject());}}
         return exact;
     }
     static String label(Resource row,int index){
@@ -65,7 +79,7 @@ final class CloudResources {
     static String transferLabel(Resource row){
         if(!row.provider.equals("shared_pool"))return "";
         JSONObject channel=row.source.optJSONObject("share_channel");if(channel==null)channel=row.source.optJSONObject("logical_season_share_channel");
-        String status=channel==null?"":channel.optString("status","").toLowerCase();
+        String status=row.source.optString("share_channel_status",channel==null?"":channel.optString("status","")).toLowerCase(Locale.ROOT);
         if(row.source.optBoolean("share_transfer_available")||row.source.optBoolean("has_valid_share_channel"))return "可转存";
         String mode=row.source.optString("preferred_transfer_mode",row.source.optString("transfer_mode","")).toLowerCase();
         return mode.equals("share")||status.equals("valid")?"可转存":"可秒传";
@@ -81,6 +95,7 @@ final class CloudResources {
         push(chips,seen,codecLabel(value),"default");
         push(chips,seen,frameRateLabel(value),"default");
         push(chips,seen,episodeProgress(value),"info");
+        int sourceCount=value.optInt("_shared_pool_source_count",0);if(sourceCount>1)push(chips,seen,"共享源 "+sourceCount,"info");
         JSONArray labels=value.optJSONArray("tag_labels");
         if(labels!=null)for(int i=0;i<labels.length();i++){
             String label=labels.optString(i);

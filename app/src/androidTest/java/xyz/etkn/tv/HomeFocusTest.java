@@ -11,6 +11,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.GridLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import androidx.test.platform.app.InstrumentationRegistry;
 import org.json.JSONArray;
@@ -420,23 +421,36 @@ public class HomeFocusTest {
     }
     @Test public void serverImageEventUpdatesLoadedPosterPagesWithoutLosingPosition()throws Exception{
         try(Fixture server=new Fixture()){
-            server.admin=true;openPosterFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));assertEquals(0,field(HomeActivity.class,"notifiedHomeGeneration"));call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==120);
+            server.admin=true;openPosterFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==120);
             instrumentation.runOnMainSync(()->posterGrid().getChildAt(75).requestFocus());settle();ScrollView scroll=(ScrollView)field(HomeActivity.class,"homeScroll");int before=scroll.getScrollY();
             key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());chooseItemAction(2);instrumentation.runOnMainSync(()->itemMenu().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick());await(()->"元数据刷新任务已提交".contentEquals(home.status.getText()));
             server.changed=true;server.updateGate.countDown();await(()->posterGrid().getChildCount()==120&&((JSONObject)posterGrid().getChildAt(75).getTag()).optJSONObject("ImageTags").optString("Primary").equals("poster2"));
             await(()->{android.widget.ImageView image=(android.widget.ImageView)((ViewGroup)((ViewGroup)posterGrid().getChildAt(75)).getChildAt(0)).getChildAt(0);return image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap().getPixel(10,10)==Color.MAGENTA;});
             assertTrue(descendants(posterGrid().getChildAt(75)).stream().anyMatch(view->view instanceof android.widget.TextView&&"9.4".equals(((android.widget.TextView)view).getText().toString())));
             assertTrue(descendants(posterGrid().getChildAt(75)).stream().anyMatch(view->view instanceof android.widget.TextView&&"9.0".equals(((android.widget.TextView)view).getText().toString())));
-            await(()->"元数据/图片已刷新".contentEquals(home.status.getText()));assertEquals(1,field(HomeActivity.class,"homeGeneration"));assertEquals(1,field(HomeActivity.class,"notifiedHomeGeneration"));assertEquals(0,server.refreshStatusRequests);
+            await(()->server.refreshStatusRequests>0);assertEquals("元数据刷新任务已提交",home.status.getText().toString());server.taskStatus="succeeded";
+            await(()->"元数据/图片已刷新".contentEquals(home.status.getText()));assertEquals(1,field(HomeActivity.class,"homeGeneration"));
             assertEquals("item-75",((JSONObject)home.getCurrentFocus().getTag()).optString("Id"));assertEquals(before,scroll.getScrollY());assertEquals(120,field(HomeActivity.class,"offset"));settle();saveScreenshot("live-poster-images.png");
         }finally{closePosterFixture();}
     }
-    @Test public void scheduledHomeUpdateShowsRefreshNoticeWithoutSubmittingTask()throws Exception{
+    @Test public void scheduledHomeUpdateRefreshesSilentlyWithoutSubmittingTask()throws Exception{
         try(Fixture server=new Fixture()){
-            openMenuHomeFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));assertEquals(0,field(HomeActivity.class,"notifiedHomeGeneration"));
-            server.changed=true;server.updateGate.countDown();await(()->"元数据/图片已刷新".contentEquals(home.status.getText()));
+            openMenuHomeFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            server.changed=true;server.updateGate.countDown();
             await(()->descendants(home.content).stream().anyMatch(view->view instanceof android.widget.TextView&&((android.widget.TextView)view).getText().toString().startsWith("更新后的影片")));
-            assertTrue(server.mutations.isEmpty());assertEquals(1,field(HomeActivity.class,"notifiedHomeGeneration"));assertEquals(0,server.refreshStatusRequests);
+            assertTrue(server.mutations.isEmpty());assertFalse("元数据/图片已刷新".contentEquals(home.status.getText()));assertEquals(0,server.refreshStatusRequests);
+        }finally{closePosterFixture();}
+    }
+    @Test public void libraryUpMenuKeepsFocusDuringRepeatedKeys()throws Exception{
+        try(Fixture server=new Fixture()){
+            openPosterFixture(server);View filter=findSort(home.content);assertNotNull(filter);instrumentation.runOnMainSync(filter::requestFocus);
+            key(KeyEvent.KEYCODE_DPAD_UP);HorizontalScrollView menu=(HorizontalScrollView)field(HomeActivity.class,"menu");assertEquals(View.VISIBLE,menu.getVisibility());View selected=home.getCurrentFocus();
+            for(int i=0;i<4;i++){key(KeyEvent.KEYCODE_DPAD_UP);assertSame(selected,home.getCurrentFocus());assertEquals(View.VISIBLE,menu.getVisibility());}
+            key(KeyEvent.KEYCODE_DPAD_RIGHT);assertTrue(home.nav.hasFocus());View horizontal=home.getCurrentFocus();
+            long now=android.os.SystemClock.uptimeMillis();instrumentation.runOnMainSync(()->{home.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_UP,0));for(int n=1;n<6;n++)home.dispatchKeyEvent(new KeyEvent(now,now+n*100,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_UP,n));home.dispatchKeyEvent(new KeyEvent(now,now+600,KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_UP,0));});settle();
+            assertSame(horizontal,home.getCurrentFocus());saveScreenshot("library-main-menu-stable.png");key(KeyEvent.KEYCODE_DPAD_DOWN);assertSame(filter,home.getCurrentFocus());assertEquals(View.GONE,menu.getVisibility());
+            instrumentation.runOnMainSync(()->{home.dispatchKeyEvent(new KeyEvent(now,now,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_UP,0));for(int n=1;n<6;n++)home.dispatchKeyEvent(new KeyEvent(now,now+n*100,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_UP,n));home.dispatchKeyEvent(new KeyEvent(now,now+600,KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_UP,0));});settle();assertTrue(home.nav.hasFocus());
+            call("loadPosterPage",new Class<?>[]{boolean.class},true);await(()->posterGrid().getChildCount()==60);assertTrue("迟到的首屏加载不能从主菜单抢走焦点",home.nav.hasFocus());
         }finally{closePosterFixture();}
     }
     private static final class Fixture implements AutoCloseable {
@@ -450,6 +464,7 @@ public class HomeFocusTest {
         volatile String lastListingPath="";
         volatile int listingCalls;
         volatile int refreshStatusRequests;
+        volatile String taskStatus="running";
         volatile boolean holdFirstLatest,holdResume,holdCardImages,changed;
         final java.util.concurrent.CountDownLatch cardGate=new java.util.concurrent.CountDownLatch(1),heroLoaded=new java.util.concurrent.CountDownLatch(1),updateGate=new java.util.concurrent.CountDownLatch(1),eventsConnected=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.CountDownLatch latestGate=new java.util.concurrent.CountDownLatch(1),resumeGate=new java.util.concurrent.CountDownLatch(1);
@@ -471,7 +486,7 @@ public class HomeFocusTest {
                 String request=reader.readLine();if(request==null)return;String method=request.split(" ")[0],path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
                 if(!method.equals("GET")){
                     mutations.add(method+" "+path);if(!denyMutation){if(path.contains("/FavoriteItems/"))favorite=method.equals("POST");else if(path.contains("/PlayedItems/"))played=method.equals("POST");else if(path.contains("/HideFromResume"))hiddenResume=true;else if(method.equals("DELETE"))deleted=true;}
-                    byte[] result=(denyMutation?new JSONObject().put("detail","权限已撤销"):new JSONObject().put("IsFavorite",favorite).put("Played",played).put("submitted",true)).toString().getBytes(StandardCharsets.UTF_8);
+                    byte[] result=(denyMutation?new JSONObject().put("detail","权限已撤销"):new JSONObject().put("IsFavorite",favorite).put("Played",played).put("submitted",true).put("RefreshRunId",123)).toString().getBytes(StandardCharsets.UTF_8);
                     OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 "+(denyMutation?"403 Forbidden":"200 OK")+"\r\nContent-Type: application/json\r\nContent-Length: "+result.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(result);return;
                 }
                 if(path.endsWith("/Home/Events")){
@@ -491,6 +506,7 @@ public class HomeFocusTest {
             }
         }
         JSONObject response(String path)throws Exception{
+            if(path.contains("/Refresh/"))return new JSONObject().put("RefreshRunId",123).put("status",taskStatus).put("finished",!taskStatus.equals("running"));
             if(path.contains("check_status"))return new JSONObject().put("user",new JSONObject().put("can_access_discovery",false));
             if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin)).put("TvPermissions",new JSONObject().put("CanRefreshMetadata",canRefresh));
             if(path.contains("/Users/")&&path.contains("/Items?")){

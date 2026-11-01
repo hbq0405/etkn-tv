@@ -29,7 +29,7 @@ public final class PlayerActivity extends TvActivity {
     private PlayerView video;
     private DefaultTimeBar seekProgress;
     private LinearLayout controls;
-    private Button audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton;
+    private Button versionButton,audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton;
     private AlertDialog speedDialog;
     private PlayerEpisodePanel episodePanel;
     private List<JSONObject> episodes=new ArrayList<>();
@@ -90,16 +90,16 @@ public final class PlayerActivity extends TvActivity {
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
         video=createVideoView(useTextureVideo());
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
-        seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setVisibility(View.GONE);
+        seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setAdMarkerColor(0xffffc350);seekProgress.setPlayedAdMarkerColor(0xffffc350);seekProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.CENTER_VERTICAL);seekLayout.setMargins(dp(28),0,dp(28),0);stage.addView(seekProgress,seekLayout);
         controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(OVERLAY);
         controls.addView(text(getIntent().getStringExtra("title"),18,android.graphics.Color.WHITE));
         videoInfo=text("",12,MUTED);controls.addView(videoInfo);
-        LinearLayout actions=row();actions.addView(button("版本",this::chooseVersion));
+        LinearLayout actions=row();versionButton=button("版本",this::chooseVersion);actions.addView(versionButton);
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
         speedButton=button("倍速 · "+speedLabel(),this::chooseSpeed);
-        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(speedButton);actions.addView(decoderButton);
-        nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);actions.addView(nextButton);
+        nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);
+        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(speedButton);actions.addView(decoderButton);
         for(int i=0;i<actions.getChildCount();i++)actions.getChildAt(i).setBackground(selectionBackground());
         HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=0;stage.addView(controls,overlay);controls.setVisibility(View.GONE);
@@ -127,7 +127,7 @@ public final class PlayerActivity extends TvActivity {
         view.setUseController(true);view.setControllerAnimationEnabled(false);view.setControllerAutoShow(false);view.setControllerShowTimeoutMs(5000);view.setKeepContentOnPlayerReset(true);view.setShowSubtitleButton(false);view.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
         View center=view.findViewById(androidx.media3.ui.R.id.exo_center_controls);((ViewGroup)center.getParent()).removeView(center);
         DefaultTimeBar bar=view.findViewById(androidx.media3.ui.R.id.exo_progress);
-        if(bar!=null){bar.setPlayedColor(ACCENT);bar.setScrubberColor(ACCENT);bar.setBufferedColor(BUFFERED);bar.setUnplayedColor(BAR_IDLE);}
+        if(bar!=null){bar.setPlayedColor(ACCENT);bar.setScrubberColor(ACCENT);bar.setBufferedColor(BUFFERED);bar.setUnplayedColor(BAR_IDLE);bar.setAdMarkerColor(0xffffc350);bar.setPlayedAdMarkerColor(0xffffc350);}
         if(bar!=null){
             FrameLayout.LayoutParams layout=(FrameLayout.LayoutParams)bar.getLayoutParams();layout.gravity=Gravity.CENTER_VERTICAL;layout.leftMargin=layout.rightMargin=dp(28);layout.topMargin=layout.bottomMargin;bar.setLayoutParams(layout);
             bar.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{FrameLayout.LayoutParams bounds=(FrameLayout.LayoutParams)v.getLayoutParams();if(bounds.topMargin!=bounds.bottomMargin){bounds.topMargin=bounds.bottomMargin;v.setLayoutParams(bounds);}});
@@ -213,7 +213,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void chooseVersion(){
         if(info==null)return;JSONArray sources=info.optJSONArray("MediaSources");if(sources==null||sources.length()==0)return;
-        String[] labels=new String[sources.length()];for(int i=0;i<labels.length;i++)labels[i]=sources.optJSONObject(i).optString("Name","版本 "+(i+1));
+        String[] labels=new String[sources.length()];for(int i=0;i<labels.length;i++)labels[i]=PlaybackSelection.slotLabel(sources.optJSONObject(i));
         PlayerChoiceDialog.create(this,"选择播放版本",labels,selected,(dialog,index)->{stopPlayer();selected=index;versionConfirmed=true;audioIndex=subtitleIndex=PlaybackSelection.AUTO;dialog.dismiss();startSource();}).show();
     }
     private void startSource(){
@@ -255,6 +255,7 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onVideoDecoderInitialized(EventTime time,String name,long at,long duration){videoDecoder=name;if(player!=null)applyVideoRotation(player.getVideoSize());updateVideoInfo();}
             });
             player.addListener(new Player.Listener(){
+                @Override public void onTimelineChanged(Timeline timeline,int reason){updateTimelineMarkers();}
                 @Override public void onPlaybackParametersChanged(PlaybackParameters parameters){playbackSpeed=parameters.speed;speedButton.setText("倍速 · "+speedLabel());}
                 @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
@@ -262,7 +263,7 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
-            player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();if(episodePanel.isShown())renderEpisodes();else video.requestFocus();updateTrackButtons();
+            updateTimelineMarkers();player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();if(episodePanel.isShown())renderEpisodes();else video.requestFocus();updateTrackButtons();
         }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
     }
     private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}
@@ -308,6 +309,10 @@ public final class PlayerActivity extends TvActivity {
         skipTarget=segment==null?-1:segment.end;
         if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){player.seekTo(segment.end);skipTarget=-1;segment=null;}
         if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys&&!episodePanel.isShown()){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
+    }
+    private void updateTimelineMarkers(){
+        long[] points=SkipSegments.boundaries(source==null?null:source.optJSONArray("Chapters"),player==null?0:player.getDuration());boolean[] played=new boolean[points.length];
+        video.setExtraAdGroupMarkers(points,played);seekProgress.setAdGroupTimesMs(points,played,points.length);
     }
     private void skipSegment(){if(player!=null&&skipTarget>=0){player.seekTo(skipTarget);updateSkip();}}
     private static final class TrackRef{
@@ -369,7 +374,7 @@ public final class PlayerActivity extends TvActivity {
         for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){TrackRef ref=findTrack(stream,type);if(ref!=null&&ref.group.isTrackSelected(ref.index))return PlaybackSelection.streamLabel(stream);}
         return PlaybackSelection.selectionLabel(source,subtitles?subtitleIndex:audioIndex,subtitles);
     }
-    private void updateTrackButtons(){audioButton.setText("音轨 · "+currentTrackTitle(false));subtitleButton.setText("字幕 · "+currentTrackTitle(true));decoderButton.setText(softwareVideo?"解码 · 软件兼容":"解码 · 自动");}
+    private void updateTrackButtons(){versionButton.setText("版本 · "+PlaybackSelection.slotLabel(source));audioButton.setText("音轨 · "+currentTrackTitle(false));subtitleButton.setText("字幕 · "+currentTrackTitle(true));decoderButton.setText(softwareVideo?"解码 · 软件兼容":"解码 · 自动");}
     private void showSeekProgress(){
         seekKeys=true;video.hideController();controls.setVisibility(View.GONE);skipButton.setVisibility(View.GONE);seekProgress.setVisibility(View.VISIBLE);
         timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);seekProgressUpdate.run();if(pendingSeekPosition<0)timer.postDelayed(seekProgressHide,5000);video.requestFocus();

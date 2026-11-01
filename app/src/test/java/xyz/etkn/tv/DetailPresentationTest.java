@@ -6,6 +6,23 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class DetailPresentationTest {
+    @Test public void playerSlotLabelDropsOnlyExactTechnicalSuffixAndDetailKeepsIt()throws Exception{
+        JSONObject source=new JSONObject().put("Name","原盘 · 收藏版 · 4K HEVC HDR10")
+            .put("MediaStreams",new JSONArray().put(new JSONObject().put("Type","Video").put("DisplayTitle","4K HEVC HDR10")));
+        assertEquals("原盘 · 收藏版",PlaybackSelection.slotLabel(source));
+        assertEquals("原盘 · 收藏版 · 4K HEVC HDR10",PlaybackSelection.sourceLabel(source,0));
+        source.put("Name","4K HEVC HDR10");assertEquals("主版本",PlaybackSelection.slotLabel(source));
+        assertEquals("主版本",PlaybackSelection.slotLabel(new JSONObject()));assertEquals("默认",PlaybackSelection.slotLabel(null));
+        assertEquals("已入库",IngestNotifications.outcomeLabel("ingested"));assertEquals("洗版成功",IngestNotifications.outcomeLabel("replaced"));assertEquals("新增版本",IngestNotifications.outcomeLabel("version_added"));
+    }
+    @Test public void customContentRatingOverridesOfficialAndEmptyValuesFallBack()throws Exception{
+        JSONObject item=new JSONObject().put("OfficialRating","PG-13").put("CustomRating","  自定义 16+  ");
+        assertEquals("自定义 16+",DetailPresentation.contentRating(item));
+        item.put("CustomRating","   ");assertEquals("PG-13",DetailPresentation.contentRating(item));
+        item.put("CustomRating",JSONObject.NULL);assertEquals("PG-13",DetailPresentation.contentRating(item));
+        item.remove("CustomRating");assertEquals("PG-13",DetailPresentation.contentRating(item));
+        item.put("OfficialRating",JSONObject.NULL);assertEquals("",DetailPresentation.contentRating(item));
+    }
     @Test public void placeholderDatesKeepServerCalendarDayAndRealEpisodesHaveNoDate()throws Exception{
         Calendar today=new GregorianCalendar(2026,Calendar.NOVEMBER,1);
         JSONObject missing=episode("missing",1,4).put("IsMissing",true).put("PremiereDate","2026-11-03T00:00:00Z");

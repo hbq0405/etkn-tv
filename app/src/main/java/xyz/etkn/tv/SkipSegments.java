@@ -5,6 +5,19 @@ import org.json.JSONObject;
 
 /** Only explicit server markers are skippable; ordinary chapter names are never guessed. */
 final class SkipSegments {
+    static long[] boundaries(JSONArray chapters,long duration){
+        if(chapters==null||duration<=0)return new long[0];
+        long start=-1,end=-1,credits=-1;
+        for(int i=0;i<chapters.length();i++){
+            JSONObject chapter=chapters.optJSONObject(i);if(chapter==null)continue;
+            long ticks=chapter.optLong("StartPositionTicks",-1);if(ticks<0)continue;long time=ticks/10000;
+            switch(chapter.optString("MarkerType")){case "IntroStart":start=time;break;case "IntroEnd":end=time;break;case "CreditsStart":credits=time;break;default:break;}
+        }
+        java.util.TreeSet<Long> points=new java.util.TreeSet<>();
+        if(start>=0&&end>start&&end<duration){points.add(start);points.add(end);}
+        if(credits>=0&&credits<duration){points.add(credits);points.add(duration);}
+        long[] result=new long[points.size()];int index=0;for(long point:points)result[index++]=point;return result;
+    }
     static final class Segment {
         final String label;
         final long end;

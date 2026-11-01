@@ -32,7 +32,7 @@ final class IngestNotifications {
         if(on){schedule(context);check(context);}else{((JobScheduler)context.getSystemService(Context.JOB_SCHEDULER_SERVICE)).cancel(JOB);NotificationManagerCompat.from(context).cancelAll();}
     }
     static void schedule(Context context){
-        if(!enabled(context))return;
+        if(!enabled(context)&&!AcquireTracker.hasPending(context))return;
         if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"我的订阅与追更入库",NotificationManager.IMPORTANCE_DEFAULT));
         JobScheduler scheduler=(JobScheduler)context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
         if(scheduler.getPendingJob(JOB)==null)scheduler.schedule(new JobInfo.Builder(JOB,new ComponentName(context,IngestJobService.class)).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setPeriodic(15*60*1000L).setPersisted(true).build());
@@ -54,9 +54,8 @@ final class IngestNotifications {
                 JSONObject result=api.get(api.userPath()+"/IngestUpdates?After="+EtknApi.encode(cursor));
                 if(!enabled(context)||!identity.equals(account(context)))return;
                 for(JSONObject item:EtknApi.rows(result)){
-                    String version=item.optString("VersionId"),seen=identity+".seen."+version;
-                    if(!result.optBoolean("Initial")&&!prefs(context).getBoolean(seen,false)){
-                        show(context,item);prefs(context).edit().putBoolean(seen,true).apply();
+                    if(!result.optBoolean("Initial")){
+                        notifyIngest(context,item);
                     }
                 }
                 cursor=result.getString("Cursor");prefs(context).edit().putString(identity+".cursor",cursor).apply();
@@ -64,12 +63,18 @@ final class IngestNotifications {
             }
         }finally{checking.set(false);}
     }
-    private static void show(Context context,JSONObject item){
+    static synchronized void notifyIngest(Context context,JSONObject item){
+        if(item==null)return;
+        String seen=account(context)+".seen."+item.optString("EventId",item.optString("VersionId"));
+        if(prefs(context).getBoolean(seen,false))return;prefs(context).edit().putBoolean(seen,true).apply();
+        if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"我的入库提醒",NotificationManager.IMPORTANCE_DEFAULT));
+        String result=outcomeLabel(item.optString("Outcome"));
         String title=item.optString("SeriesName");String message=(title.isEmpty()?"":title+" · ")+item.optString("Name");
-        Activity activity=foreground.get();if(activity!=null&&!activity.isFinishing())activity.runOnUiThread(()->Toast.makeText(activity,"订阅 / 追更已入库："+message,Toast.LENGTH_LONG).show());
+        Activity activity=foreground.get();if(activity!=null&&!activity.isFinishing())activity.runOnUiThread(()->Toast.makeText(activity,result+"："+message,Toast.LENGTH_LONG).show());
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
         Intent open=new Intent(context,DetailActivity.class).putExtra("id",item.optString("Id")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int id=item.optString("Id").hashCode();PendingIntent action=PendingIntent.getActivity(context,id,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        try{NotificationManagerCompat.from(context).notify(id,new NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle("订阅 / 追更已入库").setContentText(message).setStyle(new NotificationCompat.BigTextStyle().bigText(message)).setContentIntent(action).setAutoCancel(true).build());}catch(SecurityException ignored){}
+        try{NotificationManagerCompat.from(context).notify(id,new NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle(result).setContentText(message).setStyle(new NotificationCompat.BigTextStyle().bigText(message)).setContentIntent(action).setAutoCancel(true).build());}catch(SecurityException ignored){}
     }
+    static String outcomeLabel(String outcome){return "replaced".equals(outcome)?"洗版成功":"version_added".equals(outcome)?"新增版本":"已入库";}
 }

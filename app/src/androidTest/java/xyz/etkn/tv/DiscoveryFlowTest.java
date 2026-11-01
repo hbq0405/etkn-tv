@@ -97,6 +97,13 @@ public class DiscoveryFlowTest {
         }
         assertEquals(9,server.cloudRequests);
     }
+    @Test public void sharedPoolSameSha1RendersOneVersionAndShareCount()throws Exception{
+        server.duplicateSha=true;
+        onMain(()->{invoke("enterDetail",new Class<?>[]{JSONObject.class},server.item("movie"));invoke("enterCloud",new Class<?>[0]);});
+        await(()->activity.status.getText().toString().startsWith("搜索完成"));
+        onMain(()->{ViewGroup shared=(ViewGroup)activity.content.getChildAt(1);assertEquals(3,shared.getChildCount());String text=viewText(shared);assertTrue(text.contains("共享源 2"));assertTrue(text.contains("版本 1/2"));assertTrue(text.contains("可转存"));});
+    }
+    private String viewText(View view){String result=view instanceof TextView?((TextView)view).getText().toString():"";if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)result+=" "+viewText(((ViewGroup)view).getChildAt(i));return result;}
     @Test public void lateMovieCallbacksCannotWriteIntoAnotherPage()throws Exception{
         server.delayCast=true;
         onMain(()->invoke("enterDetail",new Class<?>[]{JSONObject.class},server.item("movie")));
@@ -135,7 +142,7 @@ public class DiscoveryFlowTest {
     private static final class Fixture implements AutoCloseable{
         final ServerSocket socket=new ServerSocket(0,16,InetAddress.getByName("127.0.0.1"));
         final CountDownLatch castRequested=new CountDownLatch(1),castGate=new CountDownLatch(1),castSent=new CountDownLatch(1),cloudRequested=new CountDownLatch(1),cloudGate=new CountDownLatch(1);
-        volatile boolean closed,delayCast,delayCloud;
+        volatile boolean closed,delayCast,delayCloud,duplicateSha;
         volatile int seasonRequests,cloudRequests,delayedCloudSent;
         Fixture()throws Exception{
             Thread accept=new Thread(()->{while(!closed)try{
@@ -154,7 +161,7 @@ public class DiscoveryFlowTest {
                 synchronized(this){cloudRequests++;}
                 JSONArray resources=new JSONArray();
                 JSONObject resource=new JSONObject().put("title","合成资源").put("resolution","1080p").put("video_codec","H265").put("size",1024000000).put("tag_labels",new JSONArray().put("一致版"));
-                if(path.contains("shared-resources"))resource.put("versions",new JSONArray().put(new JSONObject(resource.toString()).put("sha1","a")).put(new JSONObject(resource.toString()).put("sha1","b")));
+                if(path.contains("shared-resources")){JSONArray versions=new JSONArray().put(new JSONObject(resource.toString()).put("sha1","a")).put(new JSONObject(resource.toString()).put("sha1","b"));if(duplicateSha)versions.put(new JSONObject(resource.toString()).put("sha1","A").put("share_channel_status","valid"));resource.put("versions",versions);}
                 return new JSONObject().put("resources",resources.put(resource));
             }
             return new JSONObject();
