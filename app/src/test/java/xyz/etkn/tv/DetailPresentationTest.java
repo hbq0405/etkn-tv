@@ -6,6 +6,14 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class DetailPresentationTest {
+    @Test public void placeholderDatesKeepServerCalendarDayAndRealEpisodesHaveNoDate()throws Exception{
+        JSONObject missing=episode("missing",1,4).put("IsMissing",true).put("PremiereDate","2026-11-03T00:00:00Z");
+        assertEquals("2026-11-03",DetailPresentation.airDate(missing));
+        missing.remove("PremiereDate");assertEquals("播出时间待定",DetailPresentation.airDate(missing));
+        JSONObject upcoming=episode("upcoming",1,5).put("LocationType","Virtual").put("IsUnaired",true).put("PremiereDate","2026-11-10");
+        assertEquals("2026-11-10",DetailPresentation.airDate(upcoming));
+        assertEquals("",DetailPresentation.airDate(episode("available",1,3).put("PremiereDate","2026-10-27")));
+    }
     private JSONObject episode(String id,int season,int number)throws Exception{return new JSONObject().put("Id",id).put("Type","Episode").put("ParentIndexNumber",season).put("IndexNumber",number);}
     @Test public void nextEpisodeUsesNumericOrderAcrossSeasonsAndSkipsMissingEntries()throws Exception{
         JSONObject current=episode("current",1,9),next=episode("next",1,12),nextSeason=episode("season-two",2,1);

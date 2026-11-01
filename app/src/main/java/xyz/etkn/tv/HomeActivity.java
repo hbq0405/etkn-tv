@@ -21,6 +21,8 @@ public final class HomeActivity extends TvActivity {
     private GridLayout posterGrid;
     private TextView libraryMeta,posterStatus;
     private boolean loadingMore,hasMore;
+    private boolean refreshingPosters,pendingPosterRefresh,mediaActionBusy,openingItemMenu;
+    private AlertDialog itemMenu;
     private String episodeCountMode="unplayed",sortBy="SortName",sortOrder="Ascending";
     private String viewMode="portrait",playMode="sequence",typeFilter="",typeKind="";
     private boolean favoriteOnly;
@@ -54,11 +56,12 @@ public final class HomeActivity extends TvActivity {
     private int shelfSerial;
     private int homeGeneration;
     private boolean foreground,createdHome=true;
-    private final Runnable fallbackRefresh=new Runnable(){@Override public void run(){refreshHome();homeTimer.postDelayed(this,60000);}};
-    private final Runnable notifiedRefresh=()->refreshHome();
+    private final Runnable fallbackRefresh=new Runnable(){@Override public void run(){refreshCurrent();homeTimer.postDelayed(this,60000);}};
+    private final Runnable notifiedRefresh=()->refreshCurrent();
     private View resumeFirst,libraryFirst;
     private boolean resumeReady,libraryReady,initialFocusChosen;
     private final List<View> homeCards=new java.util.ArrayList<>();
+    private final java.util.Map<View,JSONObject> actionItems=new java.util.HashMap<>();
     private final List<View> resumeCards=new java.util.ArrayList<>();
     private final java.util.Map<String,View> libraryCards=new java.util.HashMap<>();
     private String libraryOrigin="home",pendingLibraryFocus="";
@@ -96,6 +99,10 @@ public final class HomeActivity extends TvActivity {
     private void showMenu(){previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
     private void hideMenu(){menu.setVisibility(View.GONE);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(event.getKeyCode()==KeyEvent.KEYCODE_MENU&&getCurrentFocus()!=null&&(actionItems.containsKey(getCurrentFocus())||"items".equals(mode)&&getCurrentFocus().getTag() instanceof JSONObject)){
+            if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)showItemMenu(getCurrentFocus());
+            return true;
+        }
         if(event.getAction()==KeyEvent.ACTION_DOWN){
             if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP){
                 View focused=getCurrentFocus();View next=focused==null?null:focused.focusSearch(View.FOCUS_UP);
@@ -110,7 +117,7 @@ public final class HomeActivity extends TvActivity {
         super.onResume();if(isFinishing())return;foreground=true;
         boolean carouselSetting=new TvPreferences(this,api).smartCarousel();
         if("home".equals(mode)&&carouselSetting!=carouselEnabled)loadHome();
-        else if(!createdHome)refreshHome();
+        else if(!createdHome)refreshCurrent();
         createdHome=false;
         if(carouselActive&&"home".equals(mode)){homeTimer.removeCallbacks(carouselRotate);showCarouselItem(carouselIndex);if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);}
         homeTimer.postDelayed(fallbackRefresh,60000);
@@ -124,7 +131,8 @@ public final class HomeActivity extends TvActivity {
         async(()->api.get("/api/tv/auth/check_status"),result->{JSONObject user=result.optJSONObject("user");boolean allowed=user!=null&&user.optBoolean("can_access_discovery");if(canDiscover!=allowed){canDiscover=allowed;refreshNavigation();}});
     }
     @Override protected void onPause(){foreground=false;homeTimer.removeCallbacksAndMessages(null);if(homeUpdates!=null){homeUpdates.close();homeUpdates=null;}super.onPause();}
-    @Override void mediaDeleted(){if("home".equals(mode))refreshHome();else loadItems();}
+    @Override void mediaDeleted(){if("items".equals(mode))refreshPosters();else if("home".equals(mode))refreshHome();else loadItems();}
+    private void refreshCurrent(){if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
     private void refreshHome(){if(!"home".equals(mode))return;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
     private void homeRequest(String path,int request,java.util.function.Consumer<JSONObject> done){
         if(request!=revision||pendingShelves.contains(path))return;
@@ -148,7 +156,7 @@ public final class HomeActivity extends TvActivity {
     private void loadHome(){
         mode="home";selectedLibrary=null;posterGrid=null;loadingMore=false;int request=++revision;homeReloads.clear();renderedShelves.clear();pendingShelves.clear();content.removeAllViews();content.setPadding(0,0,0,dp(24));homeScroll.scrollTo(0,0);status.setText("");
         homeBackdrop.clear();resumeFirst=null;libraryFirst=null;resumeReady=false;libraryReady=false;initialFocusChosen=false;homeCards.clear();libraryCards.clear();
-        resumeCards.clear();latestLibraries="";
+        resumeCards.clear();actionItems.clear();latestLibraries="";
         stopCarousel();carouselEnabled=new TvPreferences(this,api).smartCarousel();
         int heroHeight=dp(getResources().getConfiguration().screenHeightDp*0.55f);
         heroSpacer=new View(this);heroSpacer.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->homeScroll.post(this::restoreHomeFocusPosition));content.addView(heroSpacer,new LinearLayout.LayoutParams(-1,heroHeight));
@@ -187,7 +195,7 @@ public final class HomeActivity extends TvActivity {
             if(items.isEmpty()){if(result.optBoolean("unavailable"))area.addView(text("暂时无法加载，请稍后返回首页重试。",14,MUTED));else area.setVisibility(View.GONE);}
             else{
                 HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
-                for(JSONObject item:items){View card=mediaCard(shelf,item,()->detail(item),false,false,view->onHomeCardFocused(view,item,false,false));registerHomeCard(card);card.setTag(item.optString("Id"));if(item.optString("Id").equals(focused))card.requestFocus();}
+                for(JSONObject item:items){View card=mediaCard(shelf,item,()->detail(item),false,false,view->onHomeCardFocused(view,item,false,false));registerHomeCard(card);bindActions(card,item);card.setTag(item.optString("Id"));if(item.optString("Id").equals(focused))card.requestFocus();}
             }
             loadLatestSection(libraries,areas,index+2,request);
         });
@@ -213,16 +221,17 @@ public final class HomeActivity extends TvActivity {
         homeRequest(path,request,result->{
             if(request!=revision)return;String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
             if(libraries)loadLatestByLibrary(latestSections,request,items);
-            if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);return;}
+            if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);if(!focused.isEmpty()&&libraryFirst!=null&&libraryFirst.isShown())libraryFirst.requestFocus();return;}
             HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
-            for(JSONObject item:items){View card=mediaCard(shelf,item,()->{if(libraries)openLibrary(item);else if(resumeShelf)resumePlayback(item);else detail(item);},landscape,resumeShelf,view->onHomeCardFocused(view,item,libraries,resumeShelf));registerHomeCard(card);card.setTag(item.optString("Id"));if(libraries)libraryCards.put(item.optString("Id"),card);if(resumeShelf)resumeCards.add(card);if(first==null)first=card;if(item.optString("Id").equals(focused))card.requestFocus();}
+            for(JSONObject item:items){View card=mediaCard(shelf,item,()->{if(libraries)openLibrary(item);else if(resumeShelf)resumePlayback(item);else detail(item);},landscape,resumeShelf,view->onHomeCardFocused(view,item,libraries,resumeShelf));registerHomeCard(card);bindActions(card,item);card.setTag(item.optString("Id"));if(libraries)libraryCards.put(item.optString("Id"),card);if(resumeShelf)resumeCards.add(card);if(first==null)first=card;if(item.optString("Id").equals(focused))card.requestFocus();}
             onHomeShelfLoaded(resumeShelf,first);
+            if(!focused.isEmpty()&&items.stream().noneMatch(item->focused.equals(item.optString("Id")))&&first!=null)first.requestFocus();
             area.post(this::positionResumeRow);
         });
     }
     private String forgetCards(View area){
-        String focused="";for(View card:new java.util.ArrayList<>(homeCards)){android.view.ViewParent parent=card.getParent();while(parent instanceof View&&parent!=area)parent=parent.getParent();if(parent==area){if(card.hasFocus())focused=String.valueOf(card.getTag());homeCards.remove(card);}}
+        String focused="";for(View card:new java.util.ArrayList<>(homeCards)){android.view.ViewParent parent=card.getParent();while(parent instanceof View&&parent!=area)parent=parent.getParent();if(parent==area){if(card.hasFocus())focused=String.valueOf(card.getTag());homeCards.remove(card);actionItems.remove(card);}}
         return focused;
     }
     private void positionResumeRow(){
@@ -288,7 +297,7 @@ public final class HomeActivity extends TvActivity {
     }
     private void loadPosterPage(boolean reset){
         if(selectedLibrary==null&&activeCollection==null)return;
-        if(reset){offset=0;posterGrid=null;loadingMore=false;hasMore=true;++revision;content.removeAllViews();content.setPadding(dp(28),dp(20),dp(28),dp(24));homeScroll.scrollTo(0,0);homeBackdrop.clear();
+        if(reset){offset=0;posterGrid=null;loadingMore=false;refreshingPosters=false;pendingPosterRefresh=false;hasMore=true;++revision;content.removeAllViews();content.setPadding(dp(28),dp(20),dp(28),dp(24));homeScroll.scrollTo(0,0);homeBackdrop.clear();
             LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=column();TextView name=text(activeCollection!=null?activeCollection.optString("Name","合集"):selectedLibrary.optString("Name","媒体库"),22,android.graphics.Color.WHITE);name.setTypeface(null,android.graphics.Typeface.BOLD);labels.addView(name);libraryMeta=text("正在读取媒体项…",13,MUTED);labels.addView(libraryMeta);heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
             LinearLayout actions=row();actions.addView(button("播放",this::playQueue));
             playModeButton=button(playModeLabel(),this::togglePlayMode);actions.addView(playModeButton);
@@ -299,12 +308,75 @@ public final class HomeActivity extends TvActivity {
             content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
             posterGrid=new GridLayout(this);posterGrid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-56)/(viewMode.equals("landscape")?272:144)));posterGrid.setClipChildren(false);posterGrid.setClipToPadding(false);posterGrid.setPadding(0,dp(FocusScroll.MARGIN_DP),0,dp(FocusScroll.MARGIN_DP));LinearLayout.LayoutParams gridSpace=new LinearLayout.LayoutParams(-1,-2);gridSpace.topMargin=dp(14);content.addView(posterGrid,gridSpace);posterStatus=text("",13,MUTED);posterStatus.setGravity(Gravity.CENTER);content.addView(posterStatus,new LinearLayout.LayoutParams(-1,dp(38)));
         }
-        if(loadingMore||posterGrid==null||!hasMore)return;
+        if(loadingMore||refreshingPosters||posterGrid==null||!hasMore)return;
         loadingMore=true;int request=revision;int start=offset;
         String path=posterQuery(60,start);
         posterStatus.setText("正在加载…");
-        async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{if(request!=revision)return;loadingMore=false;if(result.has("_loadError")){posterStatus.setText(result.optString("_loadError"));return;}List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",start+items.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);offset=start+items.size();hasMore=!items.isEmpty()&&offset<total;libraryMeta.setText(libraryMetaLabel(total));for(JSONObject item:items)posterCard(posterGrid,item,()->detail(item),episodeCountMode,viewMode.equals("landscape"));posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");if(start==0&&!items.isEmpty()){View first=posterGrid.getChildAt(0);homeScroll.post(()->{first.requestFocus();homeScroll.scrollTo(0,0);});}else if(items.isEmpty()&&start==0)posterStatus.setText("暂无媒体项");});
+        async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{if(request!=revision)return;loadingMore=false;if(result.has("_loadError")){posterStatus.setText(result.optString("_loadError"));return;}List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",start+items.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);offset=start+items.size();hasMore=!items.isEmpty()&&offset<total;libraryMeta.setText(libraryMetaLabel(total));for(JSONObject item:items)addPoster(item);posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");if(start==0&&!items.isEmpty()){View first=posterGrid.getChildAt(0);homeScroll.post(()->{if(request==revision&&first.getParent()==posterGrid){first.requestFocus();homeScroll.scrollTo(0,0);}});}else if(items.isEmpty()&&start==0)posterStatus.setText("暂无媒体项");if(pendingPosterRefresh)refreshPosters();});
     }
+    private void addPoster(JSONObject item){
+        View card=posterCard(posterGrid,item,()->detail(item),episodeCountMode,viewMode.equals("landscape"));card.setTag(item);
+        card.setOnLongClickListener(view->{showItemMenu(view);return true;});
+    }
+    private void refreshPosters(){
+        if(!"items".equals(mode)||posterGrid==null)return;
+        if(loadingMore||refreshingPosters){pendingPosterRefresh=true;return;}
+        refreshingPosters=true;pendingPosterRefresh=false;int request=revision;
+        java.util.List<String> paths=new java.util.ArrayList<>();for(int start=0;start<Math.max(60,offset);start+=60)paths.add(posterQuery(60,start));
+        async(()->{try{org.json.JSONArray rows=new org.json.JSONArray();JSONObject page=new JSONObject();for(String path:paths){page=api.get(path);List<JSONObject> batch=EtknApi.rows(page);for(JSONObject row:batch)rows.put(row);if(batch.size()<60)break;}return page.put("Items",rows);}
+            catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage());}},result->{
+            if(request!=revision||!"items".equals(mode))return;refreshingPosters=false;
+            if(!result.has("_loadError")){
+                View focused=getCurrentFocus();int index=posterGrid.indexOfChild(focused),y=homeScroll.getScrollY();String id=focused!=null&&focused.getTag() instanceof JSONObject?((JSONObject)focused.getTag()).optString("Id"):"";
+                List<JSONObject> rows=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",rows.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);
+                java.util.Map<String,View> previous=new java.util.HashMap<>();for(int i=0;i<posterGrid.getChildCount();i++){View card=posterGrid.getChildAt(i);previous.put(((JSONObject)card.getTag()).optString("Id"),card);}posterGrid.removeAllViews();View target=null;
+                for(JSONObject row:rows){View old=previous.get(row.optString("Id"));if(old!=null&&old.getTag().toString().equals(row.toString()))posterGrid.addView(old);else addPoster(row);View card=posterGrid.getChildAt(posterGrid.getChildCount()-1);if(id.equals(row.optString("Id")))target=card;}
+                offset=rows.size();hasMore=offset<total;libraryMeta.setText(libraryMetaLabel(total));posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");
+                if(target==null&&index>=0&&posterGrid.getChildCount()>0)target=posterGrid.getChildAt(Math.min(index,posterGrid.getChildCount()-1));if(target!=null)target.requestFocus();
+                if(index>=0&&posterGrid.getChildCount()==0)playModeButton.requestFocus();homeScroll.scrollTo(0,y);
+            }
+            if(pendingPosterRefresh)refreshPosters();
+        });
+    }
+    private void showItemMenu(View card){
+        if(mediaActionBusy||openingItemMenu||itemMenu!=null&&itemMenu.isShowing())return;
+        JSONObject item=actionItems.get(card);if(item==null&&card.getTag() instanceof JSONObject)item=(JSONObject)card.getTag();if(item==null)return;
+        JSONObject selected=item;boolean library=item.optString("Id").startsWith("library-"),resume=resumeCards.contains(card)||"resume".equals(mode),latest="home".equals(mode)&&!library&&!resume;
+        int request=revision;openingItemMenu=true;
+        async(()->{try{return api.get("/api/tv/Users/Me");}finally{runOnUiThread(()->openingItemMenu=false);}},user->{
+            if(!foreground||request!=revision)return;
+            JSONObject policy=user.optJSONObject("Policy"),permissions=user.optJSONObject("TvPermissions"),data=selected.optJSONObject("UserData");
+            boolean admin=policy!=null&&policy.optBoolean("IsAdministrator");
+            List<String> labels=new java.util.ArrayList<>(),actions=new java.util.ArrayList<>();
+            if(!library){
+                labels.add(data!=null&&data.optBoolean("IsFavorite")?"取消收藏":"收藏");actions.add("favorite");
+                if(latest){labels.add("播放");actions.add("play");}else{labels.add(data!=null&&data.optBoolean("Played")?"标记未播放":"标记已播放");actions.add("played");}
+                if(resume){labels.add("从继续观看中移除");actions.add("hide");}
+            }
+            if(library||selected.optString("Id").startsWith("item-")){
+                if((!library||!"personal_recommendation".equals(selected.optString("SourceType")))&&(admin||permissions!=null&&permissions.optBoolean("CanRefreshMetadata"))){labels.add("刷新");actions.add("refresh");}
+                if(!library&&(admin||permissions!=null&&permissions.optBoolean("CanDeleteMedia"))){labels.add("删除");actions.add("delete");}
+                if(library&&admin&&java.util.Arrays.asList("path","list").contains(selected.optString("SourceType"))){labels.add("扫描媒体库");actions.add("scan");}
+            }
+            if(labels.isEmpty()){status.setText("当前账号没有媒体库管理权限");return;}
+            itemMenu=PlayerChoiceDialog.create(this,EtknApi.title(selected),labels.toArray(new String[0]),-1,(dialog,index)->{
+                dialog.dismiss();String action=actions.get(index);
+                if(action.equals("refresh"))itemMenu=MediaActions.refresh(this,value->submitItemAction(selected,value));
+                else if(action.equals("delete"))itemMenu=MediaActions.delete(this,selected,()->submitItemAction(selected,"delete"));
+                else if(action.equals("play"))startActivity(new Intent(this,PlayerActivity.class).putExtra("id",selected.optString("Id")).putExtra("title",EtknApi.title(selected)).putExtra("queue",new String[]{selected.optString("Id")}).putExtra("resume",true));
+                else submitItemAction(selected,action);
+            });itemMenu.show();
+        });
+    }
+    private void bindActions(View card,JSONObject item){actionItems.put(card,item);card.setOnLongClickListener(view->{showItemMenu(view);return true;});}
+    private void submitItemAction(JSONObject item,String action){
+        if(mediaActionBusy)return;mediaActionBusy=true;JSONObject data=item.optJSONObject("UserData");
+        boolean state=action.equals("favorite")||action.equals("played");boolean current=data!=null&&data.optBoolean(action.equals("favorite")?"IsFavorite":"Played");
+        String path=state?api.userPath()+"/"+(action.equals("favorite")?"FavoriteItems":"PlayedItems")+"/"+EtknApi.encode(item.optString("Id")):action.equals("hide")?api.userPath()+"/Items/"+EtknApi.encode(item.optString("Id"))+"/HideFromResume":"/api/tv/Items/"+EtknApi.encode(item.optString("Id"));
+        async(()->{try{return state?(current?api.delete(path):api.post(path,new JSONObject())):action.equals("delete")?api.delete(path):api.post(path+(action.equals("hide")?"":action.equals("scan")?"/Scan":"/Refresh?Action="+action),new JSONObject());}
+            finally{runOnUiThread(()->mediaActionBusy=false);}},result->{if(state){JSONObject updated=item.optJSONObject("UserData");if(updated==null)updated=new JSONObject();for(java.util.Iterator<String> keys=result.keys();keys.hasNext();){String key=keys.next();try{updated.put(key,result.get(key));}catch(Exception ignored){}}try{item.put("UserData",updated);}catch(Exception ignored){}}status.setText(state?"状态已更新":action.equals("hide")?"已从继续观看中移除":action.equals("scan")?"媒体库扫描任务已提交":action.equals("delete")?"删除任务已提交":result.optBoolean("submitted")?"元数据刷新任务已提交":"当前媒体无需提交刷新任务");refreshCurrent();});
+    }
+    @Override protected void onDestroy(){if(itemMenu!=null)itemMenu.dismiss();super.onDestroy();}
     private String posterQuery(int limit,int start){
         String includeTypes=activeCollection!=null?"Movie":libraryIncludeTypes(selectedLibrary);
         return api.userPath()+"/Items?Recursive=true&ParentId="+EtknApi.encode(parent)+"&IncludeItemTypes="+EtknApi.encode(includeTypes)+"&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&Fields=PrimaryImageAspectRatio,Overview,CommunityRating,TMDbRating,DoubanRating,ProductionYear,RecursiveItemCount,UserData"+(typeKind.isEmpty()?"":"&"+typeKind+"="+EtknApi.encode(typeFilter))+(favoriteOnly?"&Filters=IsFavorite":"");

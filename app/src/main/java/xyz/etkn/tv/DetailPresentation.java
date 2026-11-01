@@ -13,6 +13,11 @@ final class DetailPresentation {
     static String duration(long ticks){long minutes=ticks/600000000;return minutes<=0?"":minutes>=60?minutes/60+" 小时 "+minutes%60+" 分钟":minutes+" 分钟";}
     static long position(JSONObject item){JSONObject data=item.optJSONObject("UserData");return data==null?0:Math.max(0,data.optLong("PlaybackPositionTicks"));}
     static String episodeNumber(JSONObject item){int number=item.optInt("IndexNumber",-1);return number>=0?"第 "+number+" 集":"特别篇";}
+    static boolean placeholder(JSONObject item){return item.optBoolean("IsMissing")||item.optBoolean("IsUnaired")||item.optBoolean("IsVirtualItem")||"Virtual".equals(item.optString("LocationType"));}
+    static String airDate(JSONObject item){
+        if(!placeholder(item))return "";String date=item.optString("PremiereDate");
+        return date.matches("\\d{4}-\\d{2}-\\d{2}(T.*)?")?date.substring(0,10):"播出时间待定";
+    }
     static JSONObject recommended(List<JSONObject> episodes){
         JSONObject resume=null;String latest="";
         for(JSONObject episode:episodes)if(position(episode)>0){String date=episode.optJSONObject("UserData").optString("LastPlayedDate");if(resume==null||date.compareTo(latest)>0){resume=episode;latest=date;}}

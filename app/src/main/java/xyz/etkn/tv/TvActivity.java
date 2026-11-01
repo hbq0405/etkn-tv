@@ -144,6 +144,13 @@ abstract class TvActivity extends Activity {
     }
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==1001&&resultCode==RESULT_OK)mediaDeleted();}
     void mediaDeleted(){recreate();}
+    CharSequence episodeLabel(org.json.JSONObject episode,String suffix,boolean dates){
+        String number=DetailPresentation.episodeNumber(episode)+suffix;if(!dates)return number;
+        String date=DetailPresentation.airDate(episode);android.text.SpannableString label=new android.text.SpannableString(number+"\n"+(date.isEmpty()?"\u00a0":date));
+        label.setSpan(new android.text.style.AbsoluteSizeSpan(11,true),number.length()+1,label.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        float scale=getResources().getDisplayMetrics().scaledDensity;
+        label.setSpan((android.text.style.LineHeightSpan)(text,start,end,spanStart,v,metrics)->{metrics.ascent=-Math.round(17*scale);metrics.descent=Math.round(5*scale);metrics.top=metrics.ascent;metrics.bottom=metrics.descent;metrics.leading=0;},0,label.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return label;
+    }
     void detail(org.json.JSONObject item) { startActivityForResult(new Intent(this,DetailActivity.class).putExtra("id",item.optString("Id")),1001); }
     void resumePlayback(org.json.JSONObject item){startActivity(new Intent(this,PlayerActivity.class).putExtra("id",item.optString("Id")).putExtra("title",EtknApi.resumeTitle(item)).putExtra("position",DetailPresentation.position(item)/10000).putExtra("seriesId",item.optString("Type").equals("Episode")?item.optString("SeriesId"):"").putExtra("seasonKey",PlaybackSelection.seasonKey(item)).putExtra("resume",true));}
 }

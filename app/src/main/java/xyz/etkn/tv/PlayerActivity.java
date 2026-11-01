@@ -144,12 +144,12 @@ public final class PlayerActivity extends TvActivity {
         if(episodesLoading)return;episodesLoading=true;episodesFailed=false;
         if(episodePanel.isShown())episodePanel.loading();
         async(()->{
-            try{return EtknApi.rows(api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())+"&IsMissing=false"));}
+            try{return EtknApi.rows(api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())));}
             catch(EtknApi.AuthException error){throw error;}
             catch(Exception ignored){return null;}
         },rows->{
             episodesLoading=false;episodesFailed=rows==null;episodes=rows==null?new ArrayList<>():new ArrayList<>(rows);
-            episodes.removeIf(ep->!"Episode".equals(ep.optString("Type"))||ep.optString("Id").isEmpty()||ep.optBoolean("IsMissing")||"Virtual".equals(ep.optString("LocationType"))||ep.optInt("ParentIndexNumber",-1)<0||ep.optInt("IndexNumber",-1)<0);
+            episodes.removeIf(ep->!"Episode".equals(ep.optString("Type"))||ep.optString("Id").isEmpty()||ep.optInt("ParentIndexNumber",-1)<0||ep.optInt("IndexNumber",-1)<0);
             episodes.sort(Comparator.comparingInt((JSONObject ep)->ep.optInt("ParentIndexNumber")).thenComparingInt(ep->ep.optInt("IndexNumber")));
             nextEpisode=PlaybackSelection.nextEpisode(episodes,itemId);nextLoaded=true;updateNextButton();
             if(episodePanel.isShown())renderEpisodes();

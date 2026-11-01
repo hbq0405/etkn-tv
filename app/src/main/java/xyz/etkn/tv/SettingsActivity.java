@@ -54,7 +54,7 @@ public final class SettingsActivity extends TvActivity {
             playback.addView(note("音轨与字幕和个人中心同步：个人配置覆盖全局，未配置时跟随全局；按添加顺序确定优先级。"));
             playback.addView(note("片头片尾仅对有片头片尾标记的影片生效，保存到此电视当前账号。"));
             LinearLayout notices=section("通知");
-            notices.addView(switchRow("我的订阅 / 追更入库通知","只提醒本账号订阅内容的入库与更新。后台检查受电视系统调度影响。",IngestNotifications.enabled(this),on->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);}));
+            notices.addView(switchRow("我的订阅 / 追更入库通知","提醒本账号订阅内容，以及收藏或观看过的剧集更新。后台检查受电视系统调度影响。",IngestNotifications.enabled(this),on->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);}));
             TvPreferences preferences=new TvPreferences(this,api);
             LinearLayout home=section("首页");
             home.addView(switchRow("智能推荐轮播","首页背景按你的观影口味自动轮播推荐，不再跟随焦点联动。保存到此电视当前账号。",preferences.smartCarousel(),on->preferences.setSmartCarousel(on)));

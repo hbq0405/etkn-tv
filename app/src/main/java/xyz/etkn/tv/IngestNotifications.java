@@ -33,7 +33,7 @@ final class IngestNotifications {
     }
     static void schedule(Context context){
         if(!enabled(context))return;
-        if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"我的订阅入库",NotificationManager.IMPORTANCE_DEFAULT));
+        if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"我的订阅与追更入库",NotificationManager.IMPORTANCE_DEFAULT));
         JobScheduler scheduler=(JobScheduler)context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
         if(scheduler.getPendingJob(JOB)==null)scheduler.schedule(new JobInfo.Builder(JOB,new ComponentName(context,IngestJobService.class)).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setPeriodic(15*60*1000L).setPersisted(true).build());
     }
@@ -66,10 +66,10 @@ final class IngestNotifications {
     }
     private static void show(Context context,JSONObject item){
         String title=item.optString("SeriesName");String message=(title.isEmpty()?"":title+" · ")+item.optString("Name");
-        Activity activity=foreground.get();if(activity!=null&&!activity.isFinishing())activity.runOnUiThread(()->Toast.makeText(activity,"订阅已入库："+message,Toast.LENGTH_LONG).show());
+        Activity activity=foreground.get();if(activity!=null&&!activity.isFinishing())activity.runOnUiThread(()->Toast.makeText(activity,"订阅 / 追更已入库："+message,Toast.LENGTH_LONG).show());
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
         Intent open=new Intent(context,DetailActivity.class).putExtra("id",item.optString("Id")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int id=item.optString("Id").hashCode();PendingIntent action=PendingIntent.getActivity(context,id,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        try{NotificationManagerCompat.from(context).notify(id,new NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle("你的订阅已入库").setContentText(message).setStyle(new NotificationCompat.BigTextStyle().bigText(message)).setContentIntent(action).setAutoCancel(true).build());}catch(SecurityException ignored){}
+        try{NotificationManagerCompat.from(context).notify(id,new NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle("订阅 / 追更已入库").setContentText(message).setStyle(new NotificationCompat.BigTextStyle().bigText(message)).setContentIntent(action).setAutoCancel(true).build());}catch(SecurityException ignored){}
     }
 }

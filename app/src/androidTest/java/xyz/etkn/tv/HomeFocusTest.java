@@ -360,9 +360,79 @@ public class HomeFocusTest {
         assertNull("聚焦图片被裁切："+step+" "+error[0],error[0]);
     }
 
+    private android.app.AlertDialog itemMenu(){return (android.app.AlertDialog)field(HomeActivity.class,"itemMenu");}
+    private java.util.List<View> descendants(View root){java.util.List<View> result=new java.util.ArrayList<>();result.add(root);if(root instanceof ViewGroup)for(int i=0;i<((ViewGroup)root).getChildCount();i++)result.addAll(descendants(((ViewGroup)root).getChildAt(i)));return result;}
+    private void chooseItemAction(int index){instrumentation.runOnMainSync(()->{android.widget.ListView list=itemMenu().getListView();list.performItemClick(list.getChildAt(index),index,list.getAdapter().getItemId(index));});settle();}
+    private void openPosterFixture(Fixture server)throws Exception{
+        openMenuHomeFixture(server);
+        await(()->library("library-0")!=null);instrumentation.runOnMainSync(()->library("library-0").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
+    }
+    private void openMenuHomeFixture(Fixture server)throws Exception{
+        evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"list-actions-regression");assertTrue(evidence.isDirectory()||evidence.mkdirs());
+        new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"list-actions-fixture","列表菜单测试","loopback-only");
+        home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        await(()->library("library-0")!=null&&home.getCurrentFocus()!=null);
+    }
+    private void closePosterFixture()throws Exception{if(home!=null){HomeActivity closing=home;instrumentation.runOnMainSync(closing::finish);await(closing::isDestroyed);home=null;}new SessionStore(instrumentation.getTargetContext()).clear();}
+    @Test public void homeLibraryMenuHonorsPermissionsAndSupportsAllThreeRefreshModes()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.canRefresh=true;openMenuHomeFixture(server);
+            for(String action:new String[]{"replace_metadata","replace_images","replace_metadata_images"}){
+                instrumentation.runOnMainSync(()->library("library-0").requestFocus());key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals(1,itemMenu().getListView().getCount());chooseItemAction(0);
+                java.util.List<android.widget.Switch> switches=new java.util.ArrayList<>();for(View view:descendants(itemMenu().getWindow().getDecorView()))if(view instanceof android.widget.Switch)switches.add((android.widget.Switch)view);
+                instrumentation.runOnMainSync(()->{switches.get(0).setChecked(!action.equals("replace_images"));switches.get(1).setChecked(!action.equals("replace_metadata"));itemMenu().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();});
+                await(()->server.mutations.stream().anyMatch(value->value.endsWith("library-0/Refresh?Action="+action))&&!Boolean.TRUE.equals(field(HomeActivity.class,"mediaActionBusy")));
+            }
+            server.admin=true;instrumentation.runOnMainSync(()->library("library-0").requestFocus());key(KeyEvent.KEYCODE_MENU);await(()->itemMenu().isShowing());assertEquals(2,itemMenu().getListView().getCount());saveScreenshot("home-library-menu.png");chooseItemAction(1);await(()->server.mutations.stream().anyMatch(value->value.endsWith("library-0/Scan")));
+        }finally{closePosterFixture();}
+    }
+    @Test public void homeResumeCanBeRemovedAndLatestHasFavoritePlayRefreshDelete()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.admin=true;openMenuHomeFixture(server);key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals("从继续观看中移除",itemMenu().getListView().getAdapter().getItem(2));chooseItemAction(2);await(()->server.hiddenResume);
+            await(()->((java.util.List<?>)field(HomeActivity.class,"resumeCards")).size()==11);assertFalse(server.deleted);
+            await(()->{java.util.List<View> cards=(java.util.List<View>)field(HomeActivity.class,"homeCards");return cards.size()>20;});
+            instrumentation.runOnMainSync(()->{java.util.List<View> cards=(java.util.List<View>)field(HomeActivity.class,"homeCards");java.util.List<?> resume=(java.util.List<?>)field(HomeActivity.class,"resumeCards");for(View card:cards)if(!resume.contains(card)&&String.valueOf(card.getTag()).startsWith("item-")){card.requestFocus();break;}});
+            key(KeyEvent.KEYCODE_MENU);await(()->itemMenu().isShowing());assertEquals(4,itemMenu().getListView().getCount());assertEquals("收藏",itemMenu().getListView().getAdapter().getItem(0));assertEquals("播放",itemMenu().getListView().getAdapter().getItem(1));assertEquals("刷新",itemMenu().getListView().getAdapter().getItem(2));assertEquals("删除",itemMenu().getListView().getAdapter().getItem(3));saveScreenshot("home-latest-menu.png");chooseItemAction(0);await(()->server.favorite);
+            key(KeyEvent.KEYCODE_MENU);await(()->itemMenu().isShowing());Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),new Instrumentation.ActivityResult(0,null),true);chooseItemAction(1);assertEquals(1,monitor.getHits());instrumentation.removeMonitor(monitor);
+        }finally{closePosterFixture();}
+    }
+    @Test public void libraryFunctionMenuTogglesStateAndUsesDelegatedRefresh()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.canRefresh=true;openPosterFixture(server);key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());
+            assertEquals(3,itemMenu().getListView().getCount());assertTrue(itemMenu().getListView().getAdapter().getItem(0).toString().contains("收藏"));
+            chooseItemAction(0);await(()->server.favorite&&posterGrid().getChildAt(0).getTag() instanceof JSONObject&&((JSONObject)posterGrid().getChildAt(0).getTag()).optJSONObject("UserData").optBoolean("IsFavorite"));
+            key(KeyEvent.KEYCODE_MENU);await(()->itemMenu().isShowing());assertEquals("取消收藏",itemMenu().getListView().getAdapter().getItem(0));chooseItemAction(1);await(()->server.played&&((JSONObject)posterGrid().getChildAt(0).getTag()).optJSONObject("UserData").optBoolean("Played"));
+            key(KeyEvent.KEYCODE_MENU);await(()->itemMenu().isShowing());assertEquals("标记未播放",itemMenu().getListView().getAdapter().getItem(1));chooseItemAction(2);
+            assertNotNull(itemMenu().getButton(android.app.AlertDialog.BUTTON_POSITIVE));
+            instrumentation.runOnMainSync(()->itemMenu().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick());await(()->server.mutations.stream().anyMatch(value->value.endsWith("Refresh?Action=replace_metadata")));
+            assertFalse("普通账号只获得刷新能力",server.mutations.stream().anyMatch(value->value.startsWith("DELETE /api/tv/Items/")));
+        }finally{closePosterFixture();}
+    }
+    @Test public void libraryDeleteDefaultsToCancelAndServerDenialAllowsRetry()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.admin=true;openPosterFixture(server);key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals(4,itemMenu().getListView().getCount());
+            chooseItemAction(3);assertSame(itemMenu().getButton(android.app.AlertDialog.BUTTON_NEGATIVE),itemMenu().getCurrentFocus());key(KeyEvent.KEYCODE_DPAD_CENTER);assertTrue(server.mutations.isEmpty());
+            key(KeyEvent.KEYCODE_MENU);await(()->itemMenu().isShowing());chooseItemAction(3);server.denyMutation=true;
+            instrumentation.runOnMainSync(()->itemMenu().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick());await(()->!server.mutations.isEmpty()&&!Boolean.TRUE.equals(field(HomeActivity.class,"mediaActionBusy")));assertFalse(home.isFinishing());
+            server.denyMutation=false;key(KeyEvent.KEYCODE_MENU);await(()->itemMenu().isShowing());chooseItemAction(3);instrumentation.runOnMainSync(()->itemMenu().getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick());await(()->server.deleted&&posterGrid().getChildCount()==59);
+            assertEquals("library-0",field(HomeActivity.class,"parent"));assertEquals("items",field(HomeActivity.class,"mode"));
+        }finally{closePosterFixture();}
+    }
+    @Test public void serverImageEventUpdatesLoadedPosterPagesWithoutLosingPosition()throws Exception{
+        try(Fixture server=new Fixture()){
+            openPosterFixture(server);assertTrue(server.eventsConnected.await(5,java.util.concurrent.TimeUnit.SECONDS));call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==120);
+            instrumentation.runOnMainSync(()->posterGrid().getChildAt(75).requestFocus());settle();ScrollView scroll=(ScrollView)field(HomeActivity.class,"homeScroll");int before=scroll.getScrollY();
+            server.changed=true;server.updateGate.countDown();await(()->posterGrid().getChildCount()==120&&((JSONObject)posterGrid().getChildAt(75).getTag()).optJSONObject("ImageTags").optString("Primary").equals("poster2"));
+            await(()->{android.widget.ImageView image=(android.widget.ImageView)((ViewGroup)((ViewGroup)posterGrid().getChildAt(75)).getChildAt(0)).getChildAt(0);return image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable&&((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap().getPixel(10,10)==Color.MAGENTA;});
+            assertEquals("item-75",((JSONObject)home.getCurrentFocus().getTag()).optString("Id"));assertEquals(before,scroll.getScrollY());assertEquals(120,field(HomeActivity.class,"offset"));saveScreenshot("live-poster-images.png");
+        }finally{closePosterFixture();}
+    }
     private static final class Fixture implements AutoCloseable {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image;
+        final byte[] updatedImage;
+        volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume;
+        final java.util.List<String> mutations=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         volatile boolean closed;
         volatile String unexpectedPath;
         volatile String lastListingPath="";
@@ -378,13 +448,19 @@ public class HomeFocusTest {
             for(int y=36;y<324;y+=18)for(int x=0;x<640;x+=18){paint.setColor(((x/18+y/18)%2==0)?Color.rgb(45,80,110):Color.rgb(145,180,210));canvas.drawRect(x,y,x+18,y+18,paint);}
             paint.setColor(Color.WHITE);paint.setTextSize(40);canvas.drawText("TV Focus Fixture",100,190,paint);
             ByteArrayOutputStream bytes=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,90,bytes);bitmap.recycle();image=bytes.toByteArray();
+            Bitmap updated=Bitmap.createBitmap(32,32,Bitmap.Config.ARGB_8888);updated.eraseColor(Color.MAGENTA);ByteArrayOutputStream newer=new ByteArrayOutputStream();updated.compress(Bitmap.CompressFormat.PNG,100,newer);updated.recycle();updatedImage=newer.toByteArray();
             Thread thread=new Thread(()->{while(!closed){try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}},"focus-request");worker.setDaemon(true);worker.start();}catch(Exception ignored){if(closed)return;}}},"focus-fixture");thread.setDaemon(true);thread.start();
         }
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
         void serve(Socket client)throws Exception{
             try(client){
                 BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));
-                String request=reader.readLine();if(request==null)return;String path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
+                String request=reader.readLine();if(request==null)return;String method=request.split(" ")[0],path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
+                if(!method.equals("GET")){
+                    mutations.add(method+" "+path);if(!denyMutation){if(path.contains("/FavoriteItems/"))favorite=method.equals("POST");else if(path.contains("/PlayedItems/"))played=method.equals("POST");else if(path.contains("/HideFromResume"))hiddenResume=true;else if(method.equals("DELETE"))deleted=true;}
+                    byte[] result=(denyMutation?new JSONObject().put("detail","权限已撤销"):new JSONObject().put("IsFavorite",favorite).put("Played",played).put("submitted",true)).toString().getBytes(StandardCharsets.UTF_8);
+                    OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 "+(denyMutation?"403 Forbidden":"200 OK")+"\r\nContent-Type: application/json\r\nContent-Length: "+result.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(result);return;
+                }
                 if(path.endsWith("/Home/Events")){
                     OutputStream output=client.getOutputStream();output.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\nevent: home\ndata: {\"revision\":\"v1\"}\n\n".getBytes(StandardCharsets.UTF_8));output.flush();eventsConnected.countDown();
                     updateGate.await(30,java.util.concurrent.TimeUnit.SECONDS);if(!closed){output.write("event: home\ndata: {\"revision\":\"v2\"}\n\n".getBytes(StandardCharsets.UTF_8));output.flush();while(!closed){Thread.sleep(1000);output.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8));output.flush();}}return;
@@ -396,20 +472,24 @@ public class HomeFocusTest {
                 if(holdResume&&path.contains("/Items/Resume?"))resumeGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&path.contains("/Items?")){lastListingPath=path;listingCalls++;}
                 boolean picture=path.contains("/Images/");
-                byte[] body=picture?image:response(path).toString().getBytes(StandardCharsets.UTF_8);
+                byte[] body=picture?(path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
             }
         }
         JSONObject response(String path)throws Exception{
             if(path.contains("check_status"))return new JSONObject().put("user",new JSONObject().put("can_access_discovery",false));
-            if(path.contains("/Users/Me"))return new JSONObject();
+            if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin)).put("TvPermissions",new JSONObject().put("CanRefreshMetadata",canRefresh));
             if(path.contains("/Users/")&&path.contains("/Items?")){
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
                 JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+60,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name","海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
-                return new JSONObject().put("Items",page).put("TotalRecordCount",120).put("EpisodeCountMode","unplayed");
+                for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
+                if(deleted&&start==0)page.remove(0);
+                return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:120).put("EpisodeCountMode","unplayed");
             }
             boolean libraries=path.endsWith("/Views");JSONArray items=new JSONArray();
             for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("Overview","背景简介").put("ProductionYear",2026).put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
+            if(hiddenResume&&path.contains("/Items/Resume?"))items.remove(0);
+            for(int i=0;i<items.length();i++)items.getJSONObject(i).getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);
             return new JSONObject().put("Items",items);
         }
         @Override public void close()throws IOException{closed=true;latestGate.countDown();resumeGate.countDown();cardGate.countDown();updateGate.countDown();socket.close();}

@@ -49,17 +49,18 @@ final class PlayerEpisodePanel extends LinearLayout {
         heading.setText("选集 · "+(season==0?"特别篇":"第 "+season+" 季"));
         GridLayout grid=new GridLayout(host);int available=Math.min(480,host.getResources().getConfiguration().screenWidthDp*3/5)-48,columns=Math.max(3,available/112);grid.setColumnCount(columns);
         ScrollView scroll=new FocusScroll.Vertical(host);scroll.addView(grid);matrix.addView(scroll,new LayoutParams(-1,-1));Button focus=null;
-        for(JSONObject ep:rows){boolean current=currentId.equals(ep.optString("Id"));Button cell=host.button("",()->select.accept(ep));cell.setSingleLine(true);cell.setPadding(host.dp(8),0,host.dp(8),0);cell.setTextColor(current?TvActivity.ACCENT:Color.WHITE);
+        boolean dates=rows.stream().anyMatch(DetailPresentation::placeholder);
+        for(JSONObject ep:rows){boolean current=currentId.equals(ep.optString("Id"));Button cell=host.button("",()->select.accept(ep));cell.setSingleLine(!dates);cell.setMaxLines(dates?2:1);cell.setPadding(host.dp(6),0,host.dp(6),0);cell.setTextColor(current?TvActivity.ACCENT:Color.WHITE);
             JSONObject data=ep.optJSONObject("UserData");boolean watched=data!=null&&data.optBoolean("Played");int progress=progress(watched,DetailPresentation.position(ep),ep.optLong("RunTimeTicks"));
-            cell.setText(DetailPresentation.episodeNumber(ep)+(watched?" ✓":"")+(current?" ▶":""));cell.setBackground(host.episodeBackground(progress));describe(cell,ep,watched,progress,current);
-            cell.setOnFocusChangeListener((view,focused)->{if(focused)description.setText((current?"正在播放 · ":"")+DetailPresentation.episodeNumber(ep)+" · "+EtknApi.title(ep));});
-            GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=(host.dp(available)-host.dp(10)*(columns-1))/columns;bounds.height=host.dp(44);bounds.setMargins(0,host.dp(7),grid.getChildCount()%columns==columns-1?0:host.dp(10),host.dp(7));grid.addView(cell,bounds);
+            cell.setText(host.episodeLabel(ep,(watched?" ✓":"")+(current?" ▶":""),dates));cell.setBackground(host.episodeBackground(progress));describe(cell,ep,watched,progress,current);
+            cell.setOnFocusChangeListener((view,focused)->{if(focused)description.setText((current?"正在播放 · ":"")+DetailPresentation.episodeNumber(ep)+" · "+EtknApi.title(ep)+(DetailPresentation.placeholder(ep)?"\n播出："+DetailPresentation.airDate(ep):""));});
+            GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=(host.dp(available)-host.dp(10)*(columns-1))/columns;bounds.height=host.dp(dates?68:44);bounds.setMargins(0,host.dp(7),grid.getChildCount()%columns==columns-1?0:host.dp(10),host.dp(7));grid.addView(cell,bounds);
             if(current){currentCell=cell;currentEpisode=ep;}if(ep==entry)focus=cell;
         }
         if(focus!=null)focus.requestFocus();
     }
     private int progress(boolean watched,long position,long runtime){return watched?10000:runtime>0?(int)Math.min(9999,10000.0*Math.max(0,position)/runtime):0;}
-    private void describe(Button cell,JSONObject ep,boolean watched,int progress,boolean current){cell.setContentDescription(DetailPresentation.episodeNumber(ep)+"，"+EtknApi.title(ep)+(current?"，正在播放":"")+(watched?"，已观看":progress>0?"，续播进度 "+progress/100+"%":""));}
+    private void describe(Button cell,JSONObject ep,boolean watched,int progress,boolean current){cell.setContentDescription(DetailPresentation.episodeNumber(ep)+"，"+EtknApi.title(ep)+(current?"，正在播放":"")+(watched?"，已观看":progress>0?"，续播进度 "+progress/100+"%":"")+(DetailPresentation.placeholder(ep)?"，播出："+DetailPresentation.airDate(ep):""));}
     void updateCurrent(ExoPlayer player){
         if(currentCell==null||currentEpisode==null||player==null)return;JSONObject data=currentEpisode.optJSONObject("UserData");boolean watched=data!=null&&data.optBoolean("Played");
         long runtime=player.getDuration()>0?player.getDuration()*10000:currentEpisode.optLong("RunTimeTicks");int progress=progress(watched,player.getCurrentPosition()*10000,runtime);
