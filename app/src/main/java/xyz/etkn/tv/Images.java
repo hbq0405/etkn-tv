@@ -20,7 +20,7 @@ final class Images {
     private static final ExecutorService IO=Executors.newFixedThreadPool(4);
     private static final ExecutorService HERO=Executors.newSingleThreadExecutor();
     private static final LruCache<String,Bitmap> CACHE=new LruCache<>(20*1024*1024) { @Override protected int sizeOf(String key,Bitmap image) { return image.getAllocationByteCount(); } };
-    static void rounded(ImageView view,int radiusPx) {
+    static void rounded(android.view.View view,int radiusPx) {
         GradientDrawable outline=new GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setCornerRadius(radiusPx);
         view.setBackground(outline);view.setClipToOutline(true);
     }
@@ -46,6 +46,37 @@ final class Images {
         };
         view.getViewTreeObserver().addOnPreDrawListener(listener);
     }
+    /** Decode category artwork at its displayed size before uploading it to the GPU. */
+    static void thumbnail(EtknApi api,String url,ImageView view,int width,int height,java.util.function.Consumer<Boolean> done){
+        load(api,url,view,done,IO,api.token,width,height);
+    }
+    static void visibleThumbnail(EtknApi api,String url,ImageView view,int width,int height,java.util.function.Consumer<Boolean> done){
+        ViewTreeObserver.OnPreDrawListener listener=new ViewTreeObserver.OnPreDrawListener(){
+            @Override public boolean onPreDraw(){
+                if(view.isShown()&&view.getGlobalVisibleRect(new android.graphics.Rect())){
+                    view.getViewTreeObserver().removeOnPreDrawListener(this);thumbnail(api,url,view,width,height,done);
+                }
+                return true;
+            }
+        };
+        view.getViewTreeObserver().addOnPreDrawListener(listener);
+    }
+    private static Bitmap thumbnail(Bitmap bitmap,int width,int height){
+        if(bitmap==null||width<=0||height<=0)return bitmap;
+        float scale=Math.min(1f,Math.max((float)width/bitmap.getWidth(),(float)height/bitmap.getHeight()));
+        if(scale<1f){Bitmap resized=Bitmap.createScaledBitmap(bitmap,Math.max(1,Math.round(bitmap.getWidth()*scale)),Math.max(1,Math.round(bitmap.getHeight()*scale)),true);if(resized!=bitmap)bitmap.recycle();bitmap=resized;}
+        bitmap.prepareToDraw();return bitmap;
+    }
+    private static Bitmap decode(byte[] payload,String file,int width,int height){
+        BitmapFactory.Options options=new BitmapFactory.Options();options.inSampleSize=1;
+        if(width>0&&height>0){
+            options.inJustDecodeBounds=true;
+            if(payload!=null)BitmapFactory.decodeByteArray(payload,0,payload.length,options);else BitmapFactory.decodeFile(file,options);
+            while(options.outWidth/(options.inSampleSize*2)>=width&&options.outHeight/(options.inSampleSize*2)>=height)options.inSampleSize*=2;
+            options.inJustDecodeBounds=false;
+        }
+        return thumbnail(payload!=null?BitmapFactory.decodeByteArray(payload,0,payload.length,options):BitmapFactory.decodeFile(file,options),width,height);
+    }
     static String digest(String value){
         try{byte[] bytes=MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));StringBuilder result=new StringBuilder();for(byte part:bytes)result.append(String.format(java.util.Locale.ROOT,"%02x",part&255));return result.toString();}
         catch(java.security.NoSuchAlgorithmException impossible){throw new AssertionError(impossible);}
@@ -54,18 +85,21 @@ final class Images {
         load(api,url,view,done,executor,api.token);
     }
     private static void load(EtknApi api,String url,ImageView view,java.util.function.Consumer<Boolean> done,ExecutorService executor,String token){
-        String key=api.session.userId()+url; view.setTag(key); Bitmap cached=CACHE.get(key); if(cached!=null){view.setImageBitmap(cached);done.accept(true);return;}
+        load(api,url,view,done,executor,token,0,0);
+    }
+    private static void load(EtknApi api,String url,ImageView view,java.util.function.Consumer<Boolean> done,ExecutorService executor,String token,int width,int height){
+        String sourceKey=api.session.userId()+url,key=sourceKey+(width>0?"@"+width+"x"+height:"");view.setTag(key);Bitmap cached=CACHE.get(key);if(cached!=null){view.setImageBitmap(cached);done.accept(true);return;}
         executor.execute(() -> {
             if(!key.equals(view.getTag()))return;
             HttpURLConnection conn=null;
             try {
-                File file=new File(api.cacheDir,digest(key));
-                Bitmap stored=file.isFile()&&System.currentTimeMillis()-file.lastModified()<24*60*60*1000L?BitmapFactory.decodeFile(file.getPath()):null;
+                File file=new File(api.cacheDir,digest(sourceKey));
+                Bitmap stored=file.isFile()&&System.currentTimeMillis()-file.lastModified()<24*60*60*1000L?decode(null,file.getPath(),width,height):null;
                 if(stored!=null){CACHE.put(key,stored);view.post(()->{if(key.equals(view.getTag())){view.setImageBitmap(stored);done.accept(true);}});return;}
                 conn=Http.image(url,api,token);
                 try(java.io.InputStream stream=conn.getInputStream()) {
                     java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();byte[] buffer=new byte[8192];int count;while((count=stream.read(buffer))!=-1)bytes.write(buffer,0,count);byte[] payload=bytes.toByteArray();
-                    Bitmap bitmap=BitmapFactory.decodeByteArray(payload,0,payload.length);
+                    Bitmap bitmap=decode(payload,null,width,height);
                     if(bitmap!=null){CACHE.put(key,bitmap);view.post(() -> {if(key.equals(view.getTag())){view.setImageBitmap(bitmap);done.accept(true);}});save(file,payload);}
                     else view.post(()->{if(key.equals(view.getTag()))done.accept(false);});
                 }

@@ -523,6 +523,30 @@ public class HomeFocusTest {
             key(KeyEvent.KEYCODE_BACK);await(()->library("library-1")!=null);instrumentation.runOnMainSync(()->library("library-1").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()>0);assertNotNull(namedButton(home.content,"播出平台"));assertNull(server.unexpectedPath);
         }finally{if(browser!=null){HomeActivity active=browser;instrumentation.runOnMainSync(active::finish);}if(facets!=null){FacetActivity active=facets;instrumentation.runOnMainSync(active::finish);}closePosterFixture();}
     }
+    @Test public void manyFacetIconsKeepFocusResponsive()throws Exception{
+        FacetActivity facets=null;
+        try(Fixture server=new Fixture()){
+            server.admin=true;server.browseFeatures=true;server.facetArt=true;server.facetCount=60;openMenuHomeFixture(server);Images.clear();
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(FacetActivity.class.getName(),null,false);
+            instrumentation.runOnMainSync(()->home.startActivity(new Intent(home,FacetActivity.class).putExtra("parent","library-0").putExtra("kind","Companies").putExtra("title","出品公司")));
+            facets=(FacetActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(facets);FacetActivity active=facets;
+            GridLayout cards=(GridLayout)objectField(active,"cards");await(()->cards.getChildCount()==60);
+            // Visit every row so both eager and viewport loaders draw the same images.
+            for(int i=0;i<60;i+=cards.getColumnCount()){int target=i;instrumentation.runOnMainSync(()->cards.getChildAt(target).requestFocus());Thread.sleep(150);}
+            await(()->{for(int i=0;i<60;i++){ViewGroup art=(ViewGroup)((ViewGroup)cards.getChildAt(i)).getChildAt(0);if(!(((android.widget.ImageView)art.getChildAt(1)).getDrawable() instanceof android.graphics.drawable.BitmapDrawable))return false;}return true;});
+            long[] bitmapBytes={0};instrumentation.runOnMainSync(()->{for(int i=0;i<60;i++){ViewGroup art=(ViewGroup)((ViewGroup)cards.getChildAt(i)).getChildAt(0);bitmapBytes[0]+=((android.graphics.drawable.BitmapDrawable)((android.widget.ImageView)art.getChildAt(1)).getDrawable()).getBitmap().getAllocationByteCount();}cards.getChildAt(0).requestFocus();});settle();
+            java.util.List<Long> frames=java.util.Collections.synchronizedList(new java.util.ArrayList<>()),keys=new java.util.ArrayList<>();
+            android.os.HandlerThread collector=new android.os.HandlerThread("facet-frames");collector.start();
+            android.view.Window.OnFrameMetricsAvailableListener listener=(window,frame,dropped)->frames.add(frame.getMetric(android.view.FrameMetrics.TOTAL_DURATION));
+            instrumentation.runOnMainSync(()->active.getWindow().addOnFrameMetricsAvailableListener(listener,new android.os.Handler(collector.getLooper())));
+            try{for(int pass=0;pass<4;pass++)for(int i=0;i<9;i++){long start=System.nanoTime();instrumentation.sendKeyDownUpSync(pass%2==0?KeyEvent.KEYCODE_DPAD_DOWN:KeyEvent.KEYCODE_DPAD_UP);instrumentation.runOnMainSync(()->assertNotNull(active.getCurrentFocus()));keys.add(System.nanoTime()-start);Thread.sleep(65);}}
+            finally{instrumentation.runOnMainSync(()->active.getWindow().removeOnFrameMetricsAvailableListener(listener));collector.quitSafely();collector.join();}
+            java.util.Collections.sort(frames);java.util.Collections.sort(keys);assertFalse(frames.isEmpty());
+            assertTrue("Category thumbnails must stay below 40 MiB for 60 cards",bitmapBytes[0]<40L*1024*1024);
+            JSONObject metrics=new JSONObject().put("cards",60).put("bitmapBytes",bitmapBytes[0]).put("frames",frames.size()).put("frameP50Ms",frames.get(frames.size()/2)/1e6).put("frameP95Ms",frames.get((frames.size()-1)*95/100)/1e6).put("keyP95Ms",keys.get((keys.size()-1)*95/100)/1e6);
+            evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"facet-performance");assertTrue(evidence.isDirectory()||evidence.mkdirs());try(FileOutputStream out=new FileOutputStream(new File(evidence,"metrics.json"))){out.write(metrics.toString(2).getBytes(StandardCharsets.UTF_8));}saveScreenshot("many-company-icons.png");android.util.Log.i("FacetPerformance",metrics.toString());assertNull(server.unexpectedPath);
+        }finally{if(facets!=null){FacetActivity active=facets;instrumentation.runOnMainSync(active::finish);}closePosterFixture();}
+    }
     @Test public void facetBatchArtworkContinuesAfterFailureAndStopsAfterLeaving()throws Exception{
         FacetActivity facets=null;
         try(Fixture server=new Fixture()){
@@ -566,12 +590,14 @@ public class HomeFocusTest {
         final java.util.concurrent.CountDownLatch latestGate=new java.util.concurrent.CountDownLatch(1),resumeGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.atomic.AtomicInteger views=new java.util.concurrent.atomic.AtomicInteger();
         volatile int viewCalls;
+        volatile int facetCount=2;
+        byte[] facetImage;
         Fixture()throws Exception{
             Bitmap bitmap=Bitmap.createBitmap(640,360,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);canvas.drawColor(Color.rgb(45,80,110));
             Paint paint=new Paint();paint.setColor(Color.rgb(225,150,70));canvas.drawRect(0,0,640,18,paint);canvas.drawRect(0,342,640,360,paint);
             for(int y=36;y<324;y+=18)for(int x=0;x<640;x+=18){paint.setColor(((x/18+y/18)%2==0)?Color.rgb(45,80,110):Color.rgb(145,180,210));canvas.drawRect(x,y,x+18,y+18,paint);}
             paint.setColor(Color.WHITE);paint.setTextSize(40);canvas.drawText("TV Focus Fixture",100,190,paint);
-            ByteArrayOutputStream bytes=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,90,bytes);bitmap.recycle();image=bytes.toByteArray();
+            ByteArrayOutputStream bytes=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,90,bytes);image=bytes.toByteArray();Bitmap large=Bitmap.createScaledBitmap(bitmap,1066,600,true);ByteArrayOutputStream largeBytes=new ByteArrayOutputStream();large.compress(Bitmap.CompressFormat.JPEG,90,largeBytes);facetImage=largeBytes.toByteArray();large.recycle();bitmap.recycle();
             Bitmap updated=Bitmap.createBitmap(32,32,Bitmap.Config.ARGB_8888);updated.eraseColor(Color.MAGENTA);ByteArrayOutputStream newer=new ByteArrayOutputStream();updated.compress(Bitmap.CompressFormat.PNG,100,newer);updated.recycle();updatedImage=newer.toByteArray();
             Thread thread=new Thread(()->{while(!closed){try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}},"focus-request");worker.setDaemon(true);worker.start();}catch(Exception ignored){if(closed)return;}}},"focus-fixture");thread.setDaemon(true);thread.start();
         }
@@ -602,15 +628,15 @@ public class HomeFocusTest {
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){lastListingPath=path;listingCalls++;}
                 if(path.contains("/Items/Latest?"))latestPaths.add(path);
                 boolean picture=path.contains("/Images/")||path.contains("/FolderCover?")||path.contains("/FacetArtwork?");
-                byte[] body=picture?(path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
+                byte[] body=picture?(path.contains("/FacetArtwork?")&&facetCount>2?facetImage:path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
             }
         }
         JSONObject response(String path)throws Exception{
             if(path.contains("/Facets?")){
                 boolean types=path.contains("Kind=Types");JSONArray rows=new JSONArray();
-                for(int i=0;i<2;i++){JSONObject row=new JSONObject().put("Id","facet-"+i).put("Name",types?(i==0?"科幻":"经典"):"中文公司"+i).put("Kind",types?(i==0?"Genres":"Tags"):"Companies").put("Value",types?(i==0?"科幻":"经典"):"中文公司"+i);if(facetArt)row.put("ImageTags",new JSONObject().put("Primary","facet-art"));rows.put(row);}
-                return new JSONObject().put("Items",rows).put("TotalRecordCount",2);
+                for(int i=0;i<facetCount;i++){JSONObject row=new JSONObject().put("Id","facet-"+i).put("Name",types?(i==0?"科幻":"经典"):"中文公司"+i).put("Kind",types?(i==0?"Genres":"Tags"):"Companies").put("Value",types?(i==0?"科幻":"经典"):"中文公司"+i);if(facetArt)row.put("ImageTags",new JSONObject().put("Primary","facet-art"));rows.put(row);}
+                return new JSONObject().put("Items",rows).put("TotalRecordCount",facetCount);
             }
             if(browseFeatures&&path.contains("/Folders?")){
                 android.net.Uri uri=android.net.Uri.parse(path);String token=uri.getQueryParameter("FolderId"),startText=uri.getQueryParameter("StartIndex");int start=startText==null?0:Integer.parseInt(startText);boolean root=token==null||token.isEmpty();JSONArray rows=new JSONArray();

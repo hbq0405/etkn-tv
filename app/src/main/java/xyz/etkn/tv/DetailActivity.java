@@ -145,9 +145,10 @@ public final class DetailActivity extends TvActivity {
                 FrameLayout tile=new FrameLayout(this);LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(-2,dp(54));bounds.setMargins(0,dp(6),dp(12),dp(8));studioButtons.addView(tile,bounds);tile.addView(choice,new FrameLayout.LayoutParams(-2,-1));
                 String tag=images==null?"":images.optString(label);if(tag.isEmpty())continue;
                 bounds.width=dp(104);tile.setLayoutParams(bounds);choice.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));choice.setStateListAnimator(null);choice.setElevation(0);
-                ImageView logo=new ImageView(this);logo.setScaleType(ImageView.ScaleType.FIT_CENTER);logo.setPadding(dp(6),dp(2),dp(6),dp(2));logo.setVisibility(View.INVISIBLE);logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);tile.addView(logo,new FrameLayout.LayoutParams(-1,-1));
+                Images.rounded(tile,dp(9));choice.setOnFocusChangeListener((view,focused)->tile.setForeground(focused?focusOutline():null));
+                ImageView logo=new ImageView(this);logo.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(logo,dp(9));logo.setVisibility(View.INVISIBLE);logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);tile.addView(logo,new FrameLayout.LayoutParams(-1,-1));
                 String url=api.server+api.userPath()+"/FacetArtwork?ItemId="+EtknApi.encode(item.optString("Id"))+"&Kind="+EtknApi.encode(kind)+"&Value="+EtknApi.encode(label)+"&tag="+EtknApi.encode(tag);
-                Images.load(api,url,logo,success->{if(isDestroyed()||isFinishing())return;if(success){choice.setText("");choice.setMinWidth(dp(104));choice.setMinimumWidth(dp(104));logo.setVisibility(View.VISIBLE);}else{logo.setVisibility(View.GONE);bounds.width=-2;tile.setLayoutParams(bounds);choice.setLayoutParams(new FrameLayout.LayoutParams(-2,-1));}});
+                Images.thumbnail(api,url,logo,dp(112),dp(63),success->{if(isDestroyed()||isFinishing())return;if(success){choice.setBackground(null);choice.setText("");choice.setMinWidth(dp(104));choice.setMinimumWidth(dp(104));logo.setVisibility(View.VISIBLE);}else{logo.setVisibility(View.GONE);bounds.width=-2;tile.setLayoutParams(bounds);choice.setLayoutParams(new FrameLayout.LayoutParams(-2,-1));}});
             }
         }
     }

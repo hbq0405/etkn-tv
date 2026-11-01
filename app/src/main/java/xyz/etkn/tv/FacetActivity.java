@@ -25,7 +25,7 @@ public final class FacetActivity extends TvActivity {
     private AlertDialog actionMenu;
     @Override public void onCreate(Bundle state){
         super.onCreate(state);parent=getIntent().getStringExtra("parent");kind=getIntent().getStringExtra("kind");
-        ScrollView scroll=new FocusScroll.Vertical(this);scroll.setClipToPadding(false);
+        ScrollView scroll=new FocusScroll.Vertical(this);scroll.setClipToPadding(false);scroll.setSmoothScrollingEnabled(false);
         content=column();content.setPadding(dp(40),dp(24),dp(40),dp(24));scroll.addView(content);setContentView(scroll);
         status=text("正在读取…",14,MUTED);
         content.addView(text(getIntent().getStringExtra("title"),24,Color.WHITE));
@@ -52,7 +52,7 @@ public final class FacetActivity extends TvActivity {
         LinearLayout card=column();card.setTag(item);card.setFocusable(true);card.setClickable(true);card.setClipChildren(false);card.setClipToPadding(false);card.setContentDescription(item.optString("Name"));
         FrameLayout art=new FrameLayout(this);art.setBackground(shape(PANEL,0));art.setClipToOutline(true);art.setElevation(dp(4));card.addView(art,new LinearLayout.LayoutParams(-1,dp(108)));
         TextView placeholder=text(item.optString("Name"),24,Color.WHITE);placeholder.setGravity(Gravity.CENTER);placeholder.setMaxLines(2);placeholder.setPadding(dp(10),0,dp(10),0);art.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
-        if(item.has("ImageTags")){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(9));art.addView(image,new FrameLayout.LayoutParams(-1,-1));Images.load(api,api.server+artwork(item)+"&tag="+EtknApi.encode(item.optJSONObject("ImageTags").optString("Primary")),image);}
+        if(item.has("ImageTags")){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(9));art.addView(image,new FrameLayout.LayoutParams(-1,-1));Images.visibleThumbnail(api,api.server+artwork(item)+"&tag="+EtknApi.encode(item.optJSONObject("ImageTags").optString("Primary")),image,dp(208),dp(117),success->{if(success)placeholder.setVisibility(View.INVISIBLE);});}
         TextView label=text(item.optString("Name"),12,Color.WHITE);label.setMaxLines(2);label.setPadding(0,dp(4),0,0);card.addView(label,new LinearLayout.LayoutParams(-1,dp(42)));
         GridLayout.LayoutParams space=new GridLayout.LayoutParams();space.width=dp(192);space.height=dp(150);space.setMargins(dp(12),dp(5),dp(12),dp(5));cards.addView(card,space);
         card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(focused?dp(8):0);art.setElevation(dp(focused?8:4));art.setForeground(focused?focusOutline():null);});
