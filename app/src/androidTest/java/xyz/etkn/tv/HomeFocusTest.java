@@ -458,10 +458,13 @@ public class HomeFocusTest {
             server.browseFeatures=true;server.canRefresh=true;openPosterFixture(server);
             assertTrue(descendants(home.content).stream().anyMatch(v->v instanceof android.widget.Button&&"文件夹".equals(((android.widget.Button)v).getText().toString())));
             call("toggleFolders",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"Folder".equals(((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type")));
+            assertEquals(home.dp(264),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals(android.graphics.Color.TRANSPARENT,((android.graphics.drawable.ColorDrawable)posterGrid().getChildAt(0).getBackground()).getColor());assertEquals(View.GONE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());
             call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==70);
             instrumentation.runOnMainSync(()->{posterGrid().getChildAt(65).requestFocus();posterGrid().getChildAt(65).performClick();});await(()->posterGrid().getChildCount()==2);
+            assertEquals("portrait",field(HomeActivity.class,"viewMode"));assertEquals(home.dp(132),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals(View.VISIBLE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-media-portrait.png");
+            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==2&&"landscape".equals(field(HomeActivity.class,"viewMode")));assertEquals(home.dp(264),posterGrid().getChildAt(0).getLayoutParams().width);
             assertTrue(server.mutations.isEmpty());key(KeyEvent.KEYCODE_BACK);await(()->posterGrid().getChildCount()==70&&home.getCurrentFocus()!=null&&home.getCurrentFocus().getTag() instanceof JSONObject&&"tv-folder-category65".equals(((JSONObject)home.getCurrentFocus().getTag()).optString("Id")));
-            saveScreenshot("folder-page-restored.png");key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals("生成封面",itemMenu().getListView().getAdapter().getItem(0));chooseItemAction(0);
+            assertEquals(home.dp(264),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals("landscape",field(HomeActivity.class,"viewMode"));assertEquals(View.GONE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-page-restored.png");key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals("生成封面",itemMenu().getListView().getAdapter().getItem(0));chooseItemAction(0);
             await(()->server.mutations.stream().anyMatch(x->x.contains("/FolderCover?FolderId=tv-folder-category65"))&&!Boolean.TRUE.equals(field(HomeActivity.class,"mediaActionBusy")));
             key(KeyEvent.KEYCODE_BACK);await(()->library("library-1")!=null);instrumentation.runOnMainSync(()->library("library-1").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
             assertFalse(descendants(home.content).stream().anyMatch(v->v instanceof android.widget.Button&&((android.widget.Button)v).getText().toString().startsWith("文件夹")));assertNull(server.unexpectedPath);
@@ -546,7 +549,7 @@ public class HomeFocusTest {
         JSONObject response(String path)throws Exception{
             if(browseFeatures&&path.contains("/Folders?")){
                 android.net.Uri uri=android.net.Uri.parse(path);String token=uri.getQueryParameter("FolderId"),startText=uri.getQueryParameter("StartIndex");int start=startText==null?0:Integer.parseInt(startText);boolean root=token==null||token.isEmpty();JSONArray rows=new JSONArray();
-                for(int i=start;i<Math.min(start+60,root?70:2);i++)rows.put(new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root));
+                for(int i=start;i<Math.min(start+60,root?70:2);i++){JSONObject row=new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root);if(root)row.put("ImageTags",new JSONObject().put("Primary","folder-cover"));rows.put(row);}
                 return new JSONObject().put("Items",rows).put("TotalRecordCount",root?70:2);
             }
             if(browseFeatures&&path.contains("ParentId=library-5")){

@@ -25,10 +25,11 @@ public class DetailFlowTest {
     @Test public void genresTagsAndCollectionsOpenFocusableLibraryPages()throws Exception{
         HomeActivity browser=null;
         try(Fixture server=new Fixture()){
-            server.browseFeatures=true;open(server,"movie-single");await(()->button("合成合集")!=null);
-            for(String title:new String[]{"题材 · 剧情","标签 · 经典","合成合集"}){
-                Button target=button(title);assertNotNull(target);onMain(target::requestFocus);settle();assertTrue(target.hasFocus());
-                if(title.startsWith("标签"))screenshot("detail-facet-focus.png");
+            server.browseFeatures=true;open(server,"movie-single");await(()->button("系列")!=null&&button("系列").isShown());
+            ViewGroup facets=(ViewGroup)field(detail,"facetButtons");assertSame(facets,button("系列").getParent());assertEquals(facets.getChildCount()-1,facets.indexOfChild(button("系列")));assertEquals(facets.indexOfChild(button("标签 · 经典"))+1,facets.indexOfChild(button("系列")));assertNull(button("合成合集"));
+            for(String title:new String[]{"题材 · 剧情","标签 · 经典","系列"}){
+                Button target=button(title);assertNotNull(target);if(!title.equals("系列")){onMain(()->assertEquals(105,Color.alpha(((android.graphics.drawable.GradientDrawable)target.getBackground().getCurrent()).getColor().getDefaultColor())));}onMain(target::requestFocus);settle();assertTrue(target.hasFocus());
+                if(title.startsWith("标签"))screenshot("detail-facet-focus.png");if(title.equals("系列"))screenshot("detail-series-inline.png");
                 Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(HomeActivity.class.getName(),null,false);onMain(target::performClick);browser=(HomeActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(browser);
                 HomeActivity active=browser;await(()->field(active,"posterGrid") instanceof GridLayout&&((GridLayout)field(active,"posterGrid")).getChildCount()>0);
                 if(title.startsWith("题材"))assertTrue(server.lastBrowsePath.contains("Genres="));else if(title.startsWith("标签"))assertTrue(server.lastBrowsePath.contains("Tags="));else assertTrue(server.lastBrowsePath.contains("ParentId=collection-1"));
@@ -838,12 +839,12 @@ public class DetailFlowTest {
         try(Fixture server=new Fixture()){
             server.admin=true;server.liveArtwork=true;open(server,"item-refresh");await(()->server.eventsConnected.getCount()==0&&!Boolean.TRUE.equals(field(detail,"artworkLoading")));
             onMain(()->((Button)field(detail,"refreshButton")).performClick());settle();onMain(()->((AlertDialog)field(detail,"managementDialog")).getButton(AlertDialog.BUTTON_POSITIVE).performClick());
-            await(()->"元数据刷新任务已提交".contentEquals(detail.status.getText()));server.holdMetadata=true;
+            await(()->"元数据刷新任务已提交".contentEquals(detail.status.getText())&&detail.getCurrentFocus()==field(detail,"playButton"));server.holdMetadata=true;
             onMain(()->{try{java.lang.reflect.Method method=DetailActivity.class.getDeclaredMethod("refreshArtwork");method.setAccessible(true);method.invoke(detail);}catch(Exception error){throw new AssertionError(error);}});
             assertTrue(server.metadataRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));server.changed=true;server.updateGate.countDown();await(()->"v2".equals(field(detail,"artworkRevision")));
             assertEquals("元数据刷新任务已提交",detail.status.getText().toString());server.metadataGate.countDown();
             await(()->"服务器更新后的片名".contentEquals(((TextView)field(detail,"detailTitle")).getText()));await(()->server.refreshStatusRequests>0);
-            assertEquals("元数据刷新任务已提交",detail.status.getText().toString());server.taskStatus="succeeded";await(()->"元数据/图片已刷新".contentEquals(detail.status.getText()));
+            assertEquals("元数据刷新任务已提交",detail.status.getText().toString());onMain(()->((Button)field(detail,"audioButton")).requestFocus());server.taskStatus="succeeded";await(()->"元数据/图片已刷新".contentEquals(detail.status.getText())&&detail.getCurrentFocus()==field(detail,"playButton"));
             int checked=server.refreshStatusRequests;Thread.sleep(3300);assertEquals(checked,server.refreshStatusRequests);
         }finally{cleanup();}
     }
@@ -866,7 +867,7 @@ public class DetailFlowTest {
         try(Fixture server=new Fixture(true)){
             server.admin=true;open(server,"item-refresh");await(()->((View)field(detail,"refreshButton")).isShown());onMain(()->((Button)field(detail,"refreshButton")).performClick());onMain(()->((AlertDialog)field(detail,"managementDialog")).getButton(AlertDialog.BUTTON_POSITIVE).performClick());
             await(()->"元数据刷新任务已提交".contentEquals(detail.status.getText()));play();int checked=server.refreshStatusRequests;server.taskStatus="succeeded";Thread.sleep(3500);
-            assertEquals(checked,server.refreshStatusRequests);assertEquals("元数据刷新任务已提交",detail.status.getText().toString());closePlayer();await(()->"元数据/图片已刷新".contentEquals(detail.status.getText()));
+            assertEquals(checked,server.refreshStatusRequests);assertEquals("元数据刷新任务已提交",detail.status.getText().toString());closePlayer();await(()->"元数据/图片已刷新".contentEquals(detail.status.getText())&&detail.getCurrentFocus()==field(detail,"playButton"));
         }finally{cleanup();}
     }
     @Test public void detailCloudSearchOpensCurrentMediaForDiscoveryUsers()throws Exception{

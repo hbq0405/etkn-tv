@@ -42,6 +42,8 @@ public final class DetailActivity extends TvActivity {
     private GridLayout episodeGrid;
     private Button episodeEntry;
     private LinearLayout facetButtons;
+    private Button seriesButton;
+    private final List<JSONObject> itemCollections=new ArrayList<>();
     private String renderedFacets="";
 
     private boolean inEpisodeMatrix(View view){while(view!=null){if(view==episodeGrid)return true;android.view.ViewParent parent=view.getParent();view=parent instanceof View?(View)parent:null;}return false;}
@@ -82,6 +84,7 @@ public final class DetailActivity extends TvActivity {
         detailTmdb=meta("",Color.rgb(255,205,75));metadata.addView(detailTmdb);
         detailYear=meta("",MUTED);metadata.addView(detailYear);detailDuration=meta("",MUTED);metadata.addView(detailDuration);
         detailRating=meta("",Color.WHITE);detailRating.setPadding(dp(7),dp(2),dp(7),dp(2));detailRating.setBackground(shape(Color.TRANSPARENT,MUTED));metadata.addView(detailRating);
+        seriesButton=button("系列",this::openItemCollection);seriesButton.setBackground(selectionBackground());seriesButton.setContentDescription("所属合集");seriesButton.setVisibility(View.GONE);
         content.addView(metadata);
         detailCategories=text("",14,MUTED);content.addView(detailCategories);
         facetButtons=row();HorizontalScrollView facetScroll=new FocusScroll.Row(this);facetScroll.setHorizontalScrollBarEnabled(false);facetScroll.addView(facetButtons);content.addView(facetScroll);
@@ -128,16 +131,22 @@ public final class DetailActivity extends TvActivity {
     }
     private void renderFacets(){
         String identity=String.valueOf(item.optJSONArray("Genres"))+String.valueOf(item.optJSONArray("Tags"));if(identity.equals(renderedFacets))return;renderedFacets=identity;facetButtons.removeAllViews();
-        for(LibraryFilters.Entry entry:LibraryFilters.mergeTypes(item)){Button choice=button(entry.label,()->startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",entry.kind).putExtra("facetValue",entry.label)));choice.setContentDescription((entry.kind.equals("Genres")?"题材 · ":"标签 · ")+entry.label);facetButtons.addView(choice);}
+        for(LibraryFilters.Entry entry:LibraryFilters.mergeTypes(item)){Button choice=button(entry.label,()->startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",entry.kind).putExtra("facetValue",entry.label)));choice.setBackground(selectionBackground());choice.setContentDescription((entry.kind.equals("Genres")?"题材 · ":"标签 · ")+entry.label);facetButtons.addView(choice);}
+        facetButtons.addView(seriesButton);
     }
     private void renderCollections(){
         if(!"Movie".equals(item.optString("Type")))return;
-        LinearLayout area=column();area.setVisibility(View.GONE);content.addView(area);
         async(()->api.get(api.userPath()+"/Items/"+EtknApi.encode(item.optString("Id"))+"/Collections?Limit=60"),result->{
-            List<JSONObject> collections=EtknApi.rows(result);if(collections.isEmpty())return;area.setVisibility(View.VISIBLE);area.addView(text("所属合集",20,Color.WHITE));HorizontalScrollView rail=new FocusScroll.Row(this);rail.setHorizontalScrollBarEnabled(false);LinearLayout cards=row();rail.addView(cards);area.addView(rail);
-            for(JSONObject collection:collections)cards.addView(button(collection.optString("Name"),()->startActivity(new Intent(this,HomeActivity.class).putExtra("collection",collection.toString()))));
+            itemCollections.clear();itemCollections.addAll(EtknApi.rows(result));if(itemCollections.isEmpty()&&seriesButton.hasFocus())focusPlay();seriesButton.setVisibility(itemCollections.isEmpty()?View.GONE:View.VISIBLE);
         });
     }
+    private void openItemCollection(){
+        List<JSONObject> choices=new ArrayList<>(itemCollections);if(choices.isEmpty())return;
+        if(choices.size()==1){openCollection(choices.get(0));return;}
+        String[] names=new String[choices.size()];for(int i=0;i<names.length;i++)names[i]=choices.get(i).optString("Name");
+        PlayerChoiceDialog.create(this,"所属合集",names,-1,(dialog,index)->{dialog.dismiss();openCollection(choices.get(index));},320).show();
+    }
+    private void openCollection(JSONObject collection){startActivity(new Intent(this,HomeActivity.class).putExtra("collection",collection.toString()));}
     private void copyPresentation(JSONObject target,JSONObject value){
         for(String key:new String[]{"Name","Overview","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
     }
@@ -217,7 +226,7 @@ public final class DetailActivity extends TvActivity {
         async(()->{try{return deleting?api.delete(path):api.post(path+"/Refresh?Action="+action,new JSONObject());}
             finally{runOnUiThread(()->{managementBusy=false;refreshButton.setEnabled(true);deleteButton.setEnabled(true);});}},result->{
             if(deleting){Toast.makeText(this,"删除任务已提交",Toast.LENGTH_SHORT).show();setResult(RESULT_OK);finish();}
-            else refreshSubmitted(item.optString("Id"),result);
+            else{refreshSubmitted(item.optString("Id"),result);focusPlay();}
         });
     }
     @Override protected void onDestroy(){if(managementDialog!=null)managementDialog.dismiss();super.onDestroy();}
@@ -265,7 +274,7 @@ public final class DetailActivity extends TvActivity {
             if(artworkPending){artworkPending=false;refreshArtwork();}
         });
     }
-    @Override void metadataRefreshed(){super.metadataRefreshed();refreshArtwork();}
+    @Override void metadataRefreshed(){super.metadataRefreshed();refreshArtwork();renderCollections();focusPlay();}
     private void updateChoices(){
         int locked=new TvPreferences(this,api).seasonAudio(PlaybackSelection.seasonKey(playable));
         if(locked>=0)audio=PlaybackSelection.audioAt(selectedSource(),locked);
