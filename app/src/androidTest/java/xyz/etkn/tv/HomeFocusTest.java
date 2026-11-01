@@ -523,11 +523,36 @@ public class HomeFocusTest {
             key(KeyEvent.KEYCODE_BACK);await(()->library("library-1")!=null);instrumentation.runOnMainSync(()->library("library-1").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()>0);assertNotNull(namedButton(home.content,"播出平台"));assertNull(server.unexpectedPath);
         }finally{if(browser!=null){HomeActivity active=browser;instrumentation.runOnMainSync(active::finish);}if(facets!=null){FacetActivity active=facets;instrumentation.runOnMainSync(active::finish);}closePosterFixture();}
     }
+    @Test public void facetBatchArtworkContinuesAfterFailureAndStopsAfterLeaving()throws Exception{
+        FacetActivity facets=null;
+        try(Fixture server=new Fixture()){
+            server.admin=true;server.browseFeatures=true;openMenuHomeFixture(server);
+            for(String kind:new String[]{"Types","Companies"}){
+                server.mutations.clear();server.failFirstFacet=true;server.holdFacet=kind.equals("Types");
+                Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(FacetActivity.class.getName(),null,false);
+                instrumentation.runOnMainSync(()->home.startActivity(new Intent(home,FacetActivity.class).putExtra("parent","library-0").putExtra("kind",kind).putExtra("title",kind.equals("Types")?"类型":"出品公司")));
+                facets=(FacetActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(facets);FacetActivity active=facets;
+                await(()->((GridLayout)objectField(active,"cards")).getChildCount()==2&&((android.widget.Button)objectField(active,"batchArtwork")).isEnabled());
+                android.widget.Button batch=(android.widget.Button)objectField(active,"batchArtwork");assertEquals(kind.equals("Types")?"生成封面":"拉取图标",batch.getText().toString());assertEquals(0,server.mutations.size());
+                instrumentation.runOnMainSync(()->{batch.requestFocus();batch.performClick();batch.performClick();});
+                if(kind.equals("Types")){await(()->server.mutations.size()==1);assertFalse(batch.isEnabled());server.facetGate.countDown();}
+                await(()->!Boolean.TRUE.equals(objectField(active,"busy"))&&batch.isEnabled()&&active.status.getText().toString().contains("成功 1 项，失败 1 项"));
+                assertEquals(2,server.mutations.size());assertTrue(batch.hasFocus());assertTrue(server.mutations.stream().allMatch(path->path.contains("Action=icon")==kind.equals("Companies")));saveScreenshot(kind.equals("Types")?"type-batch-covers.png":"company-batch-icons.png");
+                key(KeyEvent.KEYCODE_BACK);await(active::isDestroyed);facets=null;
+            }
+        }finally{if(facets!=null){FacetActivity active=facets;instrumentation.runOnMainSync(active::finish);}closePosterFixture();}
+        try(Fixture server=new Fixture()){
+            server.admin=true;server.browseFeatures=true;server.holdFacet=true;openMenuHomeFixture(server);
+            Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(FacetActivity.class.getName(),null,false);instrumentation.runOnMainSync(()->home.startActivity(new Intent(home,FacetActivity.class).putExtra("parent","library-0").putExtra("kind","Types").putExtra("title","类型")));facets=(FacetActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(facets);FacetActivity active=facets;
+            await(()->((android.widget.Button)objectField(active,"batchArtwork")).isEnabled());instrumentation.runOnMainSync(()->((android.widget.Button)objectField(active,"batchArtwork")).performClick());await(()->server.mutations.size()==1);key(KeyEvent.KEYCODE_BACK);await(active::isDestroyed);facets=null;server.facetGate.countDown();settle();assertEquals(1,server.mutations.size());
+        }finally{if(facets!=null){FacetActivity active=facets;instrumentation.runOnMainSync(active::finish);}closePosterFixture();}
+    }
     private static final class Fixture implements AutoCloseable {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image;
         final byte[] updatedImage;
-        volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt;
+        volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt,failFirstFacet,holdFacet;
+        final java.util.concurrent.CountDownLatch facetGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.List<String> latestPaths=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         final java.util.List<String> mutations=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         volatile boolean closed;
@@ -556,7 +581,11 @@ public class HomeFocusTest {
                 BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));
                 String request=reader.readLine();if(request==null)return;String method=request.split(" ")[0],path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
                 if(!method.equals("GET")){
-                    mutations.add(method+" "+path);if(!denyMutation){if(path.contains("/FacetArtwork?"))facetArt=true;else if(path.contains("/FavoriteItems/"))favorite=method.equals("POST");else if(path.contains("/PlayedItems/"))played=method.equals("POST");else if(path.contains("/HideFromResume"))hiddenResume=true;else if(method.equals("DELETE"))deleted=true;}
+                    if(path.contains("/FacetArtwork?")){
+                        mutations.add(method+" "+path);if(holdFacet)facetGate.await(15,java.util.concurrent.TimeUnit.SECONDS);
+                        boolean failed=failFirstFacet&&mutations.stream().filter(value->value.contains("/FacetArtwork?")).count()==1;
+                        if(failed){byte[] failure="{}".getBytes(StandardCharsets.US_ASCII);client.getOutputStream().write(("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));client.getOutputStream().write(failure);return;}
+                    }else mutations.add(method+" "+path);if(!denyMutation){if(path.contains("/FacetArtwork?"))facetArt=true;else if(path.contains("/FavoriteItems/"))favorite=method.equals("POST");else if(path.contains("/PlayedItems/"))played=method.equals("POST");else if(path.contains("/HideFromResume"))hiddenResume=true;else if(method.equals("DELETE"))deleted=true;}
                     byte[] result=(denyMutation?new JSONObject().put("detail","权限已撤销"):new JSONObject().put("IsFavorite",favorite).put("Played",played).put("submitted",true).put("RefreshRunId",123)).toString().getBytes(StandardCharsets.UTF_8);
                     OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 "+(denyMutation?"403 Forbidden":"200 OK")+"\r\nContent-Type: application/json\r\nContent-Length: "+result.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(result);return;
                 }

@@ -10,10 +10,15 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.*;
 import org.json.JSONObject;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Library facet cards, with explicit artwork actions and ordinary Back navigation. */
 public final class FacetActivity extends TvActivity {
     private GridLayout cards;
+    private Button batchArtwork;
+    private boolean cancelled;
+    private String artworkResult="";
     private String parent,kind,focusId="";
     private boolean canArtwork,busy,loading;
     private int request;
@@ -23,19 +28,22 @@ public final class FacetActivity extends TvActivity {
         ScrollView scroll=new FocusScroll.Vertical(this);scroll.setClipToPadding(false);
         content=column();content.setPadding(dp(40),dp(24),dp(40),dp(24));scroll.addView(content);setContentView(scroll);
         status=text("正在读取…",14,MUTED);
-        content.addView(text(getIntent().getStringExtra("title"),24,Color.WHITE));content.addView(status);
+        content.addView(text(getIntent().getStringExtra("title"),24,Color.WHITE));
+        batchArtwork=button("Types".equals(kind)?"生成封面":"拉取图标",()->{List<JSONObject> items=new ArrayList<>();for(int i=0;i<cards.getChildCount();i++)items.add((JSONObject)cards.getChildAt(i).getTag());startArtwork(items);});
+        batchArtwork.setVisibility(View.GONE);content.addView(batchArtwork);content.addView(status);
         cards=new GridLayout(this);cards.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-80)/216));cards.setClipChildren(false);cards.setClipToPadding(false);cards.setPadding(0,dp(12),0,dp(12));content.addView(cards);
-        async(()->api.get("/api/tv/Users/Me"),user->{JSONObject policy=user.optJSONObject("Policy"),tv=user.optJSONObject("TvPermissions");canArtwork=policy!=null&&policy.optBoolean("IsAdministrator")||tv!=null&&tv.optBoolean("CanRefreshMetadata");});
+        async(()->api.get("/api/tv/Users/Me"),user->{JSONObject policy=user.optJSONObject("Policy"),tv=user.optJSONObject("TvPermissions");canArtwork=policy!=null&&policy.optBoolean("IsAdministrator")||tv!=null&&tv.optBoolean("CanRefreshMetadata");updateArtworkButton();});
         load();
     }
     private String path(){return api.userPath()+"/Facets?ParentId="+EtknApi.encode(parent)+"&Kind="+EtknApi.encode(kind);}
     private String artwork(JSONObject item){return api.userPath()+"/FacetArtwork?ParentId="+EtknApi.encode(parent)+"&Kind="+EtknApi.encode(item.optString("Kind"))+"&Value="+EtknApi.encode(item.optString("Value"));}
     private void load(){
-        if(loading)return;loading=true;int ticket=++request;
-        async(()->{try{return api.get(path());}finally{runOnUiThread(()->loading=false);}},result->{
-            if(ticket!=request)return;View current=getCurrentFocus();if(current!=null&&current.getTag() instanceof JSONObject)focusId=((JSONObject)current.getTag()).optString("Id");
+        if(loading)return;loading=true;updateArtworkButton();int ticket=++request;
+        async(()->{try{return api.get(path());}finally{runOnUiThread(()->{loading=false;updateArtworkButton();});}},result->{
+            if(ticket!=request)return;View current=getCurrentFocus();if(!"batch".equals(focusId)&&current!=null&&current.getTag() instanceof JSONObject)focusId=((JSONObject)current.getTag()).optString("Id");
             cards.removeAllViews();for(JSONObject item:EtknApi.rows(result))addCard(item);
-            status.setText(cards.getChildCount()==0?"暂无可展示的分类":"共 "+cards.getChildCount()+" 项");
+            updateArtworkButton();status.setText(artworkResult.isEmpty()?(cards.getChildCount()==0?"暂无可展示的分类":"共 "+cards.getChildCount()+" 项"):artworkResult);
+            if("batch".equals(focusId)){batchArtwork.requestFocus();return;}
             for(int i=0;i<cards.getChildCount();i++)if(focusId.equals(((JSONObject)cards.getChildAt(i).getTag()).optString("Id"))){cards.getChildAt(i).requestFocus();return;}
             if(cards.getChildCount()>0)cards.getChildAt(0).requestFocus();
         });
@@ -57,10 +65,27 @@ public final class FacetActivity extends TvActivity {
         boolean studio="Networks".equals(item.optString("Kind"))||"Companies".equals(item.optString("Kind"));
         String[] labels=studio?new String[]{"拉取图标"}:new String[]{"生成封面"};
         actionMenu=new AlertDialog.Builder(this).setTitle(item.optString("Name")).setItems(labels,(dialog,index)->{
-            busy=true;focusId=item.optString("Id");status.setText(studio?"正在拉取图标…":"正在生成封面…");
-            async(()->{try{return api.post(artwork(item)+(studio?"&Action=icon":""),new JSONObject());}finally{runOnUiThread(()->busy=false);}},result->{status.setText("封面已更新");load();});
+            startArtwork(java.util.Collections.singletonList(item));
         }).setNegativeButton("取消",null).show();
     }
+    private void updateArtworkButton(){
+        batchArtwork.setVisibility(canArtwork?View.VISIBLE:View.GONE);
+        batchArtwork.setEnabled(canArtwork&&!busy&&!loading&&cards.getChildCount()>0);
+    }
+    private void startArtwork(List<JSONObject> items){
+        if(!canArtwork||busy||loading||items.isEmpty())return;
+        View focused=getCurrentFocus();focusId=focused!=null&&focused.getTag() instanceof JSONObject?((JSONObject)focused.getTag()).optString("Id"):"batch";
+        busy=true;cancelled=false;artworkResult="";updateArtworkButton();generateNext(items,0,0);
+    }
+    private void generateNext(List<JSONObject> items,int index,int succeeded){
+        if(cancelled||index==items.size()){
+            busy=false;artworkResult=(cancelled?"已停止，":"已完成，")+"成功 "+succeeded+" 项，失败 "+(index-succeeded)+" 项";updateArtworkButton();status.setText(artworkResult);load();return;
+        }
+        JSONObject item=items.get(index);boolean studio="Networks".equals(item.optString("Kind"))||"Companies".equals(item.optString("Kind"));
+        status.setText((studio?"正在拉取图标 ":"正在生成封面 ")+(index+1)+" / "+items.size()+" · "+item.optString("Name"));
+        async(()->{try{api.post(artwork(item)+(studio?"&Action=icon":""),new JSONObject());return true;}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return false;}},success->generateNext(items,index+1,succeeded+(success?1:0)));
+    }
+    @Override protected void onStop(){cancelled=true;super.onStop();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         if(event.getKeyCode()==KeyEvent.KEYCODE_MENU&&getCurrentFocus()!=null&&getCurrentFocus().getTag() instanceof JSONObject){if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)showActions((JSONObject)getCurrentFocus().getTag());return true;}
         return super.dispatchKeyEvent(event);
