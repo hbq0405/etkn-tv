@@ -27,7 +27,7 @@ public final class PlayerActivity extends TvActivity {
     private static final int BUFFERED=android.graphics.Color.rgb(90,178,230),BAR_IDLE=android.graphics.Color.rgb(72,82,92);
     private ExoPlayer player;
     private PlayerView video;
-    private DefaultTimeBar seekProgress;
+    private PixelTimeBar seekProgress;
     private LinearLayout controls;
     private Button versionButton,audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton;
     private AlertDialog speedDialog;
@@ -90,8 +90,8 @@ public final class PlayerActivity extends TvActivity {
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(android.graphics.Color.BLACK);
         video=createVideoView(useTextureVideo());
         stage.addView(video,new FrameLayout.LayoutParams(-1,-1));
-        seekProgress=new DefaultTimeBar(this);seekProgress.setEnabled(false);seekProgress.setPlayedColor(ACCENT);seekProgress.setScrubberColor(ACCENT);seekProgress.setAdMarkerColor(0xffffc350);seekProgress.setPlayedAdMarkerColor(0xffffc350);seekProgress.setVisibility(View.GONE);
-        FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(32),Gravity.CENTER_VERTICAL);seekLayout.setMargins(dp(28),0,dp(28),0);stage.addView(seekProgress,seekLayout);
+        seekProgress=new PixelTimeBar(this);seekProgress.setEnabled(false);seekProgress.setVisibility(View.GONE);
+        FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(64),Gravity.BOTTOM);seekLayout.setMargins(dp(28),0,dp(28),0);stage.addView(seekProgress,seekLayout);
         controls=column();controls.setPadding(dp(28),dp(10),dp(28),dp(8));controls.setBackgroundColor(OVERLAY);
         controls.addView(text(getIntent().getStringExtra("title"),18,android.graphics.Color.WHITE));
         videoInfo=text("",12,MUTED);controls.addView(videoInfo);
@@ -102,7 +102,7 @@ public final class PlayerActivity extends TvActivity {
         actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(speedButton);actions.addView(decoderButton);
         for(int i=0;i<actions.getChildCount();i++)actions.getChildAt(i).setBackground(selectionBackground());
         HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);controls.addView(actionScroll);
-        FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=0;stage.addView(controls,overlay);controls.setVisibility(View.GONE);
+        FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=dp(70);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
         skipButton=button("跳过片头",this::skipSegment);skipButton.setBackground(selectionBackground());skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
         status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
         episodePanel=new PlayerEpisodePanel(this,itemId,this::playEpisode,this::loadNextEpisode);
@@ -127,13 +127,12 @@ public final class PlayerActivity extends TvActivity {
         view.setUseController(true);view.setControllerAnimationEnabled(false);view.setControllerAutoShow(false);view.setControllerShowTimeoutMs(5000);view.setKeepContentOnPlayerReset(true);view.setShowSubtitleButton(false);view.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
         View center=view.findViewById(androidx.media3.ui.R.id.exo_center_controls);((ViewGroup)center.getParent()).removeView(center);
         DefaultTimeBar bar=view.findViewById(androidx.media3.ui.R.id.exo_progress);
-        if(bar!=null){bar.setPlayedColor(ACCENT);bar.setScrubberColor(ACCENT);bar.setBufferedColor(BUFFERED);bar.setUnplayedColor(BAR_IDLE);bar.setAdMarkerColor(0xffffc350);bar.setPlayedAdMarkerColor(0xffffc350);}
         if(bar!=null){
-            FrameLayout.LayoutParams layout=(FrameLayout.LayoutParams)bar.getLayoutParams();layout.gravity=Gravity.CENTER_VERTICAL;layout.leftMargin=layout.rightMargin=dp(28);layout.topMargin=layout.bottomMargin;bar.setLayoutParams(layout);
-            bar.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{FrameLayout.LayoutParams bounds=(FrameLayout.LayoutParams)v.getLayoutParams();if(bounds.topMargin!=bounds.bottomMargin){bounds.topMargin=bounds.bottomMargin;v.setLayoutParams(bounds);}});
+            FrameLayout.LayoutParams layout=(FrameLayout.LayoutParams)bar.getLayoutParams();layout.gravity=Gravity.BOTTOM;layout.height=dp(64);layout.leftMargin=layout.rightMargin=dp(28);layout.topMargin=layout.bottomMargin=0;bar.setLayoutParams(layout);
+            bar.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{FrameLayout.LayoutParams bounds=(FrameLayout.LayoutParams)v.getLayoutParams();if(bounds.bottomMargin!=0||bounds.topMargin!=0){bounds.topMargin=bounds.bottomMargin=0;v.setLayoutParams(bounds);}});
         }
         View time=view.findViewById(androidx.media3.ui.R.id.exo_bottom_bar);
-        FrameLayout.LayoutParams timeLayout=(FrameLayout.LayoutParams)time.getLayoutParams();timeLayout.gravity=Gravity.CENTER_VERTICAL;timeLayout.topMargin=dp(56);timeLayout.bottomMargin=0;time.setLayoutParams(timeLayout);time.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        time.setVisibility(View.GONE);
         for(int id:new int[]{androidx.media3.ui.R.id.exo_basic_controls,androidx.media3.ui.R.id.exo_extra_controls_scroll_view,androidx.media3.ui.R.id.exo_minimal_controls}){View nativeControls=view.findViewById(id);if(nativeControls!=null)((ViewGroup)nativeControls.getParent()).removeView(nativeControls);}
         view.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener)visibility->{if(controls!=null)controls.setVisibility(episodePanel!=null&&episodePanel.isShown()?View.GONE:visibility);if(visibility!=View.VISIBLE){focusNextWhenLoaded=false;if(episodePanel==null||!episodePanel.isShown())view.requestFocus();}});
         if(texture)view.getVideoSurfaceView().addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{if(player!=null)applyVideoRotation(player.getVideoSize());});
@@ -312,7 +311,8 @@ public final class PlayerActivity extends TvActivity {
     }
     private void updateTimelineMarkers(){
         long[] points=SkipSegments.boundaries(source==null?null:source.optJSONArray("Chapters"),player==null?0:player.getDuration());boolean[] played=new boolean[points.length];
-        video.setExtraAdGroupMarkers(points,played);seekProgress.setAdGroupTimesMs(points,played,points.length);
+        video.setExtraAdGroupMarkers(points,played);seekProgress.setChapterMarkers(source==null?null:source.optJSONArray("Chapters"));
+        PixelTimeBar bar=video.findViewById(androidx.media3.ui.R.id.exo_progress);if(bar!=null)bar.setChapterMarkers(source==null?null:source.optJSONArray("Chapters"));
     }
     private void skipSegment(){if(player!=null&&skipTarget>=0){player.seekTo(skipTarget);updateSkip();}}
     private static final class TrackRef{

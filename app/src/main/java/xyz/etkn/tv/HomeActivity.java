@@ -163,7 +163,7 @@ public final class HomeActivity extends TvActivity {
         ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(19));
         FrameLayout.LayoutParams image=new FrameLayout.LayoutParams(dp(38),dp(38),Gravity.CENTER);account.addView(avatar,image);
         LinearLayout.LayoutParams face=new LinearLayout.LayoutParams(dp(52),dp(54));face.setMargins(0,dp(4),dp(8),0);nav.addView(account,face);account.setOnClickListener(view->{hideMenu();showAccounts();});loadAvatar(avatar);
-        nav("首页",this::loadHome);nav("媒体库",this::loadLibraries);nav("继续观看",()->{mode="resume";selectedLibrary=null;parent="";offset=0;loadItems();});nav("搜索",this::search);if(canDiscover)nav("影视探索",()->open(DiscoveryActivity.class));nav("设置",()->open(SettingsActivity.class));
+        nav("首页",this::loadHome);nav("媒体库",this::loadLibraries);nav("收藏",this::openFavorites);nav("搜索",this::search);if(canDiscover)nav("影视探索",()->open(DiscoveryActivity.class));nav("设置",()->open(SettingsActivity.class));
     }
     private void loadHome(){
         mode="home";selectedLibrary=null;posterGrid=null;loadingMore=false;int request=++revision;homeReloads.clear();renderedShelves.clear();pendingShelves.clear();content.removeAllViews();content.setPadding(0,0,0,dp(24));homeScroll.scrollTo(0,0);status.setText("");
@@ -313,10 +313,15 @@ public final class HomeActivity extends TvActivity {
         if(reset){offset=0;posterGrid=null;loadingMore=false;refreshingPosters=false;pendingPosterRefresh=false;hasMore=true;++revision;content.removeAllViews();content.setPadding(dp(28),dp(20),dp(28),dp(24));homeScroll.scrollTo(0,0);homeBackdrop.clear();
             LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=column();TextView name=text(activeCollection!=null?activeCollection.optString("Name","合集"):folderMode&&!folderTitle.isEmpty()?folderTitle:selectedLibrary.optString("Name","媒体库"),22,android.graphics.Color.WHITE);name.setTypeface(null,android.graphics.Typeface.BOLD);labels.addView(name);libraryMeta=text("正在读取媒体项…",13,MUTED);labels.addView(libraryMeta);heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
             LinearLayout actions=row();
-            playModeButton=button(playModeLabel(),this::togglePlayMode);
-            if(!collectionLibrary()){actions.addView(button("播放",this::playQueue));actions.addView(playModeButton);}
+            playModeButton=button("播放 ▾",this::choosePlayMode);
+            if(!collectionLibrary())actions.addView(playModeButton);
             viewModeButton=button(viewLabel(),this::toggleView);viewModeButton.setVisibility(folderMode?View.GONE:View.VISIBLE);actions.addView(viewModeButton);
-            if(physicalLibrary()){actions.addView(button(typeLabel(),this::chooseType));actions.addView(button(folderMode?"文件夹 · 已开启":"文件夹",this::toggleFolders));actions.addView(button(favoriteLabel(),this::toggleFavoriteFilter));}
+            if(activeCollection==null&&!collectionLibrary()&&!"facet".equals(selectedLibrary.optString("SourceType"))&&!"favorites".equals(selectedLibrary.optString("SourceType"))){
+                actions.addView(button("类型",this::chooseType));
+                String collection=selectedLibrary.optString("CollectionType");
+                if("movies".equals(collection)||"tvshows".equals(collection))actions.addView(button("tvshows".equals(collection)?"播出平台":"出品公司",()->openFacets("tvshows".equals(collection)?"Networks":"Companies","tvshows".equals(collection)?"播出平台":"出品公司")));
+            }
+            if(physicalLibrary())actions.addView(button(folderMode?"文件夹 · 已开启":"文件夹",this::toggleFolders));
             if(!folderMode&&!collectionLibrary())actions.addView(button(sortLabel(),this::chooseSort));
             HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);heading.addView(actionScroll);
             content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
@@ -423,7 +428,8 @@ public final class HomeActivity extends TvActivity {
     @Override protected void onDestroy(){if(itemMenu!=null)itemMenu.dismiss();super.onDestroy();}
     private String posterQuery(int limit,int start){
         if(folderMode)return folderQuery(limit,start,false);
-        if(selectedLibrary!=null&&"facet".equals(selectedLibrary.optString("SourceType")))return api.userPath()+"/Browse?Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&"+getIntent().getStringExtra("facetKind")+"="+EtknApi.encode(getIntent().getStringExtra("facetValue"));
+        if(selectedLibrary!=null&&"favorites".equals(selectedLibrary.optString("SourceType")))return api.userPath()+"/Browse?Filters=IsFavorite&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder;
+        if(selectedLibrary!=null&&"facet".equals(selectedLibrary.optString("SourceType")))return api.userPath()+"/Browse?Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&ParentId="+EtknApi.encode(getIntent().hasExtra("facetParent")?getIntent().getStringExtra("facetParent"):"")+"&"+getIntent().getStringExtra("facetKind")+"="+EtknApi.encode(getIntent().getStringExtra("facetValue"));
         String includeTypes=activeCollection!=null?"Movie":collectionLibrary()?"BoxSet":libraryIncludeTypes(selectedLibrary);
         return api.userPath()+"/Items?Recursive=true&ParentId="+EtknApi.encode(parent)+"&IncludeItemTypes="+EtknApi.encode(includeTypes)+"&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&Fields=PrimaryImageAspectRatio,Overview,CommunityRating,TMDbRating,DoubanRating,ProductionYear,RecursiveItemCount,UserData"+(typeKind.isEmpty()?"":"&"+typeKind+"="+EtknApi.encode(typeFilter))+(favoriteOnly?"&Filters=IsFavorite":"");
     }
@@ -454,15 +460,13 @@ public final class HomeActivity extends TvActivity {
     private void toggleView(){viewMode=viewMode.equals("landscape")?"portrait":"landscape";new TvPreferences(this,api).saveLibraryView(parent,viewMode);if("collections".equals(mode))openCollections();else loadPosterPage(true);}
     private void toggleFavoriteFilter(){favoriteOnly=!favoriteOnly;loadPosterPage(true);}
     private void chooseType(){
-        status.setText("正在读取类型…");
-        async(()->api.get("/api/tv/Items/Filters?ParentId="+EtknApi.encode(parent)+"&UserId="+EtknApi.encode(api.session.userId())),facets->{
-            status.setText("");
-            List<LibraryFilters.Entry> types=LibraryFilters.mergeTypes(facets);
-            if(types.isEmpty()){status.setText("该媒体库暂无类型信息");return;}
-            String[] labels=new String[types.size()+1];labels[0]="全部类型";int selected=0;
-            for(int i=0;i<types.size();i++){labels[i+1]=types.get(i).label+(types.get(i).kind.equals("Tags")?"（标签）":"");if(types.get(i).label.equals(typeFilter))selected=i+1;}
-            new AlertDialog.Builder(this).setTitle("类型").setSingleChoiceItems(labels,selected,(dialog,index)->{dialog.dismiss();if(index==0){typeFilter="";typeKind="";}else{LibraryFilters.Entry entry=types.get(index-1);typeFilter=entry.label;typeKind=entry.kind;}loadPosterPage(true);}).setNegativeButton("取消",null).show();
-        });
+        openFacets("Types","类型");
+    }
+    private void openFacets(String kind,String title){startActivity(new Intent(this,FacetActivity.class).putExtra("parent",selectedLibrary.optString("Id")).putExtra("kind",kind).putExtra("title",title));}
+    private void openFavorites(){try{openLibrary(new JSONObject().put("Id","favorites").put("Name","收藏").put("SourceType","favorites").put("CollectionType","mixed"));}catch(Exception error){status.setText("无法打开收藏");}}
+    private void choosePlayMode(){
+        PopupMenu popup=new PopupMenu(this,playModeButton);popup.getMenu().add(0,0,0,"顺序播放");popup.getMenu().add(0,1,1,"随机播放");
+        popup.setOnMenuItemClickListener(item->{playMode=item.getItemId()==1?"random":"sequence";new TvPreferences(this,api).saveLibraryPlayMode(parent,playMode);playQueue();return true;});popup.show();
     }
     private void openCollections(){
         if(selectedLibrary==null)return;

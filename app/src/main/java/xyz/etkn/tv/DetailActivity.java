@@ -41,7 +41,7 @@ public final class DetailActivity extends TvActivity {
     private ScrollView scroll;
     private GridLayout episodeGrid;
     private Button episodeEntry;
-    private LinearLayout facetButtons;
+    private LinearLayout facetButtons,studioButtons;
     private Button seriesButton;
     private final List<JSONObject> itemCollections=new ArrayList<>();
     private String renderedFacets="";
@@ -110,6 +110,7 @@ public final class DetailActivity extends TvActivity {
         HorizontalScrollView selectionScroll=new FocusScroll.Row(this);selectionScroll.setHorizontalScrollBarEnabled(false);selectionScroll.addView(selections);content.addView(selectionScroll);
         TextView overview=text("",15,Color.rgb(219,227,237));detailOverview=overview;overview.setMaxLines(3);overview.setEllipsize(android.text.TextUtils.TruncateAt.END);overview.setFocusableInTouchMode(false);overview.setPadding(dp(10),dp(5),dp(10),dp(5));overview.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(EtknApi.title(item)).setMessage(item.optString("Overview")).setPositiveButton("关闭",null).show());
         content.addView(overview,new LinearLayout.LayoutParams(dp(Math.min(650,getResources().getConfiguration().screenWidthDp-84)),-2));
+        studioButtons=row();HorizontalScrollView studioScroll=new FocusScroll.Row(this);studioScroll.setHorizontalScrollBarEnabled(false);studioScroll.addView(studioButtons);content.addView(studioScroll);
         updateMetadata();
         renderChapters();
         status=text("",12,MUTED);content.addView(status);episodeArea=column();content.addView(episodeArea);updateChoices();
@@ -130,9 +131,11 @@ public final class DetailActivity extends TvActivity {
         detailOverview.setClickable(hasOverview);
     }
     private void renderFacets(){
-        String identity=String.valueOf(item.optJSONArray("Genres"))+String.valueOf(item.optJSONArray("Tags"));if(identity.equals(renderedFacets))return;renderedFacets=identity;facetButtons.removeAllViews();
+        String identity=String.valueOf(item.optJSONArray("Genres"))+String.valueOf(item.optJSONArray("Tags"))+String.valueOf(item.optJSONArray("Networks"))+String.valueOf(item.optJSONArray("Companies"));if(identity.equals(renderedFacets))return;renderedFacets=identity;facetButtons.removeAllViews();
         for(LibraryFilters.Entry entry:LibraryFilters.mergeTypes(item)){Button choice=button(entry.label,()->startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",entry.kind).putExtra("facetValue",entry.label)));choice.setBackground(selectionBackground());choice.setContentDescription((entry.kind.equals("Genres")?"题材 · ":"标签 · ")+entry.label);facetButtons.addView(choice);}
         facetButtons.addView(seriesButton);
+        studioButtons.removeAllViews();
+        for(String kind:new String[]{"Networks","Companies"}){JSONArray labels=item.optJSONArray(kind);if(labels==null||labels.length()==0)continue;TextView heading=text(kind.equals("Networks")?"播出：":"出品：",13,MUTED);heading.setGravity(Gravity.CENTER_VERTICAL);heading.setPadding(0,0,dp(10),0);studioButtons.addView(heading,new LinearLayout.LayoutParams(-2,dp(54)));for(int i=0;i<labels.length();i++){String label=labels.optString(i);if(label.isEmpty())continue;Button choice=button(label,()->startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",kind).putExtra("facetValue",label)));choice.setBackground(selectionBackground());choice.setContentDescription(label);studioButtons.addView(choice);}}
     }
     private void renderCollections(){
         if(!"Movie".equals(item.optString("Type")))return;
@@ -148,7 +151,7 @@ public final class DetailActivity extends TvActivity {
     }
     private void openCollection(JSONObject collection){startActivity(new Intent(this,HomeActivity.class).putExtra("collection",collection.toString()));}
     private void copyPresentation(JSONObject target,JSONObject value){
-        for(String key:new String[]{"Name","Overview","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
+        for(String key:new String[]{"Name","Overview","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","Networks","Companies","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
     }
     private Button actionButton(String icon,String label,Runnable click){
         Button button=button("",click);button.setBackground(selectionBackground());button.setPadding(dp(16),dp(8),dp(16),dp(8));button.setMinWidth(0);button.setMinimumWidth(0);

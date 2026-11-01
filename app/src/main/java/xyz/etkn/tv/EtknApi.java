@@ -38,7 +38,7 @@ final class EtknApi {
     JSONObject request(String origin, String access, String method, String path, JSONObject body) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(origin + path).openConnection();
         conn.setInstanceFollowRedirects(false);
-        conn.setConnectTimeout(7000); conn.setReadTimeout("POST".equals(method)&&path.contains("/FolderCover?")?180000:35000); conn.setRequestMethod(method);
+        conn.setConnectTimeout(7000); conn.setReadTimeout("POST".equals(method)&&(path.contains("/FolderCover?")||path.contains("/FacetArtwork?"))?180000:35000); conn.setRequestMethod(method);
         conn.setRequestProperty("Accept", "application/json");
         conn.setRequestProperty("User-Agent", USER_AGENT);
         conn.setRequestProperty("X-Emby-Authorization", "MediaBrowser Client=\"ETKN TV\", Device=\"" + Build.MODEL.replace("\"", "") + "\", DeviceId=\"" + session.deviceId() + "\", Version=\"" + BuildConfig.VERSION_NAME + "\"");

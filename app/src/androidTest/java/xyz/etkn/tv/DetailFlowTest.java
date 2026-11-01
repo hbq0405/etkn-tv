@@ -22,6 +22,7 @@ import static org.junit.Assert.*;
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 public class DetailFlowTest {
     private final Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
+    @org.junit.Before public void clearPreviousLoopbackFixture(){if(new SessionStore(instrumentation.getTargetContext()).server().startsWith("http://127.0.0.1:")){instrumentation.getTargetContext().getSharedPreferences("session",0).edit().clear().commit();SessionStore.endTemporarySession();}}
     @Test public void genresTagsAndCollectionsOpenFocusableLibraryPages()throws Exception{
         HomeActivity browser=null;
         try(Fixture server=new Fixture()){
@@ -68,6 +69,24 @@ public class DetailFlowTest {
     private void closePlayer(){if(playback!=null){onMain(()->playback.finish());settle();playback=null;}}
     private void cleanup(){closePlayer();if(detail!=null){onMain(()->detail.finish());detail=null;}new SessionStore(instrumentation.getTargetContext()).clear();}
     private void screenshot(String name)throws Exception{File dir=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"detail-regression");assertTrue(dir.isDirectory()||dir.mkdirs());Bitmap image=instrumentation.getUiAutomation().takeScreenshot();try(FileOutputStream stream=new FileOutputStream(new File(dir,name))){image.compress(Bitmap.CompressFormat.PNG,100,stream);}image.recycle();}
+
+    @Test public void translatedStudiosSitBelowOverviewAndOpenTheirOwnMedia()throws Exception{
+        HomeActivity browser=null;
+        try(Fixture server=new Fixture()){
+            server.browseFeatures=true;
+            for(String id:new String[]{"movie-single","series-one"}){
+                open(server,id);ViewGroup studios=(ViewGroup)field(detail,"studioButtons");assertEquals(2,studios.getChildCount());
+                assertEquals(id.startsWith("movie")?"出品：":"播出：",((TextView)studios.getChildAt(0)).getText().toString());
+                View overview=(View)field(detail,"detailOverview");ViewGroup parent=(ViewGroup)overview.getParent();assertEquals(parent.indexOfChild(overview)+1,parent.indexOfChild((View)studios.getParent()));
+                Button name=(Button)studios.getChildAt(1);onMain(name::requestFocus);settle();assertTrue(name.hasFocus());screenshot(id+"-studios-below-overview.png");
+                Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(HomeActivity.class.getName(),null,false);onMain(name::performClick);browser=(HomeActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(browser);
+                HomeActivity active=browser;await(()->field(active,"posterGrid") instanceof GridLayout&&((GridLayout)field(active,"posterGrid")).getChildCount()>0);
+                assertTrue(server.lastBrowsePath.contains(id.startsWith("movie")?"Companies=":"Networks="));assertFalse(server.lastBrowsePath.contains("null"));
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);await(()->active.isDestroyed()&&detail.hasWindowFocus());browser=null;assertTrue(name.hasFocus());
+                onMain(detail::finish);detail=null;
+            }
+        }finally{if(browser!=null){HomeActivity active=browser;onMain(active::finish);}cleanup();}
+    }
 
     @Test public void playbackUsesEntireViewportHasNoCenterControlsAndConfirmTogglesPlayback()throws Exception{
         try(Fixture server=new Fixture()){
@@ -641,33 +660,36 @@ public class DetailFlowTest {
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MENU);settle();assertTrue(((AlertDialog)field(playback,"trackDialog")).isShowing());onMain(()->((AlertDialog)field(playback,"trackDialog")).dismiss());
         }finally{cleanup();}
     }
-    @Test public void timelineIsCenteredControlsAreAtBottomAndSpeedUsesOwnButton()throws Exception{
+    @Test public void timelineIsAtBottomAndSpeedUsesOwnButton()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
             onMain(()->{
                 View video=(View)field(playback,"video"),bar=video.findViewById(androidx.media3.ui.R.id.exo_progress),controls=(View)field(playback,"controls");Rect screen=new Rect(),timeline=new Rect(),bottom=new Rect();
                 assertTrue(video.getGlobalVisibleRect(screen));assertTrue(bar.getGlobalVisibleRect(timeline));assertTrue(controls.getGlobalVisibleRect(bottom));
-                assertEquals("进度条必须在画面垂直中央",screen.centerY(),timeline.centerY(),playback.dp(2));assertEquals(screen.bottom,bottom.bottom);
+                assertEquals("进度条必须贴底",screen.bottom,timeline.bottom);assertTrue("按钮不能遮挡进度条",bottom.bottom<=timeline.top);assertTrue(bar instanceof PixelTimeBar);
                 assertFalse("底部原生设置不能留在中央",video.findViewById(androidx.media3.ui.R.id.exo_settings)!=null);
                 ((Button)field(playback,"speedButton")).performClick();
             });settle();
             onMain(()->assertTrue("长选择列表必须给屏幕上下留出边距",((AlertDialog)field(playback,"speedDialog")).getWindow().getDecorView().getHeight()<=playback.getResources().getDisplayMetrics().heightPixels-playback.dp(48)));
             screenshot("player-speed-dialog.png");
             onMain(()->{ListView list=((AlertDialog)field(playback,"speedDialog")).getListView();list.performItemClick(null,5,list.getAdapter().getItemId(5));});settle();
-            onMain(()->{assertEquals(1.5f,((ExoPlayer)field(playback,"player")).getPlaybackParameters().speed,0.001f);assertEquals("倍速 · 1.5×",((Button)field(playback,"speedButton")).getText().toString());assertSame(field(playback,"speedButton"),playback.getCurrentFocus());});screenshot("player-centered-timeline-bottom-controls.png");
+            onMain(()->{assertEquals(1.5f,((ExoPlayer)field(playback,"player")).getPlaybackParameters().speed,0.001f);assertEquals("倍速 · 1.5×",((Button)field(playback,"speedButton")).getText().toString());assertSame(field(playback,"speedButton"),playback.getCurrentFocus());});screenshot("player-bottom-pixel-timeline.png");
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertFalse(playback.isFinishing());
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();assertFalse(((View)field(playback,"episodePanel")).isShown());
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();onMain(()->{Rect screen=new Rect(),timeline=new Rect();assertTrue(((View)field(playback,"video")).getGlobalVisibleRect(screen));assertTrue(((View)field(playback,"seekProgress")).getGlobalVisibleRect(timeline));assertEquals(screen.centerY(),timeline.centerY(),playback.dp(2));});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();onMain(()->{Rect screen=new Rect(),timeline=new Rect();assertTrue(((View)field(playback,"video")).getGlobalVisibleRect(screen));assertTrue(((View)field(playback,"seekProgress")).getGlobalVisibleRect(timeline));assertEquals(screen.bottom,timeline.bottom);});
         }finally{cleanup();}
     }
     @Test public void timelineShowsIntroAndCreditsBoundariesOnBothBars()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
-            onMain(()->{View bar=((View)field(playback,"video")).findViewById(androidx.media3.ui.R.id.exo_progress);assertEquals(4,field(bar,"adGroupCount"));long[] expected={1000,3000,10000,((ExoPlayer)field(playback,"player")).getDuration()};assertArrayEquals(expected,java.util.Arrays.copyOf((long[])field(bar,"adGroupTimesMs"),4));});screenshot("timeline-intro-credits-markers.png");
+            onMain(()->{PixelTimeBar bar=((View)field(playback,"video")).findViewById(androidx.media3.ui.R.id.exo_progress);assertEquals(3,((JSONArray)field(bar,"chapters")).length());bar.setDuration(12000);bar.setPosition(4000);bar.setBufferedPosition(8000);
+                Bitmap image=Bitmap.createBitmap(bar.getWidth(),bar.getHeight(),Bitmap.Config.ARGB_8888);bar.draw(new Canvas(image));
+                try(FileOutputStream output=new FileOutputStream(new File(instrumentation.getTargetContext().getExternalFilesDir(null),"pixel-timeline-three-states.png"))){image.compress(Bitmap.CompressFormat.PNG,100,output);}catch(IOException error){throw new AssertionError(error);}finally{image.recycle();}
+            });screenshot("timeline-intro-credits-markers.png");
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
-            onMain(()->{Object bar=field(playback,"seekProgress");assertEquals(4,field(bar,"adGroupCount"));assertEquals(View.VISIBLE,((View)bar).getVisibility());});screenshot("seek-intro-credits-markers.png");
+            onMain(()->{Object bar=field(playback,"seekProgress");assertEquals(3,((JSONArray)field(bar,"chapters")).length());assertEquals(View.VISIBLE,((View)bar).getVisibility());});screenshot("seek-intro-credits-markers.png");
         }finally{cleanup();}
     }
 
@@ -971,7 +993,7 @@ public class DetailFlowTest {
             if(path.contains("/PlaybackInfo")){JSONArray original=sources(!path.contains("movie-single")),reversed=new JSONArray();for(int i=original.length()-1;i>=0;i--)reversed.put(original.get(i));return new JSONObject().put("MediaSources",reversed).put("PlaySessionId","synthetic-play");}
             if(path.contains("/Seasons")){JSONArray seasons=new JSONArray().put(new JSONObject().put("Id","season-1").put("Name","第 1 季"));if(path.contains("series-many"))seasons.put(new JSONObject().put("Id","season-2").put("Name","第 2 季"));return new JSONObject().put("Items",seasons);}
             if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeriesId",seasons==2?"series-many":"series-one").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("RunTimeTicks",100000000).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",!noProgress&&s==seasons&&e==3?30000000:0).put("Played",e==1)));if(placeholderDates)for(int i=0;i<episodes.length();i++){JSONObject ep=episodes.getJSONObject(i);int n=ep.optInt("IndexNumber");if(n>=4&&n<=7){ep.put("IsMissing",true).put("LocationType","Virtual");if(n<=6)ep.put("PremiereDate",placeholderDate(n-4)+"T00:00:00Z");}}if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
-            String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(liveArtwork&&changed)item.put("Name","服务器更新后的片名").put("Overview","服务器已更新的简介").put("TMDbRating",8.2).put("DoubanRating",9.1).put("CustomRating","自定义 16+");if(id.equals("movie-no-overview"))item.put("Overview","");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));if(id.equals("movie-chapters")||id.equals("movie-no-overview"))item.put("Chapters",new JSONArray().put(new JSONObject().put("Name","开场").put("ChapterIndex",0).put("StartPositionTicks",0).put("ImageTag","chapter-0").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/0")).put(new JSONObject().put("Name","转折").put("ChapterIndex",1).put("StartPositionTicks",600000000).put("ImageTag","chapter-1").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/1")));return item;
+            String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(browseFeatures)item.put(series?"Networks":"Companies",new JSONArray().put(series?"中文平台":"中文公司"));if(liveArtwork&&changed)item.put("Name","服务器更新后的片名").put("Overview","服务器已更新的简介").put("TMDbRating",8.2).put("DoubanRating",9.1).put("CustomRating","自定义 16+");if(id.equals("movie-no-overview"))item.put("Overview","");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));if(id.equals("movie-chapters")||id.equals("movie-no-overview"))item.put("Chapters",new JSONArray().put(new JSONObject().put("Name","开场").put("ChapterIndex",0).put("StartPositionTicks",0).put("ImageTag","chapter-0").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/0")).put(new JSONObject().put("Name","转折").put("ChapterIndex",1).put("StartPositionTicks",600000000).put("ImageTag","chapter-1").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/1")));return item;
         }
         void serve(Socket client)throws Exception{
             try(client){BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));String line=reader.readLine();if(line==null)return;String path=line.split(" ")[1];boolean post=line.startsWith("POST ");int range=0,length=0;while((line=reader.readLine())!=null&&!line.isEmpty()){if(line.toLowerCase(Locale.ROOT).startsWith("range: bytes="))range=Integer.parseInt(line.substring(13).split("-")[0]);if(line.toLowerCase(Locale.ROOT).startsWith("content-length:"))length=Integer.parseInt(line.substring(15).trim());}
