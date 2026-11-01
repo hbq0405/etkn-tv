@@ -16,6 +16,9 @@ import android.widget.*;
 final class PlayerChoiceDialog {
     private PlayerChoiceDialog(){}
     static AlertDialog create(TvActivity host,String title,String[] labels,int selected,DialogInterface.OnClickListener choice){
+        return create(host,title,labels,selected,choice,600);
+    }
+    static AlertDialog create(TvActivity host,String title,String[] labels,int selected,DialogInterface.OnClickListener choice,int maximumWidthDp){
         LinearLayout heading=host.column();heading.setPadding(host.dp(26),host.dp(18),host.dp(26),host.dp(10));
         heading.addView(host.text(title,23,Color.WHITE));heading.addView(host.text("方向键选择 · 确认键应用",12,TvActivity.MUTED));
         BaseAdapter adapter=new BaseAdapter(){
@@ -32,7 +35,7 @@ final class PlayerChoiceDialog {
         };
         AlertDialog dialog=new AlertDialog.Builder(host).setCustomTitle(heading).setSingleChoiceItems(adapter,selected,choice).setNegativeButton("返回",null).create();
         dialog.setOnShowListener(ignored->{
-            Window window=dialog.getWindow();if(window!=null){android.graphics.drawable.GradientDrawable background=TvActivity.shape(Color.rgb(17,25,37),Color.rgb(45,62,77));background.setCornerRadius(host.dp(18));window.setBackgroundDrawable(background);window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);window.setDimAmount(0.6f);int width=host.dp(Math.min(600,host.getResources().getConfiguration().screenWidthDp-80));window.setLayout(width,-2);
+            Window window=dialog.getWindow();if(window!=null){android.graphics.drawable.GradientDrawable background=TvActivity.shape(Color.rgb(17,25,37),Color.rgb(45,62,77));background.setCornerRadius(host.dp(18));window.setBackgroundDrawable(background);window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);window.setDimAmount(0.6f);int width=host.dp(Math.min(maximumWidthDp,host.getResources().getConfiguration().screenWidthDp-80));window.setLayout(width,-2);
                 View decor=window.getDecorView();decor.post(()->{int maximum=host.getResources().getDisplayMetrics().heightPixels-host.dp(48);if(decor.getHeight()>maximum)window.setLayout(width,maximum);});}
             ListView list=dialog.getListView();list.setDivider(new ColorDrawable(Color.TRANSPARENT));list.setDividerHeight(host.dp(8));list.setPadding(host.dp(20),host.dp(4),host.dp(20),host.dp(4));list.setSelector(new ColorDrawable(Color.TRANSPARENT));list.setClipToPadding(false);
             Button back=dialog.getButton(DialogInterface.BUTTON_NEGATIVE);back.setAllCaps(false);back.setTextSize(14);back.setTextColor(TvActivity.MUTED);back.setBackground(host.focusBackground());back.setPadding(host.dp(24),0,host.dp(24),0);

@@ -15,8 +15,15 @@ final class DetailPresentation {
     static String episodeNumber(JSONObject item){int number=item.optInt("IndexNumber",-1);return number>=0?"第 "+number+" 集":"特别篇";}
     static boolean placeholder(JSONObject item){return item.optBoolean("IsMissing")||item.optBoolean("IsUnaired")||item.optBoolean("IsVirtualItem")||"Virtual".equals(item.optString("LocationType"));}
     static String airDate(JSONObject item){
+        return airDate(item,Calendar.getInstance());
+    }
+    static String airDate(JSONObject item,Calendar today){
         if(!placeholder(item))return "";String date=item.optString("PremiereDate");
-        return date.matches("\\d{4}-\\d{2}-\\d{2}(T.*)?")?date.substring(0,10):"播出时间待定";
+        if(!date.matches("\\d{4}-\\d{2}-\\d{2}(T.*)?"))return "播出时间待定";
+        date=date.substring(0,10);java.text.SimpleDateFormat format=new java.text.SimpleDateFormat("yyyy-MM-dd",Locale.ROOT);format.setTimeZone(today.getTimeZone());
+        if(date.equals(format.format(today.getTime())))return "今天播出";
+        Calendar tomorrow=(Calendar)today.clone();tomorrow.add(Calendar.DAY_OF_MONTH,1);
+        return date.equals(format.format(tomorrow.getTime()))?"明天播出":date;
     }
     static JSONObject recommended(List<JSONObject> episodes){
         JSONObject resume=null;String latest="";

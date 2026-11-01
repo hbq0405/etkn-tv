@@ -111,7 +111,7 @@ public final class DetailActivity extends TvActivity {
     }
     private TextView meta(String value,int color){TextView label=text(value,13,color);label.setGravity(Gravity.CENTER_VERTICAL);return label;}
     private Button actionButton(String icon,String label,Runnable click){
-        Button button=button("",click);button.setPadding(dp(16),dp(8),dp(16),dp(8));button.setMinWidth(0);button.setMinimumWidth(0);
+        Button button=button("",click);button.setBackground(selectionBackground());button.setPadding(dp(16),dp(8),dp(16),dp(8));button.setMinWidth(0);button.setMinimumWidth(0);
         LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(64),dp(52));bounds.setMargins(0,dp(6),dp(12),dp(2));button.setLayoutParams(bounds);
         actionIcon(button,icon,label,false);return button;
     }

@@ -365,7 +365,7 @@ public final class HomeActivity extends TvActivity {
                 else if(action.equals("delete"))itemMenu=MediaActions.delete(this,selected,()->submitItemAction(selected,"delete"));
                 else if(action.equals("play"))startActivity(new Intent(this,PlayerActivity.class).putExtra("id",selected.optString("Id")).putExtra("title",EtknApi.title(selected)).putExtra("queue",new String[]{selected.optString("Id")}).putExtra("resume",true));
                 else submitItemAction(selected,action);
-            });itemMenu.show();
+            },320);itemMenu.show();
         });
     }
     private void bindActions(View card,JSONObject item){actionItems.put(card,item);card.setOnLongClickListener(view->{showItemMenu(view);return true;});}

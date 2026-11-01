@@ -7,12 +7,22 @@ import static org.junit.Assert.*;
 
 public class DetailPresentationTest {
     @Test public void placeholderDatesKeepServerCalendarDayAndRealEpisodesHaveNoDate()throws Exception{
+        Calendar today=new GregorianCalendar(2026,Calendar.NOVEMBER,1);
         JSONObject missing=episode("missing",1,4).put("IsMissing",true).put("PremiereDate","2026-11-03T00:00:00Z");
-        assertEquals("2026-11-03",DetailPresentation.airDate(missing));
-        missing.remove("PremiereDate");assertEquals("播出时间待定",DetailPresentation.airDate(missing));
+        assertEquals("2026-11-03",DetailPresentation.airDate(missing,today));
+        missing.remove("PremiereDate");assertEquals("播出时间待定",DetailPresentation.airDate(missing,today));
         JSONObject upcoming=episode("upcoming",1,5).put("LocationType","Virtual").put("IsUnaired",true).put("PremiereDate","2026-11-10");
-        assertEquals("2026-11-10",DetailPresentation.airDate(upcoming));
+        assertEquals("2026-11-10",DetailPresentation.airDate(upcoming,today));
         assertEquals("",DetailPresentation.airDate(episode("available",1,3).put("PremiereDate","2026-10-27")));
+    }
+    @Test public void placeholderUsesTodayAndTomorrowAcrossYearBoundary()throws Exception{
+        Calendar today=new GregorianCalendar(TimeZone.getTimeZone("Asia/Shanghai"));today.set(2026,Calendar.DECEMBER,31,23,59,0);
+        JSONObject missing=episode("missing",1,4).put("IsMissing",true);
+        assertEquals("今天播出",DetailPresentation.airDate(missing.put("PremiereDate","2026-12-31T00:00:00Z"),today));
+        assertEquals("明天播出",DetailPresentation.airDate(missing.put("PremiereDate","2027-01-01T00:00:00Z"),today));
+        assertEquals("2027-01-02",DetailPresentation.airDate(missing.put("PremiereDate","2027-01-02"),today));
+        assertEquals("2026-12-30",DetailPresentation.airDate(missing.put("PremiereDate","2026-12-30"),today));
+        assertEquals(31,today.get(Calendar.DAY_OF_MONTH));
     }
     private JSONObject episode(String id,int season,int number)throws Exception{return new JSONObject().put("Id",id).put("Type","Episode").put("ParentIndexNumber",season).put("IndexNumber",number);}
     @Test public void nextEpisodeUsesNumericOrderAcrossSeasonsAndSkipsMissingEntries()throws Exception{
