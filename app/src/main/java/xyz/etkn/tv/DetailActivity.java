@@ -253,7 +253,7 @@ public final class DetailActivity extends TvActivity {
     private void updateChoices(){
         int locked=new TvPreferences(this,api).seasonAudio(PlaybackSelection.seasonKey(playable));
         if(locked>=0)audio=PlaybackSelection.audioAt(selectedSource(),locked);
-        versionButton.setVisibility(sources.length()>1?View.VISIBLE:View.GONE);versionButton.setText("版本 · "+PlaybackSelection.sourceLabel(selectedSource(),sourceIndex));
+        versionButton.setVisibility(sources.length()>1?View.VISIBLE:View.GONE);versionButton.setText("版本 · "+PlaybackSelection.slotLabel(selectedSource()));
         audioButton.setEnabled(playable!=null);subtitleButton.setEnabled(playable!=null);
         audioButton.setText("音轨 · "+PlaybackSelection.selectionLabel(selectedSource(),audio,false)+(locked>=0?" · 本季第 "+(locked+1)+" 音轨":""));subtitleButton.setText("字幕 · "+PlaybackSelection.selectionLabel(selectedSource(),subtitle,true));
     }
@@ -263,9 +263,9 @@ public final class DetailActivity extends TvActivity {
         dialog.getWindow().setBackgroundDrawable(shape(OVERLAY,0));dialog.getWindow().setDimAmount(0.15f);
     }
     private void chooseStream(boolean subtitles){
-        List<JSONObject> streams=PlaybackSelection.streams(selectedSource(),subtitles);List<String> labels=new ArrayList<>();List<Integer> indices=new ArrayList<>();labels.add((subtitles?"":PlaybackSelection.seasonKey(playable).isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(selectedSource(),PlaybackSelection.AUTO,subtitles));indices.add(PlaybackSelection.AUTO);
+        List<JSONObject> streams=PlaybackSelection.streams(selectedSource(),subtitles);List<String> labels=new ArrayList<>();List<Integer> indices=new ArrayList<>();labels.add((subtitles?"":PlaybackSelection.seasonKey(playable).isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(selectedSource(),PlaybackSelection.AUTO,subtitles,!subtitles));indices.add(PlaybackSelection.AUTO);
         if(subtitles){labels.add("关闭字幕");indices.add(-1);}
-        for(int i=0;i<streams.size();i++){JSONObject stream=streams.get(i);labels.add((subtitles?"":"第 "+(i+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream));indices.add(stream.optInt("Index"));}
+        for(int i=0;i<streams.size();i++){JSONObject stream=streams.get(i);labels.add((subtitles?"":"第 "+(i+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream,!subtitles));indices.add(stream.optInt("Index"));}
         int current=indices.indexOf(subtitles?subtitle:audio);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(subtitles?"字幕":"音轨").setSingleChoiceItems(labels.toArray(new String[0]),current,(choice,index)->{if(subtitles)subtitle=indices.get(index);else{audio=indices.get(index);new TvPreferences(this,api).saveSeasonAudio(PlaybackSelection.seasonKey(playable),PlaybackSelection.audioOrdinal(selectedSource(),audio));}updateChoices();choice.dismiss();}).setNegativeButton("取消",null).create();
         dialog.show();dialog.getWindow().setBackgroundDrawable(shape(OVERLAY,0));dialog.getWindow().setDimAmount(0.15f);

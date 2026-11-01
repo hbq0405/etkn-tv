@@ -77,7 +77,7 @@
 ## 播放器策略迁移与字幕回归（2026-10-29）
 
 - 柴柴 APK 反编译仅提供策略和调用顺序证据，不等于可直接编译的原始工程。ETKN 保留固定 Media3 1.8.0、NextLib 和 libass JNI；迁移 OkHttp 超时/连接池、缓冲、ASS Canvas 与失败降级、多对象 PGS、提取阶段 P7 基底层声明，改动必须有本项目管线回归。
-- 服务端 Title 是副标题，DisplayTitle 可能附带“(默认 ass)”等格式信息。优先 Title，去除已有默认标记，不再追加“默认”；详情和播放菜单使用同一规则。自动选择策略保持不变。
+- 服务端 Title 是副标题，DisplayTitle 是主标题并带完整参数。详情和播放页音轨按钮预览优先 Title，音轨选择框（含自动选择项）优先 DisplayTitle；缺失时互相回退。字幕仍优先 Title。所有名称去除已有默认标记，不再追加“默认”，自动选择策略保持不变。版本按钮只显示槽位名，版本选择框显示完整名称与参数。
 - PGS 内封数据依赖容器时间戳；外挂 SUP 有 PG 标识、90kHz PTS/DTS 头。最初把不带时间戳的内封样本直接当外挂文件，真实播放器 Cue 超时；确认解析器单测通过、管线未通过后，补 SUP 时间戳解析和带清屏事件的 SUP 测试。不能以单独解析成功替代真实显示和 seek 验证。
 - detail-tracks.mkv 是无 Cues/SeekHead 的简化音轨素材，重建时请求 5.3 秒但会从 0 开始。已检查二进制确认无索引；恢复位置验收使用带索引的 player-codecs.mkv，并先断言 isCurrentMediaItemSeekable。不要通过放宽位置断言掩盖测试素材限制。
 - adb shell am instrument 的进程返回码不能单独说明 JUnit 通过；曾返回 0 但正文有 FAILURES。检查最终 OK、失败/跳过状态；VC-1 私有素材缺失按 assumption 跳过，单独记录，不宣称已实播。

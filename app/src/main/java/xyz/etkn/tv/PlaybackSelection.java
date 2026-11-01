@@ -70,7 +70,8 @@ final class PlaybackSelection {
         if(streams!=null)for(int i=0;i<streams.length();i++){JSONObject stream=streams.optJSONObject(i);if(stream!=null&&stream.optString("Type").equalsIgnoreCase(subtitles?"Subtitle":"Audio"))result.add(stream);}return result;
     }
     static JSONObject stream(JSONObject source,int index,boolean subtitles){for(JSONObject stream:streams(source,subtitles))if(stream.optInt("Index",-1)==index)return stream;return null;}
-    static String streamLabel(JSONObject stream){String title=stream.optString("Title").trim();if(title.isEmpty())title=stream.optString("DisplayTitle").trim();title=title.replaceAll("\\s*[（(]默认(?:\\s+[^)）]*)?[)）]","").replace("默认","").trim();if(title.isEmpty())title=stream.optString("Language","未知语言")+" · "+stream.optString("Codec");return title;}
+    static String streamLabel(JSONObject stream){return streamLabel(stream,false);}
+    static String streamLabel(JSONObject stream,boolean detailed){String title=stream.optString(detailed?"DisplayTitle":"Title").trim();if(title.isEmpty())title=stream.optString(detailed?"Title":"DisplayTitle").trim();title=title.replaceAll("\\s*[（(]默认(?:\\s+[^)）]*)?[)）]","").replace("默认","").trim();if(title.isEmpty())title=stream.optString("Language","未知语言")+" · "+stream.optString("Codec");return title;}
     static int defaultIndex(JSONObject source,boolean subtitles){
         if(source==null)return AUTO;
         String field=subtitles?"DefaultSubtitleStreamIndex":"DefaultAudioStreamIndex";
@@ -80,10 +81,13 @@ final class PlaybackSelection {
         return subtitles?-1:candidates.isEmpty()?AUTO:candidates.get(0).optInt("Index",AUTO);
     }
     static String selectionLabel(JSONObject source,int index,boolean subtitles){
+        return selectionLabel(source,index,subtitles,false);
+    }
+    static String selectionLabel(JSONObject source,int index,boolean subtitles,boolean detailed){
         boolean automatic=index==AUTO;if(automatic)index=defaultIndex(source,subtitles);
         if(subtitles&&index==-1)return "关闭";
         JSONObject stream=stream(source,index,subtitles);
-        return stream==null?"自动选择":streamLabel(stream);
+        return stream==null?"自动选择":streamLabel(stream,detailed);
     }
     static int embeddedOrdinal(JSONObject source,int index,boolean subtitles){int ordinal=0;for(JSONObject stream:streams(source,subtitles)){if(stream.optBoolean("IsExternal"))continue;if(stream.optInt("Index",-1)==index)return ordinal;ordinal++;}return -1;}
     static String localTrackId(String id){return id==null?"":id.substring(id.lastIndexOf(':')+1);}

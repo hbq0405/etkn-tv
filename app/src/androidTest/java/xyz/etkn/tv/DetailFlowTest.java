@@ -667,14 +667,23 @@ public class DetailFlowTest {
 
     @Test public void movieChoicesReachRealPlayerAndSurviveSourceReordering()throws Exception{
         try(Fixture server=new Fixture()){
-            server.slotLabels=true;open(server,"movie");assertEquals(View.VISIBLE,button("版本").getVisibility());assertTrue(button("版本").getText().toString().contains("4K HEVC HDR10"));
+            server.slotLabels=true;open(server,"movie");assertEquals(View.VISIBLE,button("版本").getVisibility());assertEquals("版本 · 原盘",button("版本").getText().toString());
             assertTrue(descendants(detail.content).stream().anyMatch(view->view instanceof TextView&&view.isShown()&&((TextView)view).getText().toString().equals("合成电影")));
-            screenshot("movie.png");choose("版本",1);choose("音轨",2);choose("字幕",3);
-            assertTrue(button("音轨").getText().toString().contains("音轨二"));assertTrue(button("字幕").getText().toString().contains("内封二"));screenshot("movie-choices.png");
+            screenshot("movie.png");onMain(()->button("版本").performClick());settle();
+            assertFalse(instrumentation.getUiAutomation().getRootInActiveWindow().findAccessibilityNodeInfosByText("压制 · 4K HEVC HDR10").isEmpty());screenshot("detail-version-parameters.png");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();assertEquals("版本 · 压制",button("版本").getText().toString());
+            onMain(()->button("音轨").performClick());settle();
+            assertFalse(instrumentation.getUiAutomation().getRootInActiveWindow().findAccessibilityNodeInfosByText("自动选择 · 音轨一 · 主标题").isEmpty());
+            assertFalse(instrumentation.getUiAutomation().getRootInActiveWindow().findAccessibilityNodeInfosByText("第 2 音轨 · 音轨二 · 主标题").isEmpty());screenshot("detail-audio-parameters.png");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();choose("字幕",3);
+            assertEquals("音轨 · 音轨二 · 副标题",button("音轨").getText().toString());assertTrue(button("字幕").getText().toString().contains("内封二"));screenshot("movie-choices.png");
             play();assertEquals("source-b",playback.getIntent().getStringExtra("sourceId"));assertEquals(4,playback.getIntent().getIntExtra("audioIndex",-1));assertEquals(8,playback.getIntent().getIntExtra("subtitleIndex",-1));
             await(()->"2".equals(selected(C.TRACK_TYPE_AUDIO))&&"4".equals(selected(C.TRACK_TYPE_TEXT)));
             assertEquals("source-b",((JSONObject)field(playback,"source")).getString("Id"));assertEquals("版本 · 压制",((Button)field(playback,"versionButton")).getText().toString());
-            onMain(()->((Button)field(playback,"versionButton")).performClick());settle();instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+            assertEquals("音轨 · 音轨二 · 副标题",((Button)field(playback,"audioButton")).getText().toString());onMain(()->((Button)field(playback,"audioButton")).performClick());settle();
+            onMain(()->{ListView list=((AlertDialog)field(playback,"trackDialog")).getListView();assertEquals("自动选择 · 音轨一 · 主标题",list.getAdapter().getItem(0));assertEquals("第 2 音轨 · 音轨二 · 主标题 ✓",list.getAdapter().getItem(2));});screenshot("player-audio-parameters.png");
+            onMain(()->((AlertDialog)field(playback,"trackDialog")).dismiss());settle();
+            onMain(()->((Button)field(playback,"versionButton")).performClick());settle();assertFalse(instrumentation.getUiAutomation().getRootInActiveWindow().findAccessibilityNodeInfosByText("原盘 · 4K HEVC HDR10").isEmpty());screenshot("player-version-parameters.png");instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
             await(()->"source-a".equals(((JSONObject)field(playback,"source")).optString("Id")));await(()->"版本 · 原盘".contentEquals(((Button)field(playback,"versionButton")).getText()));await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);settle();instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();screenshot("player-current-version-slot.png");closePlayer();
             assertNull("客户端只能访问 TV 接口",server.unexpectedPath);assertTrue(server.reports>0);
         }finally{cleanup();}

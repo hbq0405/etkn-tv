@@ -6,7 +6,7 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class DetailPresentationTest {
-    @Test public void playerSlotLabelDropsOnlyExactTechnicalSuffixAndDetailKeepsIt()throws Exception{
+    @Test public void versionPreviewDropsOnlyExactTechnicalSuffixAndChoicesKeepIt()throws Exception{
         JSONObject source=new JSONObject().put("Name","原盘 · 收藏版 · 4K HEVC HDR10")
             .put("MediaStreams",new JSONArray().put(new JSONObject().put("Type","Video").put("DisplayTitle","4K HEVC HDR10")));
         assertEquals("原盘 · 收藏版",PlaybackSelection.slotLabel(source));
@@ -101,6 +101,16 @@ public class DetailPresentationTest {
         assertEquals("简体中文 ASS",PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,true));
         assertEquals("原声",PlaybackSelection.selectionLabel(source,1,false));
         assertEquals("自动选择",PlaybackSelection.selectionLabel(null,PlaybackSelection.AUTO,false));
+    }
+    @Test public void audioPreviewUsesSubtitleAndChoicesUseDetailedPrimaryTitle()throws Exception{
+        JSONObject audio=new JSONObject().put("Type","Audio").put("Index",4).put("Title","国语配音[CH-CSD]（默认）").put("DisplayTitle","国语 · AC-3 5.1 (默认)");
+        JSONObject source=new JSONObject().put("DefaultAudioStreamIndex",4).put("MediaStreams",new JSONArray().put(audio));
+        assertEquals("国语配音[CH-CSD]",PlaybackSelection.streamLabel(audio));
+        assertEquals("国语 · AC-3 5.1",PlaybackSelection.streamLabel(audio,true));
+        assertEquals("国语配音[CH-CSD]",PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,false));
+        assertEquals("国语 · AC-3 5.1",PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,false,true));
+        audio.put("DisplayTitle",JSONObject.NULL);assertEquals("国语配音[CH-CSD]",PlaybackSelection.streamLabel(audio,true));
+        audio.put("Title",JSONObject.NULL).put("DisplayTitle","国语 · AC-3 5.1");assertEquals("国语 · AC-3 5.1",PlaybackSelection.streamLabel(audio));
     }
     @Test public void trackLabelsPreferSubtitlesAndOnlyRemoveDefaultBadges()throws Exception{
         JSONObject stream=new JSONObject().put("Title","国语配音[CH-CSD]").put("DisplayTitle","国语 TrueHD 5.1 (默认)");

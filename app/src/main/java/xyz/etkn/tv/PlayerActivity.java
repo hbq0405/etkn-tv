@@ -213,7 +213,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void chooseVersion(){
         if(info==null)return;JSONArray sources=info.optJSONArray("MediaSources");if(sources==null||sources.length()==0)return;
-        String[] labels=new String[sources.length()];for(int i=0;i<labels.length;i++)labels[i]=PlaybackSelection.slotLabel(sources.optJSONObject(i));
+        String[] labels=new String[sources.length()];for(int i=0;i<labels.length;i++)labels[i]=PlaybackSelection.sourceLabel(sources.optJSONObject(i),i);
         PlayerChoiceDialog.create(this,"选择播放版本",labels,selected,(dialog,index)->{stopPlayer();selected=index;versionConfirmed=true;audioIndex=subtitleIndex=PlaybackSelection.AUTO;dialog.dismiss();startSource();}).show();
     }
     private void startSource(){
@@ -346,7 +346,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void chooseTrack(int type){
         if(player==null)return;boolean subtitles=type==C.TRACK_TYPE_TEXT;List<Integer> indices=new ArrayList<>();List<String> labels=new ArrayList<>();
-        indices.add(PlaybackSelection.AUTO);labels.add((subtitles?"":seasonKey==null||seasonKey.isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles));
+        indices.add(PlaybackSelection.AUTO);labels.add((subtitles?"":seasonKey==null||seasonKey.isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles,!subtitles));
         if(subtitles){
             indices.add(-1);
             boolean disabled=player.getTrackSelectionParameters().disabledTrackTypes.contains(type);
@@ -355,7 +355,7 @@ public final class PlayerActivity extends TvActivity {
         for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){
             indices.add(stream.optInt("Index"));TrackRef ref=findTrack(stream,type);
             boolean active=ref!=null&&ref.group.isTrackSelected(ref.index);
-            labels.add((subtitles?"":"第 "+(PlaybackSelection.audioOrdinal(source,stream.optInt("Index"))+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream)+(ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持")+(active?" ✓":""));
+            labels.add((subtitles?"":"第 "+(PlaybackSelection.audioOrdinal(source,stream.optInt("Index"))+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream,!subtitles)+(ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持")+(active?" ✓":""));
         }
         int selectedIndex=indices.indexOf(subtitles?subtitleIndex:audioIndex);
         video.setControllerShowTimeoutMs(0);
