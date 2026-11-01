@@ -41,6 +41,8 @@ public final class DetailActivity extends TvActivity {
     private ScrollView scroll;
     private GridLayout episodeGrid;
     private Button episodeEntry;
+    private LinearLayout facetButtons;
+    private String renderedFacets="";
 
     private boolean inEpisodeMatrix(View view){while(view!=null){if(view==episodeGrid)return true;android.view.ViewParent parent=view.getParent();view=parent instanceof View?(View)parent:null;}return false;}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
@@ -82,6 +84,7 @@ public final class DetailActivity extends TvActivity {
         detailRating=meta("",Color.WHITE);detailRating.setPadding(dp(7),dp(2),dp(7),dp(2));detailRating.setBackground(shape(Color.TRANSPARENT,MUTED));metadata.addView(detailRating);
         content.addView(metadata);
         detailCategories=text("",14,MUTED);content.addView(detailCategories);
+        facetButtons=row();HorizontalScrollView facetScroll=new FocusScroll.Row(this);facetScroll.setHorizontalScrollBarEnabled(false);facetScroll.addView(facetButtons);content.addView(facetScroll);
         LinearLayout actions=row();
         playButton=actionButton("play","播放",()->play(false));playButton.setId(View.generateViewId());playButton.setEnabled(false);actions.addView(playButton);
         restartButton=actionButton("restart","从头播放",()->play(true));restartButton.setVisibility(View.GONE);actions.addView(restartButton);
@@ -110,6 +113,7 @@ public final class DetailActivity extends TvActivity {
         String type=item.optString("Type");
         if(type.equals("Series")||type.equals("Season")||type.equals("Episode"))loadEpisodes();else{setPlayable(item);focusPlay();}
         renderCast();
+        renderCollections();
         renderSimilar();
     }
     private TextView meta(String value,int color){TextView label=text(value,13,color);label.setGravity(Gravity.CENTER_VERTICAL);return label;}
@@ -117,10 +121,22 @@ public final class DetailActivity extends TvActivity {
         detailTitle.setText(EtknApi.title(item));detailDouban.setText(" "+DetailPresentation.rating(item,"DoubanRating")+"    ");detailTmdb.setText(" "+DetailPresentation.rating(item,"TMDbRating")+"    ");
         String year=item.optString("ProductionYear"),duration=DetailPresentation.duration(item.optLong("RunTimeTicks")),rating=DetailPresentation.contentRating(item),categories=DetailPresentation.categories(item);
         detailYear.setText(year+"    ");detailYear.setVisibility(year.isEmpty()?View.GONE:View.VISIBLE);detailDuration.setText(duration+"    ");detailDuration.setVisibility(duration.isEmpty()?View.GONE:View.VISIBLE);
-        detailRating.setText(rating);detailRating.setVisibility(rating.isEmpty()?View.GONE:View.VISIBLE);detailCategories.setText(categories);detailCategories.setVisibility(categories.isEmpty()?View.GONE:View.VISIBLE);
+        detailRating.setText(rating);detailRating.setVisibility(rating.isEmpty()?View.GONE:View.VISIBLE);detailCategories.setVisibility(View.GONE);renderFacets();
         boolean hasOverview=!item.optString("Overview").trim().isEmpty();detailOverview.setText(hasOverview?item.optString("Overview"):"暂无简介");
         if(detailOverview.isFocusable()!=hasOverview||detailOverview.getBackground()==null){if(!hasOverview&&detailOverview.hasFocus())playButton.requestFocus();detailOverview.setFocusable(hasOverview);detailOverview.setBackground(hasOverview?transparentFocusBackground():shape(Color.TRANSPARENT,0));}
         detailOverview.setClickable(hasOverview);
+    }
+    private void renderFacets(){
+        String identity=String.valueOf(item.optJSONArray("Genres"))+String.valueOf(item.optJSONArray("Tags"));if(identity.equals(renderedFacets))return;renderedFacets=identity;facetButtons.removeAllViews();
+        for(LibraryFilters.Entry entry:LibraryFilters.mergeTypes(item)){Button choice=button(entry.label,()->startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",entry.kind).putExtra("facetValue",entry.label)));choice.setContentDescription((entry.kind.equals("Genres")?"题材 · ":"标签 · ")+entry.label);facetButtons.addView(choice);}
+    }
+    private void renderCollections(){
+        if(!"Movie".equals(item.optString("Type")))return;
+        LinearLayout area=column();area.setVisibility(View.GONE);content.addView(area);
+        async(()->api.get(api.userPath()+"/Items/"+EtknApi.encode(item.optString("Id"))+"/Collections?Limit=60"),result->{
+            List<JSONObject> collections=EtknApi.rows(result);if(collections.isEmpty())return;area.setVisibility(View.VISIBLE);area.addView(text("所属合集",20,Color.WHITE));HorizontalScrollView rail=new FocusScroll.Row(this);rail.setHorizontalScrollBarEnabled(false);LinearLayout cards=row();rail.addView(cards);area.addView(rail);
+            for(JSONObject collection:collections)cards.addView(button(collection.optString("Name"),()->startActivity(new Intent(this,HomeActivity.class).putExtra("collection",collection.toString()))));
+        });
     }
     private void copyPresentation(JSONObject target,JSONObject value){
         for(String key:new String[]{"Name","Overview","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}

@@ -22,6 +22,21 @@ import static org.junit.Assert.*;
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 public class DetailFlowTest {
     private final Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
+    @Test public void genresTagsAndCollectionsOpenFocusableLibraryPages()throws Exception{
+        HomeActivity browser=null;
+        try(Fixture server=new Fixture()){
+            server.browseFeatures=true;open(server,"movie-single");await(()->button("合成合集")!=null);
+            for(String title:new String[]{"题材 · 剧情","标签 · 经典","合成合集"}){
+                Button target=button(title);assertNotNull(target);onMain(target::requestFocus);settle();assertTrue(target.hasFocus());
+                if(title.startsWith("标签"))screenshot("detail-facet-focus.png");
+                Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(HomeActivity.class.getName(),null,false);onMain(target::performClick);browser=(HomeActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(browser);
+                HomeActivity active=browser;await(()->field(active,"posterGrid") instanceof GridLayout&&((GridLayout)field(active,"posterGrid")).getChildCount()>0);
+                if(title.startsWith("题材"))assertTrue(server.lastBrowsePath.contains("Genres="));else if(title.startsWith("标签"))assertTrue(server.lastBrowsePath.contains("Tags="));else assertTrue(server.lastBrowsePath.contains("ParentId=collection-1"));
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);await(()->active.isDestroyed()&&detail.hasWindowFocus());browser=null;
+            }
+            assertNull(server.unexpectedPath);
+        }finally{if(browser!=null){HomeActivity active=browser;onMain(active::finish);}cleanup();}
+    }
     private DetailActivity detail;
     private PlayerActivity playback;
     private void onMain(Runnable action){instrumentation.runOnMainSync(action);}
@@ -906,7 +921,7 @@ public class DetailFlowTest {
         final List<String> imagePaths=Collections.synchronizedList(new ArrayList<>());
         final List<JSONObject> stopped=Collections.synchronizedList(new ArrayList<>());
         volatile java.util.concurrent.CountDownLatch nextRequested,nextGate;
-        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress,failNext,hdrVideo;volatile int audioOffset;volatile String unexpectedPath;volatile int reports;
+        volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress,failNext,hdrVideo,browseFeatures;volatile int audioOffset;volatile String unexpectedPath,lastBrowsePath="";volatile int reports;
         final boolean codecMedia;
         final JSONObject personal=new JSONObject();
         Fixture()throws Exception{this(false);}
@@ -938,6 +953,8 @@ public class DetailFlowTest {
         }
         JSONObject base(String id,String type)throws Exception{return new JSONObject().put("ProviderIds",new JSONObject().put("Tmdb","123")).put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演"))).put("UserData",new JSONObject().put("IsFavorite",favorite).put("Played",watched)).put("BackdropImageTags",new JSONArray().put(changed?"art2":"art1")).put("ImageTags",new JSONObject().put("Logo",changed?"art2":"art1"));}
         JSONObject response(String path)throws Exception{
+            if(browseFeatures&&path.contains("/Collections?"))return new JSONObject().put("Items",new JSONArray().put(new JSONObject().put("Id","collection-1").put("Name","合成合集").put("Type","BoxSet"))).put("TotalRecordCount",1);
+            if(browseFeatures&&(path.contains("/Browse?")||path.contains("/Items?"))){lastBrowsePath=path;return new JSONObject().put("Items",new JSONArray().put(base("movie-browse","Movie"))).put("TotalRecordCount",1);}
             if(path.contains("check_status")){discoveryChecks++;return new JSONObject().put("user",new JSONObject().put("can_access_discovery",discoveryAllowed));}
             if(path.contains("-resources?")){cloudPaths.add(path);return new JSONObject().put("resources",new JSONArray());}
             if(path.contains("/Refresh?"))return new JSONObject().put("submitted",true).put("RefreshRunId",123);

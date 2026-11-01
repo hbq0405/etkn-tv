@@ -38,7 +38,7 @@ final class EtknApi {
     JSONObject request(String origin, String access, String method, String path, JSONObject body) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(origin + path).openConnection();
         conn.setInstanceFollowRedirects(false);
-        conn.setConnectTimeout(7000); conn.setReadTimeout(35000); conn.setRequestMethod(method);
+        conn.setConnectTimeout(7000); conn.setReadTimeout("POST".equals(method)&&path.contains("/FolderCover?")?180000:35000); conn.setRequestMethod(method);
         conn.setRequestProperty("Accept", "application/json");
         conn.setRequestProperty("User-Agent", USER_AGENT);
         conn.setRequestProperty("X-Emby-Authorization", "MediaBrowser Client=\"ETKN TV\", Device=\"" + Build.MODEL.replace("\"", "") + "\", DeviceId=\"" + session.deviceId() + "\", Version=\"" + BuildConfig.VERSION_NAME + "\"");
@@ -113,6 +113,7 @@ final class EtknApi {
         }
     }
     String userPath() { return "/api/tv/Users/" + encode(session.userId()); }
+    String folderArtwork(String libraryId,JSONObject folder,int width){JSONObject tags=folder.optJSONObject("ImageTags");return server+userPath()+"/Libraries/"+encode(libraryId)+"/FolderCover?FolderId="+encode(folder.optString("Id"))+"&maxWidth="+width+"&tag="+encode(tags==null?"":tags.optString("Primary"));}
     String artwork(JSONObject media, String type, int width) {
         String id=media.optString("Id"),tag="";
         if(type.equals("Backdrop")&&!media.optString("ParentBackdropItemId").isEmpty()){

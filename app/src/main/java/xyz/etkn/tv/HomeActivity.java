@@ -27,6 +27,10 @@ public final class HomeActivity extends TvActivity {
     private String viewMode="portrait",playMode="sequence",typeFilter="",typeKind="";
     private boolean favoriteOnly;
     private org.json.JSONObject activeCollection;
+    private boolean folderMode;
+    private String folderId="",folderTitle="",restorePosterId="",collectionReturnFocus="";
+    private int restorePosterCount,restorePosterScroll,collectionReturnCount,collectionReturnScroll;
+    private final java.util.ArrayDeque<JSONObject> folderTrail=new java.util.ArrayDeque<>();
     private Button playModeButton;
     private static final String[][] SORTS={
         {"名称","SortName"},{"名称（显示名）","Name"},{"最近添加","DateAdded"},{"创建时间","DateCreated"},
@@ -37,6 +41,7 @@ public final class HomeActivity extends TvActivity {
         {"分级","OfficialRating"},{"时长","Runtime"},{"时长刻度","RunTimeTicks"},
         {"集数","IndexNumber"},{"季数","ParentIndexNumber"},{"随机","Random"}
     };
+    private static final String[][] FACET_SORTS={{"名称","SortName"},{"最近添加","DateAdded"},{"首播日期","PremiereDate"},{"年份","ProductionYear"},{"TMDb评分","TMDbRating"},{"豆瓣评分","DoubanRating"},{"随机","Random"}};
     private boolean canDiscover;
     private HorizontalScrollView menu;
     private ScrollView homeScroll;
@@ -93,7 +98,10 @@ public final class HomeActivity extends TvActivity {
         stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(76),Gravity.TOP));
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);stage.addView(status,notice);
-        setContentView(stage);refreshNavigation();loadHome();checkUpdateOnce();
+        setContentView(stage);refreshNavigation();
+        if(getIntent().hasExtra("collection")){try{libraryOrigin="detail";openCollection(new JSONObject(getIntent().getStringExtra("collection")));}catch(Exception error){loadHome();}}
+        else if(getIntent().hasExtra("facetKind")){try{JSONObject library=new JSONObject().put("Id","facet").put("Name",getIntent().getStringExtra("facetValue")).put("SourceType","facet");openLibrary(library);libraryOrigin="detail";}catch(Exception error){loadHome();}}
+        else loadHome();checkUpdateOnce();
         stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->homeBackdrop.resumeFocused("home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView())));
     }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
@@ -176,6 +184,7 @@ public final class HomeActivity extends TvActivity {
         }
     }
     private void loadLatestByLibrary(LinearLayout target,int request,List<JSONObject> libraries){
+        libraries=new java.util.ArrayList<>(libraries);libraries.removeIf(library->"boxsets".equals(library.optString("CollectionType")));
         org.json.JSONArray identity=new org.json.JSONArray();for(JSONObject library:libraries)identity.put(new org.json.JSONArray().put(library.optString("Id")).put(EtknApi.title(library)));
         if(identity.toString().equals(latestLibraries))return;latestLibraries=identity.toString();
         forgetCards(target);target.removeAllViews();
@@ -290,7 +299,7 @@ public final class HomeActivity extends TvActivity {
         View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null)target=resumeFirst!=null?resumeFirst:libraryFirst;if(target!=null)target.requestFocus();else content.requestFocus(View.FOCUS_DOWN);
     }
     private void search(){EditText field=input("搜索片库",false);new AlertDialog.Builder(this).setTitle("搜索片库").setView(field).setPositiveButton("搜索",(dialog,which)->{query=field.getText().toString();parent="";selectedLibrary=null;offset=0;mode="search";loadItems();}).setNegativeButton("取消",null).show();}
-    private void openLibrary(JSONObject item){libraryOrigin=mode;selectedLibrary=item;activeCollection=null;parent=item.optString("Id");TvPreferences prefs=new TvPreferences(this,api);String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadItems();}
+    private void openLibrary(JSONObject item){libraryOrigin=mode;selectedLibrary=item;activeCollection=null;folderMode=false;folderId="";folderTitle="";folderTrail.clear();restorePosterId="";restorePosterCount=0;parent=item.optString("Id");TvPreferences prefs=new TvPreferences(this,api);String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);folderMode=physicalLibrary()&&prefs.libraryFolders(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadItems();}
     private void loadLibraries(){mode="library";selectedLibrary=null;posterGrid=null;hasMore=false;loadingMore=false;stopCarousel();homeBackdrop.clear();libraryCards.clear();homeScroll.scrollTo(0,0);int request=++revision;status.setText("正在读取媒体库…");async(()->api.get(api.userPath()+"/Views"),result->{if(request!=revision)return;content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));List<JSONObject> items=EtknApi.rows(result);status.setText(items.isEmpty()?"暂无可访问媒体库":"选择媒体库");GridLayout grid=grid();grid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-56)/216));for(JSONObject item:items){View card=mediaCard(grid,item,()->openLibrary(item));libraryCards.put(item.optString("Id"),card);}View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null&&grid.getChildCount()>0)target=grid.getChildAt(0);if(target!=null)target.requestFocus();});}
     private void loadItems(){
         stopCarousel();
@@ -302,12 +311,13 @@ public final class HomeActivity extends TvActivity {
     private void loadPosterPage(boolean reset){
         if(selectedLibrary==null&&activeCollection==null)return;
         if(reset){offset=0;posterGrid=null;loadingMore=false;refreshingPosters=false;pendingPosterRefresh=false;hasMore=true;++revision;content.removeAllViews();content.setPadding(dp(28),dp(20),dp(28),dp(24));homeScroll.scrollTo(0,0);homeBackdrop.clear();
-            LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=column();TextView name=text(activeCollection!=null?activeCollection.optString("Name","合集"):selectedLibrary.optString("Name","媒体库"),22,android.graphics.Color.WHITE);name.setTypeface(null,android.graphics.Typeface.BOLD);labels.addView(name);libraryMeta=text("正在读取媒体项…",13,MUTED);labels.addView(libraryMeta);heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-            LinearLayout actions=row();actions.addView(button("播放",this::playQueue));
-            playModeButton=button(playModeLabel(),this::togglePlayMode);actions.addView(playModeButton);
+            LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=column();TextView name=text(activeCollection!=null?activeCollection.optString("Name","合集"):folderMode&&!folderTitle.isEmpty()?folderTitle:selectedLibrary.optString("Name","媒体库"),22,android.graphics.Color.WHITE);name.setTypeface(null,android.graphics.Typeface.BOLD);labels.addView(name);libraryMeta=text("正在读取媒体项…",13,MUTED);labels.addView(libraryMeta);heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+            LinearLayout actions=row();
+            playModeButton=button(playModeLabel(),this::togglePlayMode);
+            if(!collectionLibrary()){actions.addView(button("播放",this::playQueue));actions.addView(playModeButton);}
             actions.addView(button(viewLabel(),this::toggleView));
-            if(physicalLibrary()){actions.addView(button(typeLabel(),this::chooseType));actions.addView(button("合集",this::openCollections));actions.addView(button(favoriteLabel(),this::toggleFavoriteFilter));}
-            actions.addView(button(sortLabel(),this::chooseSort));
+            if(physicalLibrary()){actions.addView(button(typeLabel(),this::chooseType));actions.addView(button(folderMode?"文件夹 · 已开启":"文件夹",this::toggleFolders));actions.addView(button(favoriteLabel(),this::toggleFavoriteFilter));}
+            if(!folderMode&&!collectionLibrary())actions.addView(button(sortLabel(),this::chooseSort));
             HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);heading.addView(actionScroll);
             content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
             posterGrid=new GridLayout(this);posterGrid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-56)/(viewMode.equals("landscape")?272:144)));posterGrid.setClipChildren(false);posterGrid.setClipToPadding(false);posterGrid.setPadding(0,dp(FocusScroll.MARGIN_DP),0,dp(FocusScroll.MARGIN_DP));LinearLayout.LayoutParams gridSpace=new LinearLayout.LayoutParams(-1,-2);gridSpace.topMargin=dp(14);content.addView(posterGrid,gridSpace);posterStatus=text("",13,MUTED);posterStatus.setGravity(Gravity.CENTER);content.addView(posterStatus,new LinearLayout.LayoutParams(-1,dp(38)));
@@ -316,12 +326,24 @@ public final class HomeActivity extends TvActivity {
         loadingMore=true;int request=revision;int start=offset;
         String path=posterQuery(60,start);
         posterStatus.setText("正在加载…");
-        async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{if(request!=revision)return;loadingMore=false;if(result.has("_loadError")){posterStatus.setText(result.optString("_loadError"));return;}List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",start+items.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);offset=start+items.size();hasMore=!items.isEmpty()&&offset<total;libraryMeta.setText(libraryMetaLabel(total));for(JSONObject item:items)addPoster(item);posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");if(start==0&&!items.isEmpty()){View first=posterGrid.getChildAt(0);homeScroll.post(()->{if(request==revision&&first.getParent()==posterGrid){first.requestFocus();homeScroll.scrollTo(0,0);}});}else if(items.isEmpty()&&start==0)posterStatus.setText("暂无媒体项");if(pendingPosterRefresh)refreshPosters();});
+        async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{if(request!=revision)return;loadingMore=false;if(result.has("_loadError")){posterStatus.setText(result.optString("_loadError"));return;}List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",start+items.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);offset=start+items.size();hasMore=!items.isEmpty()&&offset<total;libraryMeta.setText(libraryMetaLabel(total));for(JSONObject item:items)addPoster(item);posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");if(restorePosterCount>0){if(offset<Math.min(restorePosterCount,total)&&hasMore){loadPosterPage(false);return;}restorePosterPosition(request);}else if(start==0&&!items.isEmpty()){View first=posterGrid.getChildAt(0);homeScroll.post(()->{if(request==revision&&first.getParent()==posterGrid&&menu.getVisibility()!=View.VISIBLE){first.requestFocus();homeScroll.scrollTo(0,0);}});}else if(items.isEmpty()&&start==0)posterStatus.setText("暂无媒体项");if(pendingPosterRefresh)refreshPosters();});
     }
     private void addPoster(JSONObject item){
-        View card=posterCard(posterGrid,item,()->detail(item),episodeCountMode,viewMode.equals("landscape"));card.setTag(item);
+        boolean folder="Folder".equals(item.optString("Type"));
+        View card=folder?folderCard(item):posterCard(posterGrid,item,()->{if("BoxSet".equals(item.optString("Type"))){rememberCollectionPosition(item);openCollection(item);}else detail(item);},episodeCountMode,viewMode.equals("landscape"));card.setTag(item);
         card.setOnLongClickListener(view->{showItemMenu(view);return true;});
     }
+    private View folderCard(JSONObject item){
+        LinearLayout card=column();card.setGravity(Gravity.CENTER);card.setPadding(dp(12),dp(16),dp(12),dp(16));card.setBackground(focusBackground());card.setFocusable(true);card.setClickable(true);card.setContentDescription("文件夹 · "+item.optString("Name"));
+        GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=dp(viewMode.equals("landscape")?264:132);bounds.height=dp(viewMode.equals("landscape")?215:255);bounds.setMargins(0,dp(6),dp(12),dp(8));posterGrid.addView(card,bounds);
+        if(item.has("ImageTags")){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(7));card.addView(image,new LinearLayout.LayoutParams(-1,dp(viewMode.equals("landscape")?140:172)));Images.load(api,api.folderArtwork(selectedLibrary.optString("Id"),item,480),image);}else{TextView icon=text("▰",56,android.graphics.Color.rgb(117,203,218));icon.setGravity(Gravity.CENTER);card.addView(icon);}TextView title=text(item.optString("Name"),15,android.graphics.Color.WHITE);title.setGravity(Gravity.CENTER);title.setMaxLines(3);card.addView(title);card.addView(text("文件夹",12,MUTED));card.setOnClickListener(view->enterFolder(item));return card;
+    }
+    private JSONObject posterPosition(){JSONObject state=new JSONObject();View focus=getCurrentFocus();try{state.put("id",folderId).put("title",folderTitle).put("count",Math.max(60,offset)).put("scroll",homeScroll.getScrollY()).put("focus",focus!=null&&focus.getTag() instanceof JSONObject?((JSONObject)focus.getTag()).optString("Id"):"");}catch(Exception ignored){}return state;}
+    private void enterFolder(JSONObject item){folderTrail.push(posterPosition());folderId=item.optString("Id");folderTitle=item.optString("Name");loadPosterPage(true);}
+    private void toggleFolders(){folderMode=!folderMode;new TvPreferences(this,api).saveLibraryFolders(parent,folderMode);folderId="";folderTitle="";folderTrail.clear();restorePosterCount=0;loadPosterPage(true);}
+    private void restorePosterPosition(int request){String id=restorePosterId;int y=restorePosterScroll;restorePosterCount=0;restorePosterId="";homeScroll.post(()->{if(request!=revision||menu.getVisibility()==View.VISIBLE)return;for(int i=0;i<posterGrid.getChildCount();i++){View card=posterGrid.getChildAt(i);if(card.getTag() instanceof JSONObject&&id.equals(((JSONObject)card.getTag()).optString("Id"))){card.requestFocus();break;}}homeScroll.scrollTo(0,y);});}
+    private void rememberCollectionPosition(JSONObject item){collectionReturnFocus=item.optString("Id");collectionReturnCount=Math.max(60,offset);collectionReturnScroll=homeScroll.getScrollY();}
+    private boolean collectionLibrary(){return activeCollection==null&&selectedLibrary!=null&&"boxsets".equals(selectedLibrary.optString("CollectionType"));}
     private void refreshPosters(){
         if(!"items".equals(mode)||posterGrid==null)return;
         if(loadingMore||refreshingPosters){pendingPosterRefresh=true;return;}
@@ -337,7 +359,7 @@ public final class HomeActivity extends TvActivity {
                 for(JSONObject row:rows){View old=previous.get(row.optString("Id"));if(old!=null&&old.getTag().toString().equals(row.toString()))posterGrid.addView(old);else addPoster(row);View card=posterGrid.getChildAt(posterGrid.getChildCount()-1);if(id.equals(row.optString("Id")))target=card;}
                 offset=rows.size();hasMore=offset<total;libraryMeta.setText(libraryMetaLabel(total));posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");
                 if(target==null&&index>=0&&posterGrid.getChildCount()>0)target=posterGrid.getChildAt(Math.min(index,posterGrid.getChildCount()-1));if(target!=null)target.requestFocus();
-                if(index>=0&&posterGrid.getChildCount()==0)playModeButton.requestFocus();homeScroll.scrollTo(0,y);
+                if(index>=0&&posterGrid.getChildCount()==0)content.requestFocus(View.FOCUS_UP);homeScroll.scrollTo(0,y);
             }
             if(generation!=homeGeneration)pendingPosterRefresh=true;
             if(pendingPosterRefresh)refreshPosters();
@@ -347,6 +369,8 @@ public final class HomeActivity extends TvActivity {
         if(mediaActionBusy||openingItemMenu||itemMenu!=null&&itemMenu.isShowing())return;
         JSONObject item=actionItems.get(card);if(item==null&&card.getTag() instanceof JSONObject)item=(JSONObject)card.getTag();if(item==null)return;
         JSONObject selected=item;boolean library=item.optString("Id").startsWith("library-"),resume=resumeCards.contains(card)||"resume".equals(mode),latest="home".equals(mode)&&!library&&!resume;
+        if("Folder".equals(item.optString("Type"))){showFolderMenu(item);return;}
+        if("collection".equals(item.optString("SourceType")))return;
         int request=revision;openingItemMenu=true;
         async(()->{try{return api.get("/api/tv/Users/Me");}finally{runOnUiThread(()->openingItemMenu=false);}},user->{
             if(!foreground||request!=revision)return;
@@ -374,6 +398,10 @@ public final class HomeActivity extends TvActivity {
         });
     }
     private void bindActions(View card,JSONObject item){actionItems.put(card,item);card.setOnLongClickListener(view->{showItemMenu(view);return true;});}
+    private void showFolderMenu(JSONObject item){
+        openingItemMenu=true;int request=revision;async(()->{try{return api.get("/api/tv/Users/Me");}finally{runOnUiThread(()->openingItemMenu=false);}},user->{if(request!=revision||!foreground)return;JSONObject policy=user.optJSONObject("Policy"),permissions=user.optJSONObject("TvPermissions");if(!(policy!=null&&policy.optBoolean("IsAdministrator"))&&!(permissions!=null&&permissions.optBoolean("CanRefreshMetadata"))){status.setText("当前账号没有生成封面权限");return;}
+            itemMenu=PlayerChoiceDialog.create(this,item.optString("Name"),new String[]{"生成封面"},-1,(dialog,index)->{dialog.dismiss();mediaActionBusy=true;status.setText("正在生成目录封面…");String path=api.userPath()+"/Libraries/"+EtknApi.encode(selectedLibrary.optString("Id"))+"/FolderCover?FolderId="+EtknApi.encode(item.optString("Id"));async(()->{try{return api.post(path,new JSONObject());}finally{runOnUiThread(()->mediaActionBusy=false);}},result->{status.setText("目录封面已生成");refreshPosters();});},320);itemMenu.show();});
+    }
     private void submitItemAction(JSONObject item,String action){
         if(mediaActionBusy)return;mediaActionBusy=true;JSONObject data=item.optJSONObject("UserData");
         boolean state=action.equals("favorite")||action.equals("played");boolean current=data!=null&&data.optBoolean(action.equals("favorite")?"IsFavorite":"Played");
@@ -383,11 +411,16 @@ public final class HomeActivity extends TvActivity {
     }
     @Override protected void onDestroy(){if(itemMenu!=null)itemMenu.dismiss();super.onDestroy();}
     private String posterQuery(int limit,int start){
-        String includeTypes=activeCollection!=null?"Movie":libraryIncludeTypes(selectedLibrary);
+        if(folderMode)return folderQuery(limit,start,false);
+        if(selectedLibrary!=null&&"facet".equals(selectedLibrary.optString("SourceType")))return api.userPath()+"/Browse?Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&"+getIntent().getStringExtra("facetKind")+"="+EtknApi.encode(getIntent().getStringExtra("facetValue"));
+        String includeTypes=activeCollection!=null?"Movie":collectionLibrary()?"BoxSet":libraryIncludeTypes(selectedLibrary);
         return api.userPath()+"/Items?Recursive=true&ParentId="+EtknApi.encode(parent)+"&IncludeItemTypes="+EtknApi.encode(includeTypes)+"&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&Fields=PrimaryImageAspectRatio,Overview,CommunityRating,TMDbRating,DoubanRating,ProductionYear,RecursiveItemCount,UserData"+(typeKind.isEmpty()?"":"&"+typeKind+"="+EtknApi.encode(typeFilter))+(favoriteOnly?"&Filters=IsFavorite":"");
     }
+    private String folderQuery(int limit,int start,boolean recursive){return api.userPath()+"/Libraries/"+EtknApi.encode(selectedLibrary.optString("Id"))+"/Folders?FolderId="+EtknApi.encode(folderId)+"&Limit="+limit+"&StartIndex="+start+(recursive?"&Recursive=true":"")+(typeKind.isEmpty()?"":"&"+typeKind+"="+EtknApi.encode(typeFilter))+(favoriteOnly?"&Filters=IsFavorite":"");}
     private String libraryMetaLabel(int total){
         if(activeCollection!=null)return "共 "+total+" 项  ·  合集";
+        if(collectionLibrary())return "共 "+total+" 个合集";
+        if(folderMode)return "共 "+total+" 项  ·  文件夹";
         String label="共 "+total+" 项  ·  "+mediaTypeLabel(selectedLibrary)+"  ·  "+sourceTypeLabel(selectedLibrary);
         if(!typeFilter.isEmpty())label+="  ·  类型 "+typeFilter;
         if(favoriteOnly)label+="  ·  收藏";
@@ -400,7 +433,7 @@ public final class HomeActivity extends TvActivity {
     private String sourceTypeLabel(JSONObject library){return switch(library.optString("SourceType","")){case "path"->"实体库";case "filter"->"筛选库";case "list"->"榜单库";case "personal_recommendation"->"推荐库";case "shared"->"共享库";default->"媒体库";};}
     private String sortLabel(){if(sortBy.isEmpty())return "排序 · 默认";String label=sortBy;for(String[] item:SORTS)if(item[1].equalsIgnoreCase(sortBy)){label=item[0];break;}return "排序 · "+label+(sortBy.equalsIgnoreCase("Random")?"":" "+("Descending".equals(sortOrder)?"降序":"升序"));}
     private void setSort(String field,String direction){sortBy=field;sortOrder=direction;new TvPreferences(this,api).saveLibrarySort(parent,field,direction);loadPosterPage(true);}
-    private void chooseSort(){String[] labels=new String[SORTS.length];int selected=0;for(int i=0;i<SORTS.length;i++){labels[i]=SORTS[i][0];if(SORTS[i][1].equalsIgnoreCase(sortBy))selected=i;}new AlertDialog.Builder(this).setTitle("排序方式").setSingleChoiceItems(labels,selected,(dialog,index)->{dialog.dismiss();String field=SORTS[index][1];if(field.equals("Random")){setSort(field,"Ascending");return;}String[] directions={"降序","升序"};int direction="Descending".equals(sortOrder)?0:1;new AlertDialog.Builder(this).setTitle(labels[index]).setSingleChoiceItems(directions,direction,(choice,value)->{choice.dismiss();setSort(field,value==0?"Descending":"Ascending");}).setNegativeButton("取消",null).show();}).setNegativeButton("取消",null).show();}
+    private void chooseSort(){String[][] sorts=selectedLibrary!=null&&"facet".equals(selectedLibrary.optString("SourceType"))?FACET_SORTS:SORTS;String[] labels=new String[sorts.length];int selected=0;for(int i=0;i<sorts.length;i++){labels[i]=sorts[i][0];if(sorts[i][1].equalsIgnoreCase(sortBy))selected=i;}new AlertDialog.Builder(this).setTitle("排序方式").setSingleChoiceItems(labels,selected,(dialog,index)->{dialog.dismiss();String field=sorts[index][1];if(field.equals("Random")){setSort(field,"Ascending");return;}String[] directions={"降序","升序"};int direction="Descending".equals(sortOrder)?0:1;new AlertDialog.Builder(this).setTitle(labels[index]).setSingleChoiceItems(directions,direction,(choice,value)->{choice.dismiss();setSort(field,value==0?"Descending":"Ascending");}).setNegativeButton("取消",null).show();}).setNegativeButton("取消",null).show();}
     private boolean physicalLibrary(){return activeCollection==null&&selectedLibrary!=null&&"path".equals(selectedLibrary.optString("SourceType"));}
     private String playModeLabel(){return "模式 · "+(playMode.equals("random")?"随机播放":"顺序播放");}
     private String viewLabel(){return "视图 · "+(viewMode.equals("landscape")?"横幅":"竖幅");}
@@ -436,9 +469,9 @@ public final class HomeActivity extends TvActivity {
     private void playQueue(){
         if(activeCollection==null&&selectedLibrary==null)return;
         posterStatus.setText("正在准备播放队列…");
-        async(()->api.get(posterQuery(1000,0)),result->{
+        async(()->api.get(folderMode?folderQuery(1000,0,true):posterQuery(1000,0)),result->{
             List<JSONObject> items=EtknApi.rows(result);
-            items.removeIf(item->item.optString("Id").isEmpty());
+            items.removeIf(item->!item.optString("Id").startsWith("item-"));
             if(items.isEmpty()){posterStatus.setText("没有可播放的媒体项");return;}
             int total=result.optInt("TotalRecordCount",items.size());
             posterStatus.setText(total>items.size()?"队列截取前 "+items.size()+" / "+total+" 项":"队列共 "+items.size()+" 项");
@@ -466,9 +499,12 @@ public final class HomeActivity extends TvActivity {
     }
     @Override public void onBackPressed(){
         if(menu.getVisibility()==View.VISIBLE){hideMenu();return;}
+        if("items".equals(mode)&&folderMode&&!folderTrail.isEmpty()){JSONObject previous=folderTrail.pop();folderId=previous.optString("id");folderTitle=previous.optString("title");restorePosterId=previous.optString("focus");restorePosterCount=previous.optInt("count",60);restorePosterScroll=previous.optInt("scroll");loadPosterPage(true);return;}
+        if("items".equals(mode)&&activeCollection!=null&&selectedLibrary!=null&&"boxsets".equals(selectedLibrary.optString("CollectionType"))){activeCollection=null;parent=selectedLibrary.optString("Id");restorePosterId=collectionReturnFocus;restorePosterCount=collectionReturnCount;restorePosterScroll=collectionReturnScroll;loadPosterPage(true);return;}
+        if("items".equals(mode)&&"detail".equals(libraryOrigin)){finish();return;}
         if("items".equals(mode)&&activeCollection!=null&&selectedLibrary!=null){parent=selectedLibrary.optString("Id");openCollections();return;}
         if("collections".equals(mode)&&selectedLibrary!=null){TvPreferences prefs=new TvPreferences(this,api);parent=selectedLibrary.optString("Id");String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadPosterPage(true);return;}
-        if("items".equals(mode)&&selectedLibrary!=null){pendingLibraryFocus=parent;if("library".equals(libraryOrigin))loadLibraries();else loadHome();return;}
+        if("items".equals(mode)&&selectedLibrary!=null){pendingLibraryFocus=selectedLibrary.optString("Id");if("library".equals(libraryOrigin))loadLibraries();else loadHome();return;}
         if(!mode.equals("home")){loadHome();return;}
         super.onBackPressed();
     }

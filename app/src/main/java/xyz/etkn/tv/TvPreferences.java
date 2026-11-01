@@ -24,6 +24,8 @@ final class TvPreferences {
     void saveLibraryView(String id,String view){prefs.edit().putString(scope+id+"/view",view).apply();}
     String libraryPlayMode(String id){return prefs.getString(scope+id+"/playmode","sequence");}
     void saveLibraryPlayMode(String id,String mode){prefs.edit().putString(scope+id+"/playmode",mode).apply();}
+    boolean libraryFolders(String id){return prefs.getBoolean(scope+id+"/folders",false);}
+    void saveLibraryFolders(String id,boolean folders){prefs.edit().putBoolean(scope+id+"/folders",folders).apply();}
     boolean smartCarousel(){return prefs.getBoolean(scope+"smart-carousel",false);}
     void setSmartCarousel(boolean on){prefs.edit().putBoolean(scope+"smart-carousel",on).apply();}
 }

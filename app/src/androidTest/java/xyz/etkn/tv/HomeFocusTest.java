@@ -453,11 +453,48 @@ public class HomeFocusTest {
             call("loadPosterPage",new Class<?>[]{boolean.class},true);await(()->posterGrid().getChildCount()==60);assertTrue("迟到的首屏加载不能从主菜单抢走焦点",home.nav.hasFocus());
         }finally{closePosterFixture();}
     }
+    @Test public void folderBrowseRestoresPaginationAndGeneratesCoverOnlyByMenu()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.browseFeatures=true;server.canRefresh=true;openPosterFixture(server);
+            assertTrue(descendants(home.content).stream().anyMatch(v->v instanceof android.widget.Button&&"文件夹".equals(((android.widget.Button)v).getText().toString())));
+            call("toggleFolders",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"Folder".equals(((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type")));
+            call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==70);
+            instrumentation.runOnMainSync(()->{posterGrid().getChildAt(65).requestFocus();posterGrid().getChildAt(65).performClick();});await(()->posterGrid().getChildCount()==2);
+            assertTrue(server.mutations.isEmpty());key(KeyEvent.KEYCODE_BACK);await(()->posterGrid().getChildCount()==70&&home.getCurrentFocus()!=null&&home.getCurrentFocus().getTag() instanceof JSONObject&&"tv-folder-category65".equals(((JSONObject)home.getCurrentFocus().getTag()).optString("Id")));
+            saveScreenshot("folder-page-restored.png");key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals("生成封面",itemMenu().getListView().getAdapter().getItem(0));chooseItemAction(0);
+            await(()->server.mutations.stream().anyMatch(x->x.contains("/FolderCover?FolderId=tv-folder-category65"))&&!Boolean.TRUE.equals(field(HomeActivity.class,"mediaActionBusy")));
+            key(KeyEvent.KEYCODE_BACK);await(()->library("library-1")!=null);instrumentation.runOnMainSync(()->library("library-1").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
+            assertFalse(descendants(home.content).stream().anyMatch(v->v instanceof android.widget.Button&&((android.widget.Button)v).getText().toString().startsWith("文件夹")));assertNull(server.unexpectedPath);
+        }finally{closePosterFixture();}
+    }
+    @Test public void folderModePersistsAcrossActivityReopenAndCanBeTurnedOff()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.browseFeatures=true;openPosterFixture(server);assertEquals(false,field(HomeActivity.class,"folderMode"));
+            call("toggleFolders",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&Boolean.TRUE.equals(field(HomeActivity.class,"folderMode")));closePosterFixture();
+            openPosterFixture(server);assertEquals(true,field(HomeActivity.class,"folderMode"));assertEquals("Folder",((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type"));
+            call("toggleFolders",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&Boolean.FALSE.equals(field(HomeActivity.class,"folderMode")));closePosterFixture();
+            openPosterFixture(server);assertEquals(false,field(HomeActivity.class,"folderMode"));assertFalse("Folder".equals(((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type")));
+        }finally{closePosterFixture();}
+    }
+    @Test public void collectionLibraryIsLastSkipsLatestAndRestoresMemberReturnFocus()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.browseFeatures=true;openMenuHomeFixture(server);assertNotNull(library("library-5"));
+            assertEquals("library-5",library("library-5").getTag());
+            assertFalse(server.latestPaths.stream().anyMatch(x->x.contains("ParentId=library-5")));
+            instrumentation.runOnMainSync(()->library("library-5").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
+            assertEquals("BoxSet",((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type"));
+            call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==70);
+            instrumentation.runOnMainSync(()->{posterGrid().getChildAt(66).requestFocus();posterGrid().getChildAt(66).performClick();});await(()->posterGrid().getChildCount()==60&&"collection-66".equals(field(HomeActivity.class,"parent")));
+            key(KeyEvent.KEYCODE_BACK);await(()->posterGrid().getChildCount()==70&&home.getCurrentFocus()!=null&&home.getCurrentFocus().getTag() instanceof JSONObject&&"collection-66".equals(((JSONObject)home.getCurrentFocus().getTag()).optString("Id")));
+            saveScreenshot("collection-page-restored.png");assertNull(server.unexpectedPath);
+        }finally{closePosterFixture();}
+    }
     private static final class Fixture implements AutoCloseable {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image;
         final byte[] updatedImage;
-        volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume;
+        volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures;
+        final java.util.List<String> latestPaths=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         final java.util.List<String> mutations=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         volatile boolean closed;
         volatile String unexpectedPath;
@@ -500,12 +537,21 @@ public class HomeFocusTest {
                 if(holdFirstLatest&&path.contains("/Items/Latest?ParentId=library-0&"))latestGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
                 if(holdResume&&path.contains("/Items/Resume?"))resumeGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&path.contains("/Items?")){lastListingPath=path;listingCalls++;}
-                boolean picture=path.contains("/Images/");
+                if(path.contains("/Items/Latest?"))latestPaths.add(path);
+                boolean picture=path.contains("/Images/")||path.contains("/FolderCover?");
                 byte[] body=picture?(path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
             }
         }
         JSONObject response(String path)throws Exception{
+            if(browseFeatures&&path.contains("/Folders?")){
+                android.net.Uri uri=android.net.Uri.parse(path);String token=uri.getQueryParameter("FolderId"),startText=uri.getQueryParameter("StartIndex");int start=startText==null?0:Integer.parseInt(startText);boolean root=token==null||token.isEmpty();JSONArray rows=new JSONArray();
+                for(int i=start;i<Math.min(start+60,root?70:2);i++)rows.put(new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root));
+                return new JSONObject().put("Items",rows).put("TotalRecordCount",root?70:2);
+            }
+            if(browseFeatures&&path.contains("ParentId=library-5")){
+                String value=android.net.Uri.parse(path).getQueryParameter("StartIndex");int start=value==null?0:Integer.parseInt(value);JSONArray rows=new JSONArray();for(int i=start;i<Math.min(start+60,70);i++)rows.put(new JSONObject().put("Id","collection-"+i).put("Name","电影合集 "+i).put("Type","BoxSet"));return new JSONObject().put("Items",rows).put("TotalRecordCount",70);
+            }
             if(path.contains("/Refresh/"))return new JSONObject().put("RefreshRunId",123).put("status",taskStatus).put("finished",!taskStatus.equals("running"));
             if(path.contains("check_status"))return new JSONObject().put("user",new JSONObject().put("can_access_discovery",false));
             if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin)).put("TvPermissions",new JSONObject().put("CanRefreshMetadata",canRefresh));
@@ -518,6 +564,7 @@ public class HomeFocusTest {
             }
             boolean libraries=path.endsWith("/Views");JSONArray items=new JSONArray();
             for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("Overview","背景简介").put("ProductionYear",2026).put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
+            if(browseFeatures&&libraries){items.getJSONObject(1).put("SourceType","filter");items.getJSONObject(5).put("SourceType","collection").put("CollectionType","boxsets").put("Name","合集");}
             if(hiddenResume&&path.contains("/Items/Resume?"))items.remove(0);
             for(int i=0;i<items.length();i++)items.getJSONObject(i).getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);
             return new JSONObject().put("Items",items);
