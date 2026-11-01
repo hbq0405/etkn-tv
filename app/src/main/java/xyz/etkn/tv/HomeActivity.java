@@ -334,15 +334,19 @@ public final class HomeActivity extends TvActivity {
         card.setOnLongClickListener(view->{showItemMenu(view);return true;});
     }
     private void updatePosterViewButton(){
-        boolean media=false;for(int i=0;i<posterGrid.getChildCount();i++){Object tag=posterGrid.getChildAt(i).getTag();if(tag instanceof JSONObject&&!"Folder".equals(((JSONObject)tag).optString("Type"))){media=true;break;}}
+        boolean media=false,folders=false;for(int i=0;i<posterGrid.getChildCount();i++){Object tag=posterGrid.getChildAt(i).getTag();if(tag instanceof JSONObject){if("Folder".equals(((JSONObject)tag).optString("Type")))folders=true;else media=true;}}
         viewModeButton.setVisibility(folderMode&&!media?View.GONE:View.VISIBLE);
+        int inset=folders?FocusScroll.MARGIN_DP:0;
+        int cell=folders?216:144;if(media)cell=Math.max(cell,viewMode.equals("landscape")?276:144);
+        posterGrid.setPadding(dp(inset),dp(FocusScroll.MARGIN_DP),dp(inset),dp(FocusScroll.MARGIN_DP));
+        posterGrid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-56-2*inset)/cell));
     }
     private View folderCard(JSONObject item){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(android.graphics.Color.TRANSPARENT);card.setClipChildren(false);card.setClipToPadding(false);card.setContentDescription("文件夹 · "+item.optString("Name"));
-        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(149)));
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(108)));
         if(item.has("ImageTags")){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(9));artwork.addView(image,new FrameLayout.LayoutParams(-1,-1));Images.load(api,api.folderArtwork(selectedLibrary.optString("Id"),item,640),image);}else{TextView icon=text("▰",56,android.graphics.Color.rgb(117,203,218));icon.setGravity(Gravity.CENTER);artwork.addView(icon,new FrameLayout.LayoutParams(-1,-1));}
-        TextView title=text(item.optString("Name"),14,android.graphics.Color.WHITE);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,dp(42)));
-        GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,viewMode.equals("landscape")?1:2);bounds.width=dp(264);bounds.height=dp(196);bounds.setMargins(0,dp(6),dp(12),dp(8));posterGrid.addView(card,bounds);
+        TextView title=text(item.optString("Name"),12,android.graphics.Color.WHITE);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,dp(42)));
+        GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=dp(192);bounds.height=dp(150);bounds.setMargins(dp(12),dp(5),dp(12),dp(5));posterGrid.addView(card,bounds);
         card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(focused?dp(8):0);artwork.setElevation(dp(focused?8:4));artwork.setForeground(focused?focusOutline():null);});card.setOnClickListener(view->enterFolder(item));return card;
     }
     private JSONObject posterPosition(){JSONObject state=new JSONObject();View focus=getCurrentFocus();try{state.put("id",folderId).put("title",folderTitle).put("count",Math.max(60,offset)).put("scroll",homeScroll.getScrollY()).put("focus",focus!=null&&focus.getTag() instanceof JSONObject?((JSONObject)focus.getTag()).optString("Id"):"");}catch(Exception ignored){}return state;}
