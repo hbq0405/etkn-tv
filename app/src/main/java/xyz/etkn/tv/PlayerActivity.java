@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 public final class PlayerActivity extends TvActivity {
     private static final int BUFFERED=android.graphics.Color.rgb(90,178,230),BAR_IDLE=android.graphics.Color.rgb(72,82,92);
     private ExoPlayer player;
+    private PlaybackTiming playbackTiming;
     private SubtitleTranslation translation;
     private PlayerView video;
     private PixelTimeBar seekProgress;
@@ -78,7 +79,7 @@ public final class PlayerActivity extends TvActivity {
     }};
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);itemId=getIntent().getStringExtra("id");seasonKey=getIntent().getStringExtra("seasonKey");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
+        super.onCreate(state);itemId=getIntent().getStringExtra("id");playbackTiming=new PlaybackTiming(itemId);seasonKey=getIntent().getStringExtra("seasonKey");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
         audioIndex=state==null?getIntent().getIntExtra("audioIndex",PlaybackSelection.AUTO):state.getInt("audioIndex",PlaybackSelection.AUTO);subtitleIndex=state==null?getIntent().getIntExtra("subtitleIndex",PlaybackSelection.AUTO):state.getInt("subtitleIndex",PlaybackSelection.AUTO);
         playbackSpeed=state==null?getIntent().getFloatExtra("speed",1f):state.getFloat("speed",1f);
         softwareVideo=state!=null&&state.getBoolean("softwareVideo");
@@ -111,7 +112,9 @@ public final class PlayerActivity extends TvActivity {
         setContentView(stage);video.hideController();video.requestFocus();
         if(queueMode&&!getIntent().getBooleanExtra("resolved",false)){status.setText("正在解析播放队列…");resolveQueueUnit(itemId,true);return;}
         String requestedSource=state==null?getIntent().getStringExtra("sourceId"):state.getString("sourceId",getIntent().getStringExtra("sourceId"));
-        async(()->api.post("/api/tv/Items/"+EtknApi.encode(itemId)+"/PlaybackInfo?UserId="+EtknApi.encode(api.session.userId()),new JSONObject()),result->{
+        playbackTiming.event("info_queued");
+        async(()->{playbackTiming.event("info_request");JSONObject result=api.post("/api/tv/Items/"+EtknApi.encode(itemId)+"/PlaybackInfo?UserId="+EtknApi.encode(api.session.userId()),new JSONObject());playbackTiming.event("info_received");return result;},result->{
+            playbackTiming.event("info_delivered");
             info=result;playSession=info.optString("PlaySessionId");JSONArray sources=info.optJSONArray("MediaSources");
             if(sources==null||sources.length()==0){status.setText("暂无可播放版本");return;}
             int preferred=PlaybackSelection.sourceIndex(sources,requestedSource);
@@ -219,6 +222,7 @@ public final class PlayerActivity extends TvActivity {
     private void startSource(){
         if(!foreground||!versionConfirmed||info==null||player!=null||pendingAdvance)return;
         try{
+            playbackTiming.event("source_start");
             completedByCredits=false;
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
             boolean texture=useTextureVideo();
@@ -232,8 +236,9 @@ public final class PlayerActivity extends TvActivity {
             JSONObject translationPlan=source.optJSONObject("SubtitleTranslation");
             if(translationPlan!=null&&subtitleIndex==PlaybackSelection.AUTO)
                 translation=new SubtitleTranslation(api,itemId,source.optString("Id"),translationPlan,video,()->player,()->subtitleIndex==PlaybackSelection.AUTO);
-            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation);}
-            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
+            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation,playbackTiming);}
+            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation,playbackTiming);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
+            playbackTiming.event("player_created");
             video.setPlayer(player);player.setPlaybackSpeed(playbackSpeed);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
             TrackSelectionParameters.Builder preferences=player.getTrackSelectionParameters().buildUpon();
@@ -256,18 +261,18 @@ public final class PlayerActivity extends TvActivity {
             reportedStart=false;
             videoFrameSeen=false;videoReadySince=0;videoDecoder="等待解码器";
             player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener(){
-                @Override public void onVideoDecoderInitialized(EventTime time,String name,long at,long duration){videoDecoder=name;if(player!=null)applyVideoRotation(player.getVideoSize());updateVideoInfo();}
+                @Override public void onVideoDecoderInitialized(EventTime time,String name,long at,long duration){playbackTiming.event("video_decoder","init_ms="+duration);videoDecoder=name;if(player!=null)applyVideoRotation(player.getVideoSize());updateVideoInfo();}
             });
             player.addListener(new Player.Listener(){
                 @Override public void onTimelineChanged(Timeline timeline,int reason){updateTimelineMarkers();}
                 @Override public void onPlaybackParametersChanged(PlaybackParameters parameters){playbackSpeed=parameters.speed;speedButton.setText("倍速 · "+speedLabel());}
-                @Override public void onRenderedFirstFrame(){videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
+                @Override public void onRenderedFirstFrame(){playbackTiming.event("first_frame");videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
-                @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)advanceQueue();}
+                @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
-            updateTimelineMarkers();player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();if(episodePanel.isShown())renderEpisodes();else video.requestFocus();updateTrackButtons();
+            updateTimelineMarkers();playbackTiming.event("prepare");player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();if(episodePanel.isShown())renderEpisodes();else video.requestFocus();updateTrackButtons();
         }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
     }
     private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}

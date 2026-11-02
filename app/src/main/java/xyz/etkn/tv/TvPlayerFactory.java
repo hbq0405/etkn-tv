@@ -35,9 +35,13 @@ final class TvPlayerFactory {
         return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,null);
     }
     static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles,SubtitleTranslation translation){
+        return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,translation,null);
+    }
+    static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles,SubtitleTranslation translation,PlaybackTiming timing){
         if(subtitleView!=null)subtitleView.setStyle(new androidx.media3.ui.CaptionStyleCompat(android.graphics.Color.WHITE,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,android.graphics.Color.BLACK,null));
         // Authentication stays in same-origin media URIs; never attach ETKN headers to CDN requests.
         DefaultDataSource.Factory data=new DefaultDataSource.Factory(context,new OkHttpDataSource.Factory(HTTP).setUserAgent(EtknApi.USER_AGENT));
+        if(timing!=null)data.setTransferListener(timing);
         ActivityManager memory=(ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE);
         int bufferMb=memory!=null&&memory.isLowRamDevice()?128:256;
         ExoPlayer.Builder builder=new ExoPlayer.Builder(context).setLoadControl(new DefaultLoadControl.Builder()
