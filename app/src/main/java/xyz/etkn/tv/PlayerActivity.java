@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 public final class PlayerActivity extends TvActivity {
     private static final int BUFFERED=android.graphics.Color.rgb(90,178,230),BAR_IDLE=android.graphics.Color.rgb(72,82,92);
     private ExoPlayer player;
+    private SubtitleTranslation translation;
     private PlayerView video;
     private PixelTimeBar seekProgress;
     private LinearLayout controls;
@@ -227,8 +228,11 @@ public final class PlayerActivity extends TvActivity {
             int locked=new TvPreferences(this,api).seasonAudio(seasonKey);
             if(locked>=0){audioIndex=PlaybackSelection.audioAt(source,locked);if(audioIndex==PlaybackSelection.AUTO&&missingSeasonAudio!=locked){missingSeasonAudio=locked;Toast.makeText(this,"本集缺少第 "+(locked+1)+" 音轨，使用默认音轨；本季锁定已保留",Toast.LENGTH_LONG).show();}}
             String address=PlaybackAddress.resolve(source,api.server,api.token,api.session.userId());
-            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles);}
-            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
+            JSONObject translationPlan=source.optJSONObject("SubtitleTranslation");
+            if(translationPlan!=null&&subtitleIndex==PlaybackSelection.AUTO)
+                translation=new SubtitleTranslation(api,itemId,source.optString("Id"),translationPlan,video,()->player,()->subtitleIndex==PlaybackSelection.AUTO);
+            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation);}
+            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
             video.setPlayer(player);player.setPlaybackSpeed(playbackSpeed);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
             TrackSelectionParameters.Builder preferences=player.getTrackSelectionParameters().buildUpon();
@@ -337,6 +341,7 @@ public final class PlayerActivity extends TvActivity {
         boolean subtitles=type==C.TRACK_TYPE_TEXT;
         if(player==null||!(subtitles?subtitlePending:audioPending))return;
         int index=subtitles?subtitleIndex:audioIndex;if(index==PlaybackSelection.AUTO)index=PlaybackSelection.defaultIndex(source,subtitles);
+        if(subtitles&&subtitleIndex==PlaybackSelection.AUTO&&index<0&&translation!=null)index=translation.sourceIndex;
         if(index<0){if(subtitles){subtitlePending=false;player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type,true).build());}else audioPending=false;return;}
         JSONObject selectedStream=PlaybackSelection.stream(source,index,subtitles);
         if(selectedStream==null){if(subtitles)subtitlePending=false;else audioPending=false;return;}
@@ -346,7 +351,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void chooseTrack(int type){
         if(player==null)return;boolean subtitles=type==C.TRACK_TYPE_TEXT;List<Integer> indices=new ArrayList<>();List<String> labels=new ArrayList<>();
-        indices.add(PlaybackSelection.AUTO);labels.add((subtitles?"":seasonKey==null||seasonKey.isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles,!subtitles));
+        indices.add(PlaybackSelection.AUTO);labels.add(subtitles&&translation!=null&&translation.active()?translation.label:(subtitles?"":seasonKey==null||seasonKey.isEmpty()?"自动选择 · ":"自动选择（解除本季锁定） · ")+PlaybackSelection.selectionLabel(source,PlaybackSelection.AUTO,subtitles,!subtitles));
         if(subtitles){
             indices.add(-1);
             boolean disabled=player.getTrackSelectionParameters().disabledTrackTypes.contains(type);
@@ -370,6 +375,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private String currentTrackTitle(boolean subtitles){
         int type=subtitles?C.TRACK_TYPE_TEXT:C.TRACK_TYPE_AUDIO;
+        if(subtitles&&subtitleIndex==PlaybackSelection.AUTO&&translation!=null&&translation.active())return translation.label;
         if(player!=null&&subtitles&&player.getTrackSelectionParameters().disabledTrackTypes.contains(type))return "关闭";
         for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){TrackRef ref=findTrack(stream,type);if(ref!=null&&ref.group.isTrackSelected(ref.index))return PlaybackSelection.streamLabel(stream);}
         return PlaybackSelection.selectionLabel(source,subtitles?subtitleIndex:audioIndex,subtitles);
@@ -401,7 +407,7 @@ public final class PlayerActivity extends TvActivity {
             reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
-    private void stopPlayer(){hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}}
+    private void stopPlayer(){if(translation!=null){translation.close();translation=null;}hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}}
     @Override protected void onStart(){super.onStart();if(!LoginGate.isSatisfied()&&api.session.persist()!=SessionStore.PERSIST_FULL)return;foreground=true;if(info!=null&&player==null)startSource();}
     @Override protected void onPause(){hideSeekProgress();super.onPause();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}

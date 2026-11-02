@@ -32,6 +32,9 @@ final class TvPlayerFactory {
     private static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(30,TimeUnit.SECONDS)
         .readTimeout(10,TimeUnit.SECONDS).connectionPool(new ConnectionPool(5,5,TimeUnit.MINUTES)).build();
     static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles){
+        return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,null);
+    }
+    static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles,SubtitleTranslation translation){
         if(subtitleView!=null)subtitleView.setStyle(new androidx.media3.ui.CaptionStyleCompat(android.graphics.Color.WHITE,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,android.graphics.Color.BLACK,null));
         // Authentication stays in same-origin media URIs; never attach ETKN headers to CDN requests.
         DefaultDataSource.Factory data=new DefaultDataSource.Factory(context,new OkHttpDataSource.Factory(HTTP).setUserAgent(EtknApi.USER_AGENT));
@@ -41,7 +44,7 @@ final class TvPlayerFactory {
             .setBufferDurationsMs(50000,120000,2000,5000).setPrioritizeTimeOverSizeThresholds(false)
             .setBackBuffer(12000,false).setTargetBufferBytes(bufferMb*1024*1024).build());
         RenderersFactory renderers=new TvRenderersFactory(context,softwareVideo,softwareAudio);
-        AssHandler ass=enhancedSubtitles?new AssHandler(AssRenderType.OVERLAY_CANVAS,new AssHandlerConfig(10000,64,1920*1080)):null;
+        AssHandler ass=enhancedSubtitles&&translation==null?new AssHandler(AssRenderType.OVERLAY_CANVAS,new AssHandlerConfig(10000,64,1920*1080)):null;
         // Keep embedded PGS raw for the decoder worker; external SUP still needs extraction parsing.
         SubtitleParser.Factory delegate=ass==null?new DefaultSubtitleParserFactory():new AssSubtitleParserFactory(ass);
         SubtitleParser.Factory parsers=new TvSubtitleParserFactory(delegate,false);
@@ -55,7 +58,7 @@ final class TvPlayerFactory {
             };
             renderers=new AssRenderersFactory(ass,renderers);
         }
-        ExtractorsFactory videoExtractors=new TvExtractorsFactory(extractors);
+        ExtractorsFactory videoExtractors=new TvExtractorsFactory(extractors,translation);
         SubtitleParser.Factory externalParsers=new TvSubtitleParserFactory(delegate);
         DefaultMediaSourceFactory sources=new DefaultMediaSourceFactory(data,videoExtractors).setSubtitleParserFactory(externalParsers);
         ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new BlurayMediaSourceFactory(sources,data,videoExtractors,externalParsers)).build();

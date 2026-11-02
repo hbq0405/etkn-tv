@@ -934,7 +934,37 @@ public class DetailFlowTest {
             onMain(()->{focus.requestFocus();assertUniformDatedMatrix((GridLayout)focus.getParent());});settle();assertFalse(playback.isFinishing());screenshot("player-placeholder-dates-aligned.png");
         }finally{cleanup();}
     }
+    @Test public void translationCapturesBufferedTextBeforeDisplayAndManualSelectionRestoresOriginal()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.translateSubtitles=true;server.noProgress=true;open(server,"movie-single");play();
+            await(()->server.translationCues.stream().anyMatch(c->c.optLong("start")>=10000));
+            SubtitleTranslation helper=(SubtitleTranslation)field(playback,"translation");
+            TextView overlay=(TextView)field(helper,"overlay");View original=(View)field(helper,"original");
+            onMain(()->{assertEquals("3",selected(C.TRACK_TYPE_TEXT));assertEquals(View.VISIBLE,original.getVisibility());assertEquals("",overlay.getText().toString());});
+            synchronized(server.translationCues){for(JSONObject cue:server.translationCues){assertEquals("Synthetic subtitle 3",cue.getString("text"));assertEquals(1000,cue.getLong("end")-cue.getLong("start"));}}
+            server.translationReady=true;await(()->overlay.getText().toString().contains("合成译文"));
+            onMain(()->assertEquals(View.INVISIBLE,original.getVisibility()));screenshot("realtime-translated-subtitle.png");
+            clickTrack(true,3);await(()->overlay.getVisibility()==View.GONE&&original.getVisibility()==View.VISIBLE);
+            onMain(()->assertEquals("4",selected(C.TRACK_TYPE_TEXT)));
+            clickTrack(true,0);await(()->overlay.getText().toString().contains("合成译文"));
+            closePlayer();onMain(()->{assertFalse(helper.active());assertNull(overlay.getParent());assertEquals(View.VISIBLE,original.getVisibility());});
+        }finally{cleanup();}
+    }
+    @Test public void translatedAssKeepsContainerTimestampsAcrossSeek()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.translateSubtitles=true;server.translationReady=true;server.noProgress=true;open(server,"movie-single");play();
+            SubtitleTranslation helper=(SubtitleTranslation)field(playback,"translation");TextView overlay=(TextView)field(helper,"overlay");
+            await(()->overlay.getText().toString().contains("ASS animation")&&overlay.getText().toString().contains("Native subtitle rendering"));
+            synchronized(server.translationCues){assertEquals(2,server.translationCues.size());for(JSONObject cue:server.translationCues){assertEquals(0,cue.getLong("start"));assertEquals(12000,cue.getLong("end"));assertFalse(cue.getString("text").contains("{"));}}
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");assertTrue(player.isCurrentMediaItemSeekable());player.seekTo(7000);});
+            settle();
+            await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=6900&&overlay.getText().toString().contains("合成译文"));
+            onMain(()->assertEquals(View.INVISIBLE,((View)field(helper,"original")).getVisibility()));screenshot("translated-ass-after-seek.png");
+        }finally{cleanup();}
+    }
     private final class Fixture implements AutoCloseable{
+        volatile boolean translateSubtitles,translationReady;
+        final List<JSONObject> translationCues=Collections.synchronizedList(new ArrayList<>());
         volatile boolean placeholderDates,admin,favorite,watched,liveArtwork,changed,holdMetadata,slotLabels,versionUpdates;
         volatile int refreshStatusRequests;
         volatile String taskStatus="running";
@@ -967,19 +997,21 @@ public class DetailFlowTest {
         JSONArray sources(boolean multi)throws Exception{
             if(codecMedia){JSONArray streams=new JSONArray();if(hdrVideo)streams.put(new JSONObject().put("Type","Video").put("Index",0).put("Codec","hevc").put("VideoRange","HDR10"));String[] codecs={"aac","ac3","eac3","dts","truehd"};for(int i=0;i<codecs.length;i++)streams.put(stream("Audio",i+1,"归一化 "+codecs[i]).put("Title","raw-"+codecs[i]).put("Codec",codecs[i]));streams.put(stream("Subtitle",6,"特效字幕 ASS").put("Title","raw-effect").put("Codec","ass"));
                 if(pgsSubtitle)streams.put(stream("Subtitle",12,"外挂 PGS").put("IsExternal",true).put("Codec","pgs").put("DeliveryUrl","/api/tv/subtitle.vtt"));
-                JSONArray chapters=new JSONArray();String[] types={"IntroStart","IntroEnd","CreditsStart"};long[] ticks={10000000,30000000,100000000};for(int i=0;i<types.length;i++)chapters.put(new JSONObject().put("MarkerType",types[i]).put("StartPositionTicks",ticks[i]));return new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","HEVC 多编码").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",1).put("DefaultSubtitleStreamIndex",6).put("Chapters",chapters));}
+                JSONArray chapters=new JSONArray();String[] types={"IntroStart","IntroEnd","CreditsStart"};long[] ticks={10000000,30000000,100000000};for(int i=0;i<types.length;i++)chapters.put(new JSONObject().put("MarkerType",types[i]).put("StartPositionTicks",ticks[i]));JSONObject source=new JSONObject().put("Id","source-a").put("Name","HEVC 多编码").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",1).put("DefaultSubtitleStreamIndex",translateSubtitles?-1:6).put("Chapters",chapters);if(translateSubtitles)source.put("SubtitleTranslation",new JSONObject().put("Key","fixture-key").put("SourceIndex",6).put("SourceOrdinal",0).put("Mode","translate").put("Target","chs"));return new JSONArray().put(source);}
             JSONArray streams=new JSONArray().put(stream("Audio",0,"音轨一").put("IsDefault",true)).put(stream("Audio",4,"音轨二")).put(stream("Subtitle",7,"内封一")).put(stream("Subtitle",8,"内封二")).put(stream("Subtitle",12,"外挂字幕").put("IsExternal",true).put("Codec","webvtt").put("DeliveryUrl","/api/tv/subtitle.vtt"));
             if(pgsSubtitle)streams.getJSONObject(4).put("Codec","pgs");
             if(extraTrack)streams.put(stream("Audio",100,"未解析音轨"));
             if(ordinalFixture){streams.getJSONObject(0).put("Index",audioOffset).put("Title","国语");streams.getJSONObject(1).put("Index",audioOffset+4).put("Title","国语");if(missingAudio)streams.remove(1);}
             JSONArray sources=new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","1080P").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",preferSecond?4:0).put("DefaultSubtitleStreamIndex",preferSecond?8:-1));
             if(ordinalFixture)sources.getJSONObject(0).put("DefaultAudioStreamIndex",audioOffset);
+            if(translateSubtitles)sources.getJSONObject(0).put("SubtitleTranslation",new JSONObject().put("Key","fixture-key").put("SourceIndex",7).put("SourceOrdinal",0).put("Mode","translate").put("Target","chs"));
             if(multi)sources.put(new JSONObject(sources.getJSONObject(0).toString()).put("Id","source-b").put("Name","4K 版本"));
             if(slotLabels)for(int i=0;i<sources.length();i++){JSONObject source=sources.getJSONObject(i);source.put("Name",(i==0?"原盘":"压制")+" · 4K HEVC HDR10");source.getJSONArray("MediaStreams").put(new JSONObject().put("Type","Video").put("Index",99).put("DisplayTitle","4K HEVC HDR10"));}
             if(versionUpdates&&changed){sources.put(new JSONObject(sources.getJSONObject(0).toString()).put("Id","source-c").put("Name","新增版本"));JSONArray reordered=new JSONArray();for(int i=sources.length()-1;i>=0;i--)reordered.put(sources.get(i));sources=reordered;}return sources;
         }
         JSONObject base(String id,String type)throws Exception{return new JSONObject().put("ProviderIds",new JSONObject().put("Tmdb","123")).put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演"))).put("UserData",new JSONObject().put("IsFavorite",favorite).put("Played",watched)).put("BackdropImageTags",new JSONArray().put(changed?"art2":"art1")).put("ImageTags",new JSONObject().put("Logo",changed?"art2":"art1"));}
         JSONObject response(String path)throws Exception{
+            if(path.endsWith("/SubtitleTranslation")){JSONArray result=new JSONArray();if(translationReady)synchronized(translationCues){for(JSONObject cue:translationCues)result.put(new JSONObject().put("start",cue.getLong("start")).put("end",cue.getLong("end")).put("source",cue.getString("text")).put("text","合成译文\n"+cue.getString("text")));}return new JSONObject().put("Enabled",true).put("Key","fixture-key").put("Complete",false).put("Cues",result);}
             if(browseFeatures&&path.contains("/Collections?"))return new JSONObject().put("Items",new JSONArray().put(new JSONObject().put("Id","collection-1").put("Name","合成合集").put("Type","BoxSet"))).put("TotalRecordCount",1);
             if(browseFeatures&&(path.contains("/Browse?")||path.contains("/Items?"))){lastBrowsePath=path;return new JSONObject().put("Items",new JSONArray().put(base("movie-browse","Movie"))).put("TotalRecordCount",1);}
             if(path.contains("check_status")){discoveryChecks++;return new JSONObject().put("user",new JSONObject().put("can_access_discovery",discoveryAllowed));}
@@ -1008,6 +1040,7 @@ public class DetailFlowTest {
                 if(path.contains("/FavoriteItems/"))favorite=post;if(path.contains("/PlayedItems/"))watched=post;
                 if(post&&path.contains("/PlaybackPreferences")){char[] body=new char[length];int received=0,n;while(received<length&&(n=reader.read(body,received,length-received))>0)received+=n;JSONObject changes=new JSONObject(new String(body));for(String key:new String[]{"audio_lang_priority","subtitle_priority"})if(changes.has(key))personal.put(key,changes.get(key));}
                 if(post&&path.contains("/Sessions/Playing/Stopped")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;stopped.add(new JSONObject(new String(data)));}
+                if(post&&path.endsWith("/SubtitleTranslation")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;JSONArray cues=new JSONObject(new String(data)).getJSONArray("cues");synchronized(translationCues){for(int i=0;i<cues.length();i++){JSONObject cue=cues.getJSONObject(i);if(translationCues.stream().noneMatch(c->c.toString().equals(cue.toString())))translationCues.add(cue);}}}
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path;
                 boolean picture=path.contains("/Images/")||path.contains("/FacetArtwork?"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single")||path.contains("/FacetArtwork?")&&path.contains("Kind=Networks");if(picture)imagePaths.add(path);
                 byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?(path.contains("tag=art2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
