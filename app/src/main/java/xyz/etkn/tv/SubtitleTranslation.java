@@ -40,6 +40,7 @@ final class SubtitleTranslation implements TranslationTrackOutput.Sink {
     SubtitleTranslation(EtknApi api,String itemId,String sourceId,JSONObject plan,PlayerView parent,Supplier<ExoPlayer> player,BooleanSupplier enabled){
         this.api=api;this.player=player;this.enabled=enabled;key=plan.optString("Key");
         original=parent.getSubtitleView();
+        if(original!=null)original.setVisibility(View.INVISIBLE);
         sourceIndex=plan.optInt("SourceIndex",-1);sourceOrdinal=plan.optInt("SourceOrdinal",-1);
         label=("convert".equals(plan.optString("Mode"))?"繁简转换":"实时翻译")+"（"+("cht".equals(plan.optString("Target"))?"繁中":"简中")+"）";
         path="/api/tv/Items/"+EtknApi.encode(itemId)+"/"+EtknApi.encode(sourceId)+"/SubtitleTranslation";
@@ -68,8 +69,9 @@ final class SubtitleTranslation implements TranslationTrackOutput.Sink {
             StringBuilder text=new StringBuilder();
             for(JSONObject cue:translated)if(cue.optLong("start")<=position&&cue.optLong("end")>position){if(text.length()>0)text.append('\n');text.append(cue.optString("text"));}
             overlay.setText(text.toString());
-            boolean suppress=text.length()>0;
-            if(original!=null)original.setVisibility(suppress?View.INVISIBLE:View.VISIBLE);
+            // The server's translated text already contains both lines in bilingual mode.
+            // Keep capturing the source track, but never reveal it while waiting for a translation.
+            if(original!=null)original.setVisibility(View.INVISIBLE);
             if(!loading&&(jumped||android.os.SystemClock.elapsedRealtime()-lastRequest>=2000))request(position);
         }else {overlay.setText("");if(original!=null)original.setVisibility(View.VISIBLE);}
         handler.postDelayed(tick,100);

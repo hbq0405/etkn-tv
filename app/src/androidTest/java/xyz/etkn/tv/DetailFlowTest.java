@@ -940,7 +940,7 @@ public class DetailFlowTest {
             await(()->server.translationCues.stream().anyMatch(c->c.optLong("start")>=10000));
             SubtitleTranslation helper=(SubtitleTranslation)field(playback,"translation");
             TextView overlay=(TextView)field(helper,"overlay");View original=(View)field(helper,"original");
-            onMain(()->{assertEquals("3",selected(C.TRACK_TYPE_TEXT));assertEquals(View.VISIBLE,original.getVisibility());assertEquals("",overlay.getText().toString());});
+            onMain(()->{assertEquals("3",selected(C.TRACK_TYPE_TEXT));assertEquals(View.INVISIBLE,original.getVisibility());assertEquals("",overlay.getText().toString());});
             synchronized(server.translationCues){for(JSONObject cue:server.translationCues){assertEquals("Synthetic subtitle 3",cue.getString("text"));assertEquals(1000,cue.getLong("end")-cue.getLong("start"));}}
             server.translationReady=true;await(()->overlay.getText().toString().contains("合成译文"));
             onMain(()->assertEquals(View.INVISIBLE,original.getVisibility()));screenshot("realtime-translated-subtitle.png");
