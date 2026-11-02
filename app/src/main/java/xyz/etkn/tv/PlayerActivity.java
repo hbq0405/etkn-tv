@@ -46,7 +46,7 @@ public final class PlayerActivity extends TvActivity {
     private boolean foreground,reportedStart,versionConfirmed,audioPending,subtitlePending;
     private boolean softwareVideo,playWhenReady=true;
     private boolean softwareAudio=true,enhancedSubtitles=true;
-    private boolean videoFrameSeen;
+    private boolean videoFrameSeen,completedByCredits;
     private long videoReadySince;
     private String videoDecoder="等待解码器";
     private TextView videoInfo;
@@ -67,7 +67,7 @@ public final class PlayerActivity extends TvActivity {
     }};
     private final ExecutorService reports=Executors.newSingleThreadExecutor();
     private final Runnable progress=new Runnable(){@Override public void run(){if(player!=null){report("Progress");timer.postDelayed(this,10000);}}};
-    private final Runnable skipCheck=new Runnable(){@Override public void run(){if(player!=null){updateSkip();timer.postDelayed(this,400);}}};
+    private final Runnable skipCheck=new Runnable(){@Override public void run(){if(player!=null){updateSkip();if(player!=null)timer.postDelayed(this,400);}}};
     private final Runnable videoCheck=new Runnable(){@Override public void run(){
         if(player==null)return;
         boolean expected=player.getCurrentTracks().containsType(C.TRACK_TYPE_VIDEO);
@@ -217,8 +217,9 @@ public final class PlayerActivity extends TvActivity {
         PlayerChoiceDialog.create(this,"选择播放版本",labels,selected,(dialog,index)->{stopPlayer();selected=index;versionConfirmed=true;audioIndex=subtitleIndex=PlaybackSelection.AUTO;dialog.dismiss();startSource();}).show();
     }
     private void startSource(){
-        if(!foreground||!versionConfirmed||info==null||player!=null)return;
+        if(!foreground||!versionConfirmed||info==null||player!=null||pendingAdvance)return;
         try{
+            completedByCredits=false;
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
             boolean texture=useTextureVideo();
             if((video.getVideoSurfaceView() instanceof TextureView)!=texture){
@@ -310,7 +311,7 @@ public final class PlayerActivity extends TvActivity {
     private void updateSkip(){
         SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||pendingSeekPosition>=0||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
         skipTarget=segment==null?-1:segment.end;
-        if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){player.seekTo(segment.end);skipTarget=-1;segment=null;}
+        if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){skipSegment();return;}
         if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys&&!episodePanel.isShown()){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
     }
     private void updateTimelineMarkers(){
@@ -318,7 +319,12 @@ public final class PlayerActivity extends TvActivity {
         video.setExtraAdGroupMarkers(points,played);seekProgress.setChapterMarkers(source==null?null:source.optJSONArray("Chapters"));
         PixelTimeBar bar=video.findViewById(androidx.media3.ui.R.id.exo_progress);if(bar!=null)bar.setChapterMarkers(source==null?null:source.optJSONArray("Chapters"));
     }
-    private void skipSegment(){if(player!=null&&skipTarget>=0){player.seekTo(skipTarget);updateSkip();}}
+    private void skipSegment(){
+        if(player==null||skipTarget<0)return;
+        if(skipTarget==player.getDuration()){
+            completedByCredits=true;skipTarget=-1;stopPlayer();advanceQueue();
+        }else{player.seekTo(skipTarget);updateSkip();}
+    }
     private static final class TrackRef{
         final Tracks.Group group;final int index;
         TrackRef(Tracks.Group group,int index){this.group=group;this.index=index;}
@@ -404,6 +410,7 @@ public final class PlayerActivity extends TvActivity {
     private void report(String event){
         if(source==null)return;long milliseconds=player==null?position:Math.max(0,player.getCurrentPosition());boolean paused=player==null||!player.isPlaying();long duration=player==null?source.optLong("RunTimeTicks"):player.getDuration()>0?player.getDuration()*10000:source.optLong("RunTimeTicks");
         try{JSONObject payload=new JSONObject().put("ItemId",itemId).put("UserId",api.session.userId()).put("MediaSourceId",source.optString("Id")).put("PlaySessionId",playSession).put("PositionTicks",milliseconds*10000).put("RunTimeTicks",duration).put("IsPaused",paused).put("CanSeek",true).put("PlayMethod","DirectStream").put("Client","ETKN TV");
+            if(event.equals("Stopped")&&completedByCredits)payload.put("PlayedToCompletion",true);
             reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }

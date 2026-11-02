@@ -697,6 +697,51 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
+    @Test public void creditsSkipAdvancesWithoutSeekingInAutomaticAndButtonModes()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            for(int mode:new int[]{TvPreferences.SKIP_AUTO,TvPreferences.SKIP_BUTTON}){
+                if(detail!=null)onMain(()->detail.finish());open(server,"episode-1-2");new TvPreferences(detail,detail.api).setSkipMode(mode);play();
+                PlayerActivity previous=playback;int[] seeks={0};long[] duration={0};int before=server.stopped.size();
+                onMain(()->{ExoPlayer player=(ExoPlayer)field(previous,"player");duration[0]=player.getDuration();player.seekTo(10000);});
+                await(()->((ExoPlayer)field(previous,"player")).getPlaybackState()==Player.STATE_READY&&((Long)field(previous,"skipTarget"))==duration[0]);
+                onMain(()->((ExoPlayer)field(previous,"player")).addListener(new Player.Listener(){@Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK)seeks[0]++;}}));
+                Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+                try{
+                    onMain(()->{if(mode==TvPreferences.SKIP_AUTO)((ExoPlayer)field(previous,"player")).play();else ((Button)field(previous,"skipButton")).performClick();});
+                    PlayerActivity next=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);assertNotNull("片尾应直接切下一集",next);playback=next;
+                    await(()->field(next,"player")!=null&&((ExoPlayer)field(next,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->((ExoPlayer)field(next,"player")).pause());
+                    assertEquals("episode-1-3",next.getIntent().getStringExtra("id"));assertTrue(previous.isFinishing());assertNull(field(previous,"player"));
+                    assertEquals("跳片尾不得先seek到文件末尾",0,seeks[0]);await(()->server.stopped.size()==before+1);
+                    JSONObject stopped=server.stopped.get(before);assertEquals("episode-1-2",stopped.getString("ItemId"));assertTrue("跳片尾仍应完成本集",stopped.optBoolean("PlayedToCompletion"));
+                    assertTrue("保留实际停止位置，不伪造末尾进度",stopped.getLong("PositionTicks")<duration[0]*10000);closePlayer();
+                }finally{instrumentation.removeMonitor(monitor);}
+            }
+        }finally{cleanup();}
+    }
+
+    @Test public void creditsSkipStopsWhileNextLookupIsPendingThenContinuesOrExits()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            for(String id:new String[]{"episode-1-2","episode-1-24"}){
+                if(detail!=null)onMain(()->detail.finish());open(server,id);new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_BUTTON);
+                server.nextRequested=new java.util.concurrent.CountDownLatch(1);server.nextGate=new java.util.concurrent.CountDownLatch(1);
+                Instrumentation.ActivityMonitor monitor=null;
+                try{
+                    play();assertTrue(server.nextRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));PlayerActivity previous=playback;int before=server.stopped.size();
+                    onMain(()->((ExoPlayer)field(previous,"player")).seekTo(10000));await(()->((View)field(previous,"skipButton")).getVisibility()==View.VISIBLE);
+                    monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
+                    onMain(()->{((Button)field(previous,"skipButton")).performClick();assertNull("等待下一集时应释放旧播放器",field(previous,"player"));});
+                    assertFalse("查询完成前不能误判为末集",previous.isFinishing());assertEquals(true,field(previous,"pendingAdvance"));await(()->server.stopped.size()==before+1);
+                    assertTrue(server.stopped.get(before).optBoolean("PlayedToCompletion"));server.nextGate.countDown();
+                    if(id.equals("episode-1-2")){
+                        PlayerActivity next=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);assertNotNull(next);playback=next;assertEquals("episode-1-3",next.getIntent().getStringExtra("id"));
+                        await(()->field(next,"player")!=null&&((ExoPlayer)field(next,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->((ExoPlayer)field(next,"player")).pause());
+                    }else await(()->previous.isFinishing()&&detail.hasWindowFocus());
+                    settle();assertEquals("本集只回报一次停止",before+1,server.stopped.size());closePlayer();
+                }finally{server.nextGate.countDown();server.nextGate=null;if(monitor!=null)instrumentation.removeMonitor(monitor);}
+            }
+        }finally{cleanup();}
+    }
+
     @Test public void skipModesHonorExplicitMarkersAndPersistAcrossSettingsReopen()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");TvPreferences preferences=new TvPreferences(detail,detail.api);preferences.setSkipMode(TvPreferences.SKIP_BUTTON);play();
