@@ -7,6 +7,10 @@ import java.util.*;
 /** Playback uses server indices; season preferences store an audio-list ordinal. */
 final class PlaybackSelection {
     static final int AUTO=-2;
+    static long seekStepMillis(long duration,boolean repeated){
+        if(!repeated||duration<=2700000)return 10000;
+        return Math.min(60000,Math.round(duration/2700000d*10)*1000);
+    }
     static boolean useTextureVideo(boolean software,String model,int sdk,JSONObject source){
         if(software)return true;
         if(sdk>28||!"L055FCN".equals(model))return false;

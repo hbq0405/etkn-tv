@@ -962,8 +962,40 @@ public class DetailFlowTest {
             onMain(()->assertEquals(View.INVISIBLE,((View)field(helper,"original")).getVisibility()));screenshot("translated-ass-after-seek.png");
         }finally{cleanup();}
     }
+    @Test public void backwardSeekAdmitsCurrentCuesWhenOldFutureQueueIsFull()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.translateSubtitles=true;server.noProgress=true;open(server,"movie-single");play();
+            SubtitleTranslation helper=(SubtitleTranslation)field(playback,"translation");
+            onMain(()->((ExoPlayer)field(playback,"player")).seekTo(7000));
+            await(()->(long)field(helper,"lastPosition")>=6900);
+            onMain(()->{synchronized(helper){((Map<?,?>)field(helper,"pending")).clear();for(int i=0;i<512;i++)helper.cue(1000000+i*1000,1000500+i*1000,"Old future "+i);}((ExoPlayer)field(playback,"player")).seekTo(1000);});
+            await(()->(long)field(helper,"lastPosition")<2000);
+            onMain(()->helper.cue(1000,3000,"Current after backward seek"));
+            await(()->server.translationCues.stream().anyMatch(c->c.optString("text").equals("Current after backward seek")));
+            server.translationReady=true;
+            TextView overlay=(TextView)field(helper,"overlay");
+            await(()->overlay.getText().toString().contains("Current after backward seek"));
+            onMain(()->assertEquals(View.INVISIBLE,((View)field(helper,"original")).getVisibility()));
+        }finally{cleanup();}
+    }
+    @Test public void delayedTranslationSurvivesNormalPlaybackAdvance()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.translateSubtitles=true;server.translationReady=true;server.noProgress=true;
+            server.translationGate=new java.util.concurrent.CountDownLatch(1);server.translationRequested=new java.util.concurrent.CountDownLatch(1);
+            server.translationCues.add(new JSONObject().put("start",0).put("end",12000).put("text","Delayed translation"));
+            open(server,"movie-single");play();
+            assertTrue(server.translationRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            SubtitleTranslation helper=(SubtitleTranslation)field(playback,"translation");
+            onMain(()->((ExoPlayer)field(playback,"player")).play());
+            await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=6000);
+            server.translationGate.countDown();
+            TextView overlay=(TextView)field(helper,"overlay");
+            await(()->overlay.getText().toString().contains("Delayed translation"));
+        }finally{cleanup();}
+    }
     private final class Fixture implements AutoCloseable{
         volatile boolean translateSubtitles,translationReady;
+        volatile java.util.concurrent.CountDownLatch translationRequested,translationGate;
         final List<JSONObject> translationCues=Collections.synchronizedList(new ArrayList<>());
         volatile boolean placeholderDates,admin,favorite,watched,liveArtwork,changed,holdMetadata,slotLabels,versionUpdates;
         volatile int refreshStatusRequests;
@@ -1041,6 +1073,7 @@ public class DetailFlowTest {
                 if(post&&path.contains("/PlaybackPreferences")){char[] body=new char[length];int received=0,n;while(received<length&&(n=reader.read(body,received,length-received))>0)received+=n;JSONObject changes=new JSONObject(new String(body));for(String key:new String[]{"audio_lang_priority","subtitle_priority"})if(changes.has(key))personal.put(key,changes.get(key));}
                 if(post&&path.contains("/Sessions/Playing/Stopped")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;stopped.add(new JSONObject(new String(data)));}
                 if(post&&path.endsWith("/SubtitleTranslation")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;JSONArray cues=new JSONObject(new String(data)).getJSONArray("cues");synchronized(translationCues){for(int i=0;i<cues.length();i++){JSONObject cue=cues.getJSONObject(i);if(translationCues.stream().noneMatch(c->c.toString().equals(cue.toString())))translationCues.add(cue);}}}
+                if(path.endsWith("/SubtitleTranslation")&&translationGate!=null){java.util.concurrent.CountDownLatch gate=translationGate;translationRequested.countDown();if(!gate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic translation gate timed out");if(translationGate==gate)translationGate=new java.util.concurrent.CountDownLatch(1);}
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path;
                 boolean picture=path.contains("/Images/")||path.contains("/FacetArtwork?"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single")||path.contains("/FacetArtwork?")&&path.contains("Kind=Networks");if(picture)imagePaths.add(path);
                 byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?(path.contains("tag=art2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
@@ -1050,6 +1083,6 @@ public class DetailFlowTest {
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);
             }
         }
-        @Override public void close()throws IOException{closed=true;updateGate.countDown();metadataGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();socket.close();}
     }
 }

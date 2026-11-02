@@ -432,7 +432,7 @@ public final class PlayerActivity extends TvActivity {
         if((key==KeyEvent.KEYCODE_DPAD_LEFT||key==KeyEvent.KEYCODE_DPAD_RIGHT||mediaSeek)&&video!=null&&(mediaSeek||!video.isControllerFullyVisible()||seekKeys)){
             if(player!=null){
                 timer.removeCallbacks(seekCommit);
-                if(down){long end=player.getDuration();long target=Math.max(0,(pendingSeekPosition>=0?pendingSeekPosition:player.getCurrentPosition())+(key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD?10000:-10000));pendingSeekPosition=end>0?Math.min(target,end):target;showSeekProgress();}
+                if(down){long end=player.getDuration(),step=PlaybackSelection.seekStepMillis(end,event.getRepeatCount()>0);long target=Math.max(0,(pendingSeekPosition>=0?pendingSeekPosition:player.getCurrentPosition())+(key==KeyEvent.KEYCODE_DPAD_RIGHT||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD?step:-step));pendingSeekPosition=end>0?Math.min(target,end):target;showSeekProgress();}
                 else if(event.getAction()==KeyEvent.ACTION_UP){if(event.isCanceled())hideSeekProgress();else if(pendingSeekPosition>=0)timer.postDelayed(seekCommit,250);}
             }return true;
         }
