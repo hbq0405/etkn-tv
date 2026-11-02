@@ -257,7 +257,9 @@ public final class PlayerActivity extends TvActivity {
             if(subtitleIndex==-1)preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,true);
             else if(subtitleIndex>=0)preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false);
             player.setTrackSelectionParameters(preferences.build());
-            player.setMediaItem(new MediaItem.Builder().setUri(address).setSubtitleConfigurations(subtitles).build(),Math.max(0,position));
+            long startPosition=SkipSegments.initialPosition(source.optJSONArray("Chapters"),position,source.optLong("RunTimeTicks",0)/10000,skipMode==TvPreferences.SKIP_AUTO&&playWhenReady);
+            playbackTiming.event("initial_position","position_ms="+startPosition);
+            player.setMediaItem(new MediaItem.Builder().setUri(address).setSubtitleConfigurations(subtitles).build(),startPosition);
             reportedStart=false;
             videoFrameSeen=false;videoReadySince=0;videoDecoder="等待解码器";
             player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener(){

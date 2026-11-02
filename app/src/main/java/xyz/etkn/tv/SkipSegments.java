@@ -5,6 +5,11 @@ import org.json.JSONObject;
 
 /** Only explicit server markers are skippable; ordinary chapter names are never guessed. */
 final class SkipSegments {
+    static long initialPosition(JSONArray chapters,long position,long duration,boolean autoSkip){
+        long start=Math.max(0,position);
+        Segment segment=autoSkip?at(chapters,start,duration):null;
+        return segment!=null&&segment.end<duration?segment.end:start;
+    }
     static long[] boundaries(JSONArray chapters,long duration){
         if(chapters==null||duration<=0)return new long[0];
         long start=-1,end=-1,credits=-1;

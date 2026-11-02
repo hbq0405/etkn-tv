@@ -6,6 +6,18 @@ import static org.junit.Assert.*;
 
 public class SkipSegmentsTest {
     private JSONObject marker(String type,long time)throws Exception{return new JSONObject().put("MarkerType",type).put("StartPositionTicks",time*10000);}
+    @Test public void autoIntroStartsAtEndWithoutFirstPlayingAndSeeking()throws Exception{
+        JSONArray markers=new JSONArray().put(marker("IntroStart",0)).put(marker("IntroEnd",4000)).put(marker("CreditsStart",8000));
+        assertEquals(4000,SkipSegments.initialPosition(markers,0,10000,true));
+        assertEquals(4000,SkipSegments.initialPosition(markers,2000,10000,true));
+        assertEquals(5000,SkipSegments.initialPosition(markers,5000,10000,true));
+        assertEquals(8500,SkipSegments.initialPosition(markers,8500,10000,true));
+        assertEquals(0,SkipSegments.initialPosition(markers,0,10000,false));
+        assertEquals(0,SkipSegments.initialPosition(null,0,10000,true));
+        assertEquals(0,SkipSegments.initialPosition(markers,0,3000,true));
+        assertEquals(0,SkipSegments.initialPosition(markers,0,-1,true));
+        assertEquals(0,SkipSegments.initialPosition(new JSONArray().put(marker("IntroStart",1000)).put(marker("IntroEnd",4000)),0,10000,true));
+    }
     @Test public void timelineUsesExplicitBoundariesAndMediaEndForCredits()throws Exception{
         JSONArray markers=new JSONArray().put(marker("CreditsStart",8000)).put(marker("IntroEnd",4000)).put(marker("IntroStart",0)).put(marker("Chapter",6000));
         assertArrayEquals(new long[]{0,4000,8000,10000},SkipSegments.boundaries(markers,10000));
