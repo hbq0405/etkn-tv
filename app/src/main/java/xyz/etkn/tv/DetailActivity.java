@@ -69,14 +69,14 @@ public final class DetailActivity extends TvActivity {
 
     private void render(JSONObject result){
         item=result;content.removeAllViews();
-        Images.load(api,api.artwork(item,"Backdrop",1920),backdrop);
+        Images.backdrop(api,api.artwork(item,"Backdrop",1920),backdrop,ok->{});
         FrameLayout identity=new FrameLayout(this);int titleWidth=Math.min(560,getResources().getConfiguration().screenWidthDp-84);
-        TextView title=text(EtknApi.title(item),32,Color.WHITE);detailTitle=title;title.setTypeface(null,Typeface.BOLD);title.setGravity(Gravity.CENTER_VERTICAL);title.setMaxLines(2);
+        TextView title=text(EtknApi.title(item),32,Color.WHITE);detailTitle=title;title.setTypeface(null,Typeface.BOLD);title.setGravity(Gravity.CENTER_VERTICAL);title.setMaxLines(2);title.setVisibility(View.INVISIBLE);
         identity.addView(title,new FrameLayout.LayoutParams(-1,-1));
         ImageView logo=new ImageView(this);detailLogo=logo;logo.setScaleType(ImageView.ScaleType.FIT_START);Images.rounded(logo,dp(4));logo.setVisibility(View.GONE);
         identity.addView(logo,new FrameLayout.LayoutParams(dp(Math.min(360,titleWidth)),dp(88),Gravity.CENTER_VERTICAL));
         content.addView(identity,new LinearLayout.LayoutParams(dp(titleWidth),dp(96)));
-        Images.load(api,api.artwork(item,"Logo",720),logo,ok->{logo.setVisibility(ok?View.VISIBLE:View.GONE);title.setVisibility(ok?View.GONE:View.VISIBLE);});
+        Images.backdrop(api,api.artwork(item,"Logo",720),logo,ok->{logo.setVisibility(ok?View.VISIBLE:View.GONE);title.setVisibility(ok?View.GONE:View.VISIBLE);});
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         ImageView douban=new ImageView(this);douban.setImageDrawable(doubanMark());douban.setPadding(dp(3),dp(3),dp(3),dp(3));douban.setBackground(shape(Color.rgb(0,119,34),0));metadata.addView(douban,new LinearLayout.LayoutParams(dp(21),dp(21)));
         detailDouban=meta("",Color.WHITE);metadata.addView(detailDouban);
@@ -285,8 +285,8 @@ public final class DetailActivity extends TvActivity {
             catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject();}},result->{
             artworkLoading=false;if(artworkForeground&&!result.optString("Id").isEmpty()){
                 copyPresentation(item,result);mergeSources(result);updateMetadata();
-                Images.load(api,api.artwork(result,"Backdrop",1920),backdrop);
-                Images.load(api,api.artwork(result,"Logo",720),detailLogo,ok->{detailLogo.setVisibility(ok?View.VISIBLE:View.GONE);detailTitle.setVisibility(ok?View.GONE:View.VISIBLE);});
+                Images.backdrop(api,api.artwork(result,"Backdrop",1920),backdrop,ok->{});
+                Images.backdrop(api,api.artwork(result,"Logo",720),detailLogo,ok->{detailLogo.setVisibility(ok?View.VISIBLE:View.GONE);detailTitle.setVisibility(ok?View.GONE:View.VISIBLE);});
                 JSONObject episode=result.optJSONObject("_preview");if(episode!=null&&previewEpisode!=null&&episodeId.equals(previewEpisode.optString("Id"))){copyPresentation(previewEpisode,episode);mergeSources(episode);updatePreviewText(previewEpisode);Images.load(api,api.artwork(episode,"Primary",640),episodeImage);}
             }
             if(artworkPending){artworkPending=false;refreshArtwork();}

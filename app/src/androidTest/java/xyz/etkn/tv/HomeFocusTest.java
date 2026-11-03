@@ -35,6 +35,45 @@ public class HomeFocusTest {
     private void call(String name,Class<?>[] types,Object... args){instrumentation.runOnMainSync(()->{try{java.lang.reflect.Method method=HomeActivity.class.getDeclaredMethod(name,types);method.setAccessible(true);method.invoke(home,args);}catch(Exception error){throw new AssertionError(error);}});}
     private int expectedAdaptiveColumns(GridLayout grid,int cardWidthDp,int gapDp,int imageSize){float density=home.getResources().getDisplayMetrics().density;int availableDp=Math.max(1,Math.round((grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight())/density));int medium=Math.max(1,(availableDp+2*gapDp)/(cardWidthDp+2*gapDp));return Math.max(1,medium+TvPreferences.IMAGE_MEDIUM-imageSize);}
 
+    @Test public void adaptiveRequestsKeepCardSizesAndBannerMetadataInsideArtwork()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.respectLimits=true;
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"adaptive-fixture","动态请求测试","loopback-only");
+            EtknApi api=new EtknApi(instrumentation.getTargetContext());TvPreferences preferences=new TvPreferences(instrumentation.getTargetContext(),api);preferences.setImageSize(TvPreferences.IMAGE_MEDIUM);preferences.saveLibraryView("library-0","portrait");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"adaptive-media");assertTrue(evidence.isDirectory()||evidence.mkdirs());
+            await(()->library("library-0")!=null&&field(HomeActivity.class,"resumeFirst")!=null);
+            int previous=0;
+            for(int size=0;size<5;size++){
+                final int level=size;instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
+                int width=home.getResources().getDisplayMetrics().widthPixels-home.dp(74),gap=home.imageDp(12);
+                int resume=(int)Math.ceil((double)width/(home.imageDp(192)+2*gap))+1,latest=(int)Math.ceil((double)width/(home.imageDp(132)+2*gap))+1;
+                await(()->cards().size()==6+resume+6*latest&&server.lastResumePath.contains("Limit="+resume));
+                final View first=(View)field(HomeActivity.class,"resumeFirst");assertEquals("五档卡片宽度保持原样",home.imageDp(192),first.getWidth());
+                assertTrue(server.latestPaths.get(server.latestPaths.size()-1).contains("Limit="+latest));
+                if(size>0)assertTrue("大图请求量不应增加",resume<=previous);previous=resume;
+            }
+            instrumentation.runOnMainSync(()->{preferences.setImageSize(TvPreferences.IMAGE_EXTREMELY_SMALL);home.onResume();});
+            await(()->library("library-0")!=null&&library("library-0").getWidth()>0);
+            instrumentation.runOnMainSync(()->library("library-0").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+            int firstCount=posterGrid().getChildCount(),limit=Integer.parseInt(android.net.Uri.parse(server.lastListingPath).getQueryParameter("Limit"));assertEquals(limit,firstCount);assertTrue("不再固定拉取60项",limit<60);
+            call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()>firstCount&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+            assertEquals(String.valueOf(firstCount),android.net.Uri.parse(server.lastListingPath).getQueryParameter("StartIndex"));
+            java.util.Set<String> ids=new java.util.HashSet<>();for(int i=0;i<posterGrid().getChildCount();i++)assertTrue("追加分页不能重复",ids.add(((JSONObject)posterGrid().getChildAt(i).getTag()).optString("Id")));
+            int loaded=posterGrid().getChildCount();View focus=posterGrid().getChildAt(1);instrumentation.runOnMainSync(focus::requestFocus);call("refreshPosters",new Class<?>[]{});await(()->!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));assertEquals(loaded,posterGrid().getChildCount());assertSame(focus,home.getCurrentFocus());
+            server.missingFirstLogo=true;call("toggleView",new Class<?>[]{});await(()->"landscape".equals(field(HomeActivity.class,"viewMode"))&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+            instrumentation.runOnMainSync(()->{
+                ViewGroup card=(ViewGroup)posterGrid().getChildAt(0);assertEquals("横幅下方不再保留片名年份",1,card.getChildCount());
+                ViewGroup art=(ViewGroup)card.getChildAt(0),ratings=(ViewGroup)art.getChildAt(1),identity=(ViewGroup)art.getChildAt(2);
+                assertEquals("2020",((android.widget.TextView)ratings.getChildAt(0)).getText().toString());assertTrue(ratings.getChildAt(1) instanceof android.widget.ImageView);
+                assertEquals(Math.round(art.getWidth()*9f/16f),art.getHeight());assertTrue(identity.getTop()<ratings.getTop());
+            });
+            await(()->findText(posterGrid().getChildAt(0),"海报影片").isShown());
+            await(()->{ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(1)).getChildAt(0),identity=(ViewGroup)art.getChildAt(2);return identity.getChildAt(0).getVisibility()==View.GONE&&((android.widget.ImageView)identity.getChildAt(1)).getDrawable()!=null;});
+            saveScreenshot("landscape-logo-and-title-fallback.png");
+        }finally{closePosterFixture();}
+    }
+
     @Test public void continueWatchingClickOpensPlayerDirectly()throws Exception{
         PlayerActivity playback=null;
         Instrumentation.ActivityMonitor details=instrumentation.addMonitor(DetailActivity.class.getName(),null,true);
@@ -621,7 +660,9 @@ public class HomeFocusTest {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image;
         final byte[] updatedImage;
-        volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt,failFirstFacet,holdFacet;
+        volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt,failFirstFacet,holdFacet,respectLimits;
+        volatile String lastResumePath="";
+        volatile boolean missingFirstLogo;
         final java.util.concurrent.CountDownLatch facetGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.List<String> latestPaths=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         final java.util.List<String> mutations=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
@@ -673,12 +714,15 @@ public class HomeFocusTest {
                 if(holdResume&&path.contains("/Items/Resume?"))resumeGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){lastListingPath=path;listingCalls++;}
                 if(path.contains("/Items/Latest?"))latestPaths.add(path);
+                if(path.contains("/Items/Resume?"))lastResumePath=path;
+                if(missingFirstLogo&&path.contains("/Items/item-0/Images/Logo")){client.getOutputStream().write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));return;}
                 boolean picture=path.contains("/Images/")||path.contains("/FolderCover?")||path.contains("/FacetArtwork?");
                 byte[] body=picture?(path.contains("/FacetArtwork?")&&facetCount>2?facetImage:path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
             }
         }
         JSONObject response(String path)throws Exception{
+            String limitText=android.net.Uri.parse(path).getQueryParameter("Limit");int limit=respectLimits&&limitText!=null?Integer.parseInt(limitText):60;
             if(path.contains("/Facets?")){
                 boolean types=path.contains("Kind=Types");JSONArray rows=new JSONArray();
                 for(int i=0;i<facetCount;i++){JSONObject row=new JSONObject().put("Id","facet-"+i).put("Name",types?(i==0?"科幻":"经典"):"中文公司"+i).put("Kind",types?(i==0?"Genres":"Tags"):"Companies").put("Value",types?(i==0?"科幻":"经典"):"中文公司"+i);if(facetArt)row.put("ImageTags",new JSONObject().put("Primary","facet-art"));rows.put(row);}
@@ -686,24 +730,24 @@ public class HomeFocusTest {
             }
             if(browseFeatures&&path.contains("/Folders?")){
                 android.net.Uri uri=android.net.Uri.parse(path);String token=uri.getQueryParameter("FolderId"),startText=uri.getQueryParameter("StartIndex");int start=startText==null?0:Integer.parseInt(startText);boolean root=token==null||token.isEmpty();JSONArray rows=new JSONArray();
-                for(int i=start;i<Math.min(start+60,root?70:2);i++){JSONObject row=new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root);if(root)row.put("ImageTags",new JSONObject().put("Primary","folder-cover"));rows.put(row);}
+                for(int i=start;i<Math.min(start+limit,root?70:2);i++){JSONObject row=new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root);if(root)row.put("ImageTags",new JSONObject().put("Primary","folder-cover"));rows.put(row);}
                 return new JSONObject().put("Items",rows).put("TotalRecordCount",root?70:2);
             }
             if(browseFeatures&&path.contains("ParentId=library-5")){
-                String value=android.net.Uri.parse(path).getQueryParameter("StartIndex");int start=value==null?0:Integer.parseInt(value);JSONArray rows=new JSONArray();for(int i=start;i<Math.min(start+60,70);i++)rows.put(new JSONObject().put("Id","collection-"+i).put("Name","电影合集 "+i).put("Type","BoxSet"));return new JSONObject().put("Items",rows).put("TotalRecordCount",70);
+                String value=android.net.Uri.parse(path).getQueryParameter("StartIndex");int start=value==null?0:Integer.parseInt(value);JSONArray rows=new JSONArray();for(int i=start;i<Math.min(start+limit,70);i++)rows.put(new JSONObject().put("Id","collection-"+i).put("Name","电影合集 "+i).put("Type","BoxSet"));return new JSONObject().put("Items",rows).put("TotalRecordCount",70);
             }
             if(path.contains("/Refresh/"))return new JSONObject().put("RefreshRunId",123).put("status",taskStatus).put("finished",!taskStatus.equals("running"));
             if(path.contains("check_status"))return new JSONObject().put("user",new JSONObject().put("can_access_discovery",false));
             if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin)).put("TvPermissions",new JSONObject().put("CanRefreshMetadata",canRefresh));
             if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
-                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+60,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name","海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
+                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name","海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
                 for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
                 if(deleted&&start==0)page.remove(0);
                 return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:120).put("EpisodeCountMode","unplayed");
             }
             boolean libraries=path.endsWith("/Views");JSONArray items=new JSONArray();
-            for(int i=0;i<(libraries?6:12);i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("Overview","背景简介").put("ProductionYear",2026).put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
+            for(int i=0;i<(libraries?6:Math.min(12,limit));i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("Overview","背景简介").put("ProductionYear",2026).put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
             if(browseFeatures&&libraries){items.getJSONObject(0).put("CollectionType","movies");items.getJSONObject(1).put("SourceType","filter").put("CollectionType","tvshows");items.getJSONObject(5).put("SourceType","collection").put("CollectionType","boxsets").put("Name","合集");}
             if(hiddenResume&&path.contains("/Items/Resume?"))items.remove(0);
             for(int i=0;i<items.length();i++)items.getJSONObject(i).getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);

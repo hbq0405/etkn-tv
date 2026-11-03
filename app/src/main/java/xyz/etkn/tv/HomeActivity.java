@@ -17,6 +17,7 @@ import java.util.List;
 public final class HomeActivity extends TvActivity {
     private String parent="",query="",mode="home";
     private int offset,revision;
+    private int listingLimit;
     private org.json.JSONObject selectedLibrary;
     private GridLayout posterGrid;
     private TextView libraryMeta,posterStatus;
@@ -92,7 +93,7 @@ public final class HomeActivity extends TvActivity {
         });
         homeScroll=new FocusScroll.Vertical(this);homeScroll.setFillViewport(true);homeScroll.setClipToPadding(false);
         content=column();homeScroll.addView(content);stage.addView(homeScroll,new FrameLayout.LayoutParams(-1,-1));
-        homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{if("items".equals(mode)&&posterGrid!=null&&hasMore&&!loadingMore&&homeScroll.getChildAt(0)!=null&&y+homeScroll.getHeight()>=homeScroll.getChildAt(0).getHeight()-dp(420))loadPosterPage(false);});
+        homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{if("items".equals(mode)&&posterGrid!=null&&hasMore&&!loadingMore&&homeScroll.getChildAt(0)!=null&&y+homeScroll.getHeight()>=homeScroll.getChildAt(0).getHeight()-prefetchDistance(posterGrid))loadPosterPage(false);});
         nav=row();nav.setPadding(dp(28),dp(8),dp(18),dp(8));
         menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackgroundColor(android.graphics.Color.argb(245,11,17,26));menu.addView(nav);menu.setVisibility(View.GONE);
         stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(76),Gravity.TOP));
@@ -142,6 +143,13 @@ public final class HomeActivity extends TvActivity {
         async(()->api.get("/api/tv/auth/check_status"),result->{JSONObject user=result.optJSONObject("user");boolean allowed=user!=null&&user.optBoolean("can_access_discovery");if(canDiscover!=allowed){canDiscover=allowed;refreshNavigation();}});
     }
     @Override protected void onPause(){foreground=false;homeTimer.removeCallbacksAndMessages(null);if(homeUpdates!=null){homeUpdates.close();homeUpdates=null;}super.onPause();}
+    @Override void imageSizeChanged(){if("home".equals(mode))loadHome();else if("search".equals(mode)||"resume".equals(mode)){offset=0;listingLimit=0;loadItems();}else if("items".equals(mode))refreshPosters();}
+    private int homeShelfLimit(int cardWidthDp){return shelfCapacity(cardWidthDp,12,74)+1;}
+    private int posterPageSize(){
+        boolean landscape=folderMode||viewMode.equals("landscape");
+        int count=gridCapacity(posterGrid,homeScroll,landscape?9f/16f:1.5f,folderMode?42:landscape?0:45,6);
+        return count+posterGrid.getColumnCount();
+    }
     @Override void mediaDeleted(){if("items".equals(mode))refreshPosters();else if("home".equals(mode))refreshHome();else loadItems();}
     @Override void metadataRefreshed(){super.metadataRefreshed();refreshCurrent();}
     private void refreshCurrent(){if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
@@ -175,7 +183,7 @@ public final class HomeActivity extends TvActivity {
         LinearLayout resume=section("继续观看"),libraries=section("我的媒体库"),latest=column();latestSections=latest;
         resumeArea=resume;resume.setPadding(dp(28),dp(8),dp(22),dp(2));resume.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->positionResumeRow());
         latest.setPadding(0,dp(4),0,dp(8));content.addView(latest);
-        loadShelf(resume,api.userPath()+"/Items/Resume?Limit=12",request,true,false,true,"暂无继续观看记录");
+        loadShelf(resume,api.userPath()+"/Items/Resume?Limit="+homeShelfLimit(192),request,true,false,true,"暂无继续观看记录");
         loadShelf(libraries,api.userPath()+"/Views",request,true,true,false,"暂无可访问媒体库");
         if(carouselEnabled){
             String carouselPath=api.userPath()+"/Items/PersonalRecommendations?Limit=12&Fields=Overview";
@@ -199,7 +207,7 @@ public final class HomeActivity extends TvActivity {
     }
     private void loadLatestSection(List<JSONObject> libraries,List<LinearLayout> areas,int index,int request){
         if(request!=revision||index>=libraries.size())return;
-        String path=api.userPath()+"/Items/Latest?ParentId="+EtknApi.encode(libraries.get(index).optString("Id"))+"&Limit=12&IncludeItemTypes="+EtknApi.encode(libraryIncludeTypes(libraries.get(index)));
+        String path=api.userPath()+"/Items/Latest?ParentId="+EtknApi.encode(libraries.get(index).optString("Id"))+"&Limit="+homeShelfLimit(132)+"&IncludeItemTypes="+EtknApi.encode(libraryIncludeTypes(libraries.get(index)));
         homeReloads.put(path,()->loadLatestSection(libraries,areas,index,request));
         homeRequest(path,request,result->{
             if(request!=revision)return;
@@ -298,15 +306,21 @@ public final class HomeActivity extends TvActivity {
         initialFocusChosen=true;for(View card:homeCards)card.setFocusable(true);homeBackdrop.actionView().setFocusable(true);
         View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null)target=resumeFirst!=null?resumeFirst:libraryFirst;if(target!=null)target.requestFocus();else content.requestFocus(View.FOCUS_DOWN);
     }
-    private void search(){EditText field=input("搜索片库",false);new AlertDialog.Builder(this).setTitle("搜索片库").setView(field).setPositiveButton("搜索",(dialog,which)->{query=field.getText().toString();parent="";selectedLibrary=null;offset=0;mode="search";loadItems();}).setNegativeButton("取消",null).show();}
+    private void search(){EditText field=input("搜索片库",false);new AlertDialog.Builder(this).setTitle("搜索片库").setView(field).setPositiveButton("搜索",(dialog,which)->{query=field.getText().toString();parent="";selectedLibrary=null;offset=0;listingLimit=0;mode="search";loadItems();}).setNegativeButton("取消",null).show();}
     private void openLibrary(JSONObject item){libraryOrigin=mode;selectedLibrary=item;activeCollection=null;folderMode=false;folderId="";folderTitle="";folderTrail.clear();restorePosterId="";restorePosterCount=0;parent=item.optString("Id");TvPreferences prefs=new TvPreferences(this,api);String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);folderMode=physicalLibrary()&&prefs.libraryFolders(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadItems();}
     private void loadLibraries(){mode="library";selectedLibrary=null;posterGrid=null;hasMore=false;loadingMore=false;stopCarousel();homeBackdrop.clear();libraryCards.clear();homeScroll.scrollTo(0,0);int request=++revision;status.setText("正在读取媒体库…");async(()->api.get(api.userPath()+"/Views"),result->{if(request!=revision)return;content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));List<JSONObject> items=EtknApi.rows(result);status.setText(items.isEmpty()?"暂无可访问媒体库":"选择媒体库");GridLayout grid=grid(content,192,12,56);for(JSONObject item:items){View card=mediaCard(grid,item,()->openLibrary(item));libraryCards.put(item.optString("Id"),card);}View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null&&grid.getChildCount()>0)target=grid.getChildAt(0);if(target!=null)target.requestFocus();});}
     private void loadItems(){
         stopCarousel();
         if("items".equals(mode)){loadPosterPage(true);return;}
         homeBackdrop.clear();int request=++revision;status.setText("正在加载…");homeScroll.scrollTo(0,0);
-        String path=mode.equals("resume")?api.userPath()+"/Items/Resume?Limit=60":api.userPath()+"/Items?Recursive=true&IncludeItemTypes=Movie,Series&Limit=60&StartIndex="+offset+"&SortBy=SortName&Fields=PrimaryImageAspectRatio,Overview"+(parent.isEmpty()?"":"&ParentId="+EtknApi.encode(parent))+(mode.equals("search")?"&SearchTerm="+EtknApi.encode(query):"");
-        async(()->api.get(path),result->{if(request!=revision)return;content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",items.size());status.setText(items.isEmpty()?"暂无影片":"共 "+total+" 项  ·  第 "+(offset/60+1)+" 页");GridLayout grid=grid();for(JSONObject item:items)mediaCard(grid,item,()->{if(mode.equals("resume"))resumePlayback(item);else detail(item);});LinearLayout pages=row();if(offset>0)pages.addView(button("上一页",()->{offset=Math.max(0,offset-60);loadItems();}));if(!mode.equals("resume")&&offset+items.size()<total)pages.addView(button("下一页",()->{offset+=60;loadItems();}));content.addView(pages);});
+        content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));GridLayout grid=grid();
+        afterLayout(grid,()->{
+            if(request!=revision)return;
+            if(offset==0||listingLimit==0)listingLimit=gridCapacity(grid,homeScroll,1.5f,46,5)+grid.getColumnCount();
+            int limit=listingLimit,start=offset;
+            String path=mode.equals("resume")?api.userPath()+"/Items/Resume?Limit="+limit:api.userPath()+"/Items?Recursive=true&IncludeItemTypes=Movie,Series&Limit="+limit+"&StartIndex="+start+"&SortBy=SortName&Fields=PrimaryImageAspectRatio,Overview"+(parent.isEmpty()?"":"&ParentId="+EtknApi.encode(parent))+(mode.equals("search")?"&SearchTerm="+EtknApi.encode(query):"");
+            async(()->api.get(path),result->{if(request!=revision)return;List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",items.size());status.setText(items.isEmpty()?"暂无影片":"共 "+total+" 项  ·  第 "+(start/limit+1)+" 页");for(JSONObject item:items)mediaCard(grid,item,()->{if(mode.equals("resume"))resumePlayback(item);else detail(item);});LinearLayout pages=row();if(start>0)pages.addView(button("上一页",()->{offset=Math.max(0,start-limit);loadItems();}));if(!mode.equals("resume")&&start+items.size()<total)pages.addView(button("下一页",()->{offset=start+items.size();loadItems();}));content.addView(pages);});
+        });
     }
     private void loadPosterPage(boolean reset){
         if(selectedLibrary==null&&activeCollection==null)return;
@@ -325,11 +339,12 @@ public final class HomeActivity extends TvActivity {
             if(!folderMode&&!collectionLibrary())actions.addView(button(sortLabel(),this::chooseSort));
             HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);heading.addView(actionScroll);
             content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
-            posterGrid=new GridLayout(this);posterGrid.setClipChildren(false);posterGrid.setClipToPadding(false);posterGrid.setPadding(dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP));int initialWidth=viewMode.equals("landscape")?192:132,initialGap=viewMode.equals("landscape")?12:6;watchGridColumns(posterGrid,initialWidth,initialGap,56+2*FocusScroll.MARGIN_DP);LinearLayout.LayoutParams gridSpace=new LinearLayout.LayoutParams(-1,-2);gridSpace.topMargin=dp(14);content.addView(posterGrid,gridSpace);posterStatus=text("",13,MUTED);posterStatus.setGravity(Gravity.CENTER);content.addView(posterStatus,new LinearLayout.LayoutParams(-1,dp(38)));
+            posterGrid=new GridLayout(this);posterGrid.setClipChildren(false);posterGrid.setClipToPadding(false);posterGrid.setPadding(dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP));int initialWidth=folderMode||viewMode.equals("landscape")?192:132,initialGap=folderMode||viewMode.equals("landscape")?12:6;watchGridColumns(posterGrid,initialWidth,initialGap,56+2*FocusScroll.MARGIN_DP);LinearLayout.LayoutParams gridSpace=new LinearLayout.LayoutParams(-1,-2);gridSpace.topMargin=dp(14);content.addView(posterGrid,gridSpace);posterStatus=text("",13,MUTED);posterStatus.setGravity(Gravity.CENTER);content.addView(posterStatus,new LinearLayout.LayoutParams(-1,dp(38)));
+            int request=revision;afterLayout(posterGrid,()->{if(request==revision)loadPosterPage(false);});return;
         }
         if(loadingMore||refreshingPosters||posterGrid==null||!hasMore)return;
         loadingMore=true;int request=revision;int start=offset;
-        String path=posterQuery(60,start);
+        String path=posterQuery(posterPageSize(),start);
         posterStatus.setText("正在加载…");
         async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{if(request!=revision)return;loadingMore=false;if(result.has("_loadError")){posterStatus.setText(result.optString("_loadError"));return;}List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",start+items.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);offset=start+items.size();hasMore=!items.isEmpty()&&offset<total;libraryMeta.setText(libraryMetaLabel(total));for(JSONObject item:items)addPoster(item);updatePosterViewButton();posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");if(restorePosterCount>0){if(offset<Math.min(restorePosterCount,total)&&hasMore){loadPosterPage(false);return;}restorePosterPosition(request);}else if(start==0&&!items.isEmpty()){View first=posterGrid.getChildAt(0);homeScroll.post(()->{if(request==revision&&first.getParent()==posterGrid&&menu.getVisibility()!=View.VISIBLE){first.requestFocus();homeScroll.scrollTo(0,0);}});}else if(items.isEmpty()&&start==0)posterStatus.setText("暂无媒体项");if(pendingPosterRefresh)refreshPosters();});
     }
@@ -356,18 +371,19 @@ public final class HomeActivity extends TvActivity {
         else{GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=imageDp(192);bounds.height=imageDp(150);bounds.setMargins(imageDp(12),dp(5),imageDp(12),dp(5));posterGrid.addView(card,bounds);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(108);artwork.requestLayout();((LinearLayout.LayoutParams)title.getLayoutParams()).height=imageDp(42);title.requestLayout();GridLayout.LayoutParams layout=(GridLayout.LayoutParams)card.getLayoutParams();layout.width=imageDp(192);layout.height=imageDp(150);layout.setMargins(imageDp(12),dp(5),imageDp(12),dp(5));card.setLayoutParams(layout);});}
         card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(focused?dp(8):0);artwork.setElevation(dp(focused?8:4));artwork.setForeground(focused?focusOutline():null);});card.setOnClickListener(view->enterFolder(item));return card;
     }
-    private JSONObject posterPosition(){JSONObject state=new JSONObject();View focus=getCurrentFocus();try{state.put("id",folderId).put("title",folderTitle).put("count",Math.max(60,offset)).put("scroll",homeScroll.getScrollY()).put("focus",focus!=null&&focus.getTag() instanceof JSONObject?((JSONObject)focus.getTag()).optString("Id"):"");}catch(Exception ignored){}return state;}
+    private JSONObject posterPosition(){JSONObject state=new JSONObject();View focus=getCurrentFocus();try{state.put("id",folderId).put("title",folderTitle).put("count",offset).put("scroll",homeScroll.getScrollY()).put("focus",focus!=null&&focus.getTag() instanceof JSONObject?((JSONObject)focus.getTag()).optString("Id"):"");}catch(Exception ignored){}return state;}
     private void enterFolder(JSONObject item){folderTrail.push(posterPosition());folderId=item.optString("Id");folderTitle=item.optString("Name");loadPosterPage(true);}
     private void toggleFolders(){folderMode=!folderMode;new TvPreferences(this,api).saveLibraryFolders(parent,folderMode);folderId="";folderTitle="";folderTrail.clear();restorePosterCount=0;loadPosterPage(true);}
     private void restorePosterPosition(int request){String id=restorePosterId;int y=restorePosterScroll;restorePosterCount=0;restorePosterId="";homeScroll.post(()->{if(request!=revision||menu.getVisibility()==View.VISIBLE)return;for(int i=0;i<posterGrid.getChildCount();i++){View card=posterGrid.getChildAt(i);if(card.getTag() instanceof JSONObject&&id.equals(((JSONObject)card.getTag()).optString("Id"))){card.requestFocus();break;}}homeScroll.scrollTo(0,y);});}
-    private void rememberCollectionPosition(JSONObject item){collectionReturnFocus=item.optString("Id");collectionReturnCount=Math.max(60,offset);collectionReturnScroll=homeScroll.getScrollY();}
+    private void rememberCollectionPosition(JSONObject item){collectionReturnFocus=item.optString("Id");collectionReturnCount=offset;collectionReturnScroll=homeScroll.getScrollY();}
     private boolean collectionLibrary(){return activeCollection==null&&selectedLibrary!=null&&"boxsets".equals(selectedLibrary.optString("CollectionType"));}
     private void refreshPosters(){
         if(!"items".equals(mode)||posterGrid==null)return;
         if(loadingMore||refreshingPosters){pendingPosterRefresh=true;return;}
         refreshingPosters=true;pendingPosterRefresh=false;int request=revision,generation=homeGeneration;
-        java.util.List<String> paths=new java.util.ArrayList<>();for(int start=0;start<Math.max(60,offset);start+=60)paths.add(posterQuery(60,start));
-        async(()->{try{org.json.JSONArray rows=new org.json.JSONArray();JSONObject page=new JSONObject();for(String path:paths){page=api.get(path);List<JSONObject> batch=EtknApi.rows(page);for(JSONObject row:batch)rows.put(row);if(batch.size()<60)break;}return page.put("Items",rows);}
+        int limit=posterPageSize(),wanted=Math.max(limit,offset);
+        java.util.List<String> paths=new java.util.ArrayList<>();for(int start=0;start<wanted;start+=limit)paths.add(posterQuery(Math.min(limit,wanted-start),start));
+        async(()->{try{org.json.JSONArray rows=new org.json.JSONArray();JSONObject page=new JSONObject();for(String path:paths){int remaining=wanted-rows.length();if(remaining<=0)break;int count=Math.min(limit,remaining);page=api.get(path);List<JSONObject> batch=EtknApi.rows(page);for(int i=0;i<Math.min(count,batch.size());i++)rows.put(batch.get(i));if(batch.size()<count||rows.length()>=page.optInt("TotalRecordCount",Integer.MAX_VALUE))break;}return page.put("Items",rows);}
             catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage());}},result->{
             if(request!=revision||!"items".equals(mode))return;refreshingPosters=false;
             if(!result.has("_loadError")){

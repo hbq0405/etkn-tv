@@ -15,6 +15,7 @@ public final class DiscoveryActivity extends TvActivity {
     private String kind="movie",query="";
     private int page=1,totalPages=1,revision,browseRevision,eraIndex;
     private boolean allowed,loadingMore,hasMore;
+    private int browseTargetCount;
     private boolean directCloudOpened;
     private GridLayout posterGrid;
     private TextView posterStatus,detailOverview;
@@ -68,7 +69,7 @@ public final class DiscoveryActivity extends TvActivity {
         appliedQuery=query;
         status.setText("正在检查访问权限…");
         screenScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{
-            if(browseView!=null&&browseView.getParent()!=null&&posterGrid!=null&&hasMore&&!loadingMore&&screenScroll.getChildAt(0)!=null&&y+screenScroll.getHeight()>=screenScroll.getChildAt(0).getHeight()-dp(420))loadPage(page+1);
+            if(browseView!=null&&browseView.getParent()!=null&&posterGrid!=null&&hasMore&&!loadingMore&&screenScroll.getChildAt(0)!=null&&y+screenScroll.getHeight()>=screenScroll.getChildAt(0).getHeight()-prefetchDistance(posterGrid))loadPage(page+1);
         });
     }
     @Override protected void onResume(){
@@ -126,7 +127,7 @@ public final class DiscoveryActivity extends TvActivity {
         if(browseView==null)buildBrowseView();
         content.removeAllViews();content.addView(browseView,new LinearLayout.LayoutParams(-1,-2));
         status.setText("");
-        if(reload){page=1;hasMore=true;loadingMore=false;loadOptions();loadPage(1);screenScroll.scrollTo(0,0);}
+        if(reload){page=1;hasMore=true;loadingMore=false;loadOptions();screenScroll.scrollTo(0,0);int request=revision;afterLayout(posterGrid,()->{if(request==revision){browseTargetCount=gridCapacity(posterGrid,screenScroll,1.5f,0,10);loadPage(1);}});}
         else if(browseFocus!=null){View target=browseFocus;target.post(()->{if(target.isShown())target.requestFocus();});}
     }
     private void buildBrowseView(){
@@ -213,7 +214,7 @@ public final class DiscoveryActivity extends TvActivity {
     private void loadPage(int target){
         if(!allowed||loadingMore||(target>1&&(!hasMore||target<=page)))return;
         boolean append=target>1;
-        if(append)loadingMore=true;
+        loadingMore=true;
         int request=++browseRevision;
         if(!append){
             posterGrid.removeAllViews();ribbons.clear();artworks.clear();ribbonItems.clear();
@@ -231,6 +232,7 @@ public final class DiscoveryActivity extends TvActivity {
             if(!append&&rows.isEmpty())posterStatus.setText("暂无匹配结果，可调整筛选或搜索词");
             else posterStatus.setText((hasMore?"已加载 "+posterGrid.getChildCount()+" 项，下滚加载更多":"已经到底，共 "+posterGrid.getChildCount()+" 项")+(summary.isEmpty()?"":"  ·  "+summary));
             if(!append&&!rows.isEmpty()){View first=posterGrid.getChildAt(0);if(first!=null)first.requestFocus();}
+            if(hasMore&&posterGrid.getChildCount()<browseTargetCount)loadPage(page+1);
         });
     }
     private JSONObject queryPayload(int targetPage)throws JSONException{

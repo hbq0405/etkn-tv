@@ -18,7 +18,7 @@ import java.util.concurrent.ExecutorService;
 
 final class Images {
     private static final ExecutorService IO=Executors.newFixedThreadPool(4);
-    private static final ExecutorService HERO=Executors.newSingleThreadExecutor();
+    private static final ExecutorService HERO=Executors.newFixedThreadPool(2);
     private static final LruCache<String,Bitmap> CACHE=new LruCache<>(20*1024*1024) { @Override protected int sizeOf(String key,Bitmap image) { return image.getAllocationByteCount(); } };
     static void rounded(android.view.View view,int radiusPx) {
         GradientDrawable outline=new GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setCornerRadius(radiusPx);

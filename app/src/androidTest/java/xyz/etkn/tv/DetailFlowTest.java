@@ -40,6 +40,18 @@ public class DetailFlowTest {
         }finally{if(browser!=null){HomeActivity active=browser;onMain(active::finish);}cleanup();}
     }
     private DetailActivity detail;
+    @Test public void backdropAndLogoLoadTogetherWithoutFlashingTheFallbackTitle()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.holdIdentity=true;open(server,"movie-single");
+            assertTrue("背景请求已开始",server.backgroundRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue("Logo请求不能等待背景响应",server.logoRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            await(()->((View)field(detail,"detailLogo")).isShown());
+            onMain(()->{assertEquals(View.GONE,((View)field(detail,"detailTitle")).getVisibility());assertEquals("背景响应仍被阻塞",1L,server.backdropGate.getCount());});
+            screenshot("detail-logo-with-slow-backdrop.png");server.backdropGate.countDown();
+            open(server,"movie-multi");await(()->((View)field(detail,"detailTitle")).isShown());
+            onMain(()->assertEquals(View.GONE,((View)field(detail,"detailLogo")).getVisibility()));
+        }finally{cleanup();}
+    }
     private PlayerActivity playback;
     private void onMain(Runnable action){instrumentation.runOnMainSync(action);}
     private void await(BooleanSupplier condition)throws Exception{long until=SystemClock.uptimeMillis()+15000;while(SystemClock.uptimeMillis()<until){boolean[] value={false};onMain(()->value[0]=condition.getAsBoolean());if(value[0])return;Thread.sleep(100);}fail("Timed out waiting for detail/playback state");}
@@ -1067,12 +1079,14 @@ public class DetailFlowTest {
         volatile java.util.concurrent.CountDownLatch translationRequested,translationGate;
         final List<JSONObject> translationCues=Collections.synchronizedList(new ArrayList<>());
         volatile boolean placeholderDates,admin,favorite,watched,liveArtwork,changed,holdMetadata,slotLabels,versionUpdates;
+        volatile boolean holdIdentity;
         volatile int refreshStatusRequests;
         volatile String taskStatus="running";
         volatile boolean discoveryAllowed;
         volatile int discoveryChecks;
         final List<String> cloudPaths=Collections.synchronizedList(new ArrayList<>());
         final java.util.concurrent.CountDownLatch metadataRequested=new java.util.concurrent.CountDownLatch(1),metadataGate=new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch backgroundRequested=new java.util.concurrent.CountDownLatch(1),logoRequested=new java.util.concurrent.CountDownLatch(1),backdropGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.CountDownLatch updateGate=new java.util.concurrent.CountDownLatch(1),eventsConnected=new java.util.concurrent.CountDownLatch(1);
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image,media,updatedImage;
@@ -1147,11 +1161,12 @@ public class DetailFlowTest {
                 boolean picture=path.contains("/Images/")||path.contains("/FacetArtwork?"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single")||path.contains("/FacetArtwork?")&&path.contains("Kind=Networks");if(picture)imagePaths.add(path);
                 byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?(path.contains("tag=art2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 if(holdMetadata&&!post&&!picture&&path.contains("/Users/")&&path.contains("/Items/")){metadataRequested.countDown();metadataGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}
+                if(holdIdentity&&path.contains("/Items/movie-single/Images/")){if(path.contains("/Backdrop")){backgroundRequested.countDown();backdropGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}if(path.contains("/Logo"))logoRequested.countDown();}
                 String code=failNext&&path.contains("/Episodes")&&!path.contains("Fields=")?"500 Internal Server Error":missing?"404 Not Found":range>0?"206 Partial Content":"200 OK";int start=video?range:0;
                 String headers="HTTP/1.1 "+code+"\r\nContent-Type: "+(video?"video/x-matroska":subtitle?"text/vtt":picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+(body.length-start)+"\r\n"+(range>0?"Content-Range: bytes "+start+"-"+(body.length-1)+"/"+body.length+"\r\n":"")+"Connection: close\r\n\r\n";
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);
             }
         }
-        @Override public void close()throws IOException{closed=true;updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;backdropGate.countDown();updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();socket.close();}
     }
 }
