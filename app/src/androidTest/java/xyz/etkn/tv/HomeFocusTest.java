@@ -208,6 +208,31 @@ public class HomeFocusTest {
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
 
+    @Test public void landscapeCardsMatchHomeLibrariesAndKeepFocusedEdgesVisible()throws Exception{
+        try(Fixture server=new Fixture()){
+            openMenuHomeFixture(server);await(()->library("library-0").getWidth()>0);
+            int width=library("library-0").getWidth(),height=library("library-0").getHeight();new TvPreferences(home,home.api).saveLibraryView("library-0","portrait");
+            instrumentation.runOnMainSync(()->library("library-0").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
+            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"landscape".equals(field(HomeActivity.class,"viewMode")));
+            instrumentation.runOnMainSync(()->{
+                View first=posterGrid().getChildAt(0),second=posterGrid().getChildAt(1);
+                assertEquals("横幅宽度须与首页媒体库一致",width,first.getWidth());assertEquals("横幅高度须与首页媒体库一致",height,first.getHeight());
+                assertEquals(home.dp(108),((ViewGroup)first).getChildAt(0).getHeight());assertEquals(home.dp(24),second.getLeft()-first.getRight());
+                assertEquals(Math.max(2,(home.getResources().getConfiguration().screenWidthDp-80)/216),posterGrid().getColumnCount());
+                assertNotNull(findText(first,"海报影片"));assertNotNull(findText(first,"2020"));assertNotNull(findText(first,"8.1"));assertNotNull(findText(first,"7.1"));
+            });
+            for(int index:new int[]{0,posterGrid().getColumnCount()-1,posterGrid().getColumnCount()}){
+                instrumentation.runOnMainSync(()->posterGrid().getChildAt(index).requestFocus());settle();
+                instrumentation.runOnMainSync(()->{
+                    View card=home.getCurrentFocus(),art=((ViewGroup)card).getChildAt(0);Rect visible=new Rect();int[] position=new int[2];art.getLocationOnScreen(position);assertTrue(art.getGlobalVisibleRect(visible));
+                    assertTrue("焦点框须保留左侧安全区",position[0]>=home.dp(40));assertEquals("聚焦横幅宽度不能裁切",Math.round(art.getWidth()*card.getScaleX()),visible.width(),2);assertEquals("聚焦横幅高度不能裁切",Math.round(art.getHeight()*card.getScaleY()),visible.height(),2);
+                });saveScreenshot("landscape-focused-"+index+".png");
+            }
+            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"portrait".equals(field(HomeActivity.class,"viewMode")));
+            instrumentation.runOnMainSync(()->{View first=posterGrid().getChildAt(0);assertEquals(home.dp(132),first.getWidth());assertEquals(home.dp(255),first.getHeight());int[] position=new int[2];first.getLocationOnScreen(position);assertTrue("竖幅也须保留左侧焦点空间",position[0]>=home.dp(40));});
+        }finally{closePosterFixture();}
+    }
+
     @Test public void librarySortingPersistsIndependentlyAndBackRestoresTheLibraryCard()throws Exception{
         try(Fixture server=new Fixture()){
             new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"sort-fixture","排序测试","synthetic-test-session");
@@ -469,7 +494,7 @@ public class HomeFocusTest {
             call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==70);
             instrumentation.runOnMainSync(()->{posterGrid().getChildAt(65).requestFocus();posterGrid().getChildAt(65).performClick();});await(()->posterGrid().getChildCount()==2);
             assertEquals("portrait",field(HomeActivity.class,"viewMode"));assertEquals(home.dp(132),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals(View.VISIBLE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-media-portrait.png");
-            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==2&&"landscape".equals(field(HomeActivity.class,"viewMode")));assertEquals(home.dp(264),posterGrid().getChildAt(0).getLayoutParams().width);
+            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==2&&"landscape".equals(field(HomeActivity.class,"viewMode")));assertEquals(home.dp(192),posterGrid().getChildAt(0).getLayoutParams().width);
             assertTrue(server.mutations.isEmpty());key(KeyEvent.KEYCODE_BACK);await(()->posterGrid().getChildCount()==70&&home.getCurrentFocus()!=null&&home.getCurrentFocus().getTag() instanceof JSONObject&&"tv-folder-category65".equals(((JSONObject)home.getCurrentFocus().getTag()).optString("Id")));
             assertEquals(home.dp(192),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals("landscape",field(HomeActivity.class,"viewMode"));assertEquals(View.GONE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-page-restored.png");key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals("生成封面",itemMenu().getListView().getAdapter().getItem(0));chooseItemAction(0);
             await(()->server.mutations.stream().anyMatch(x->x.contains("/FolderCover?FolderId=tv-folder-category65"))&&!Boolean.TRUE.equals(field(HomeActivity.class,"mediaActionBusy")));

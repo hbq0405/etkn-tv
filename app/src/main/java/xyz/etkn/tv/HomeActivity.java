@@ -325,7 +325,7 @@ public final class HomeActivity extends TvActivity {
             if(!folderMode&&!collectionLibrary())actions.addView(button(sortLabel(),this::chooseSort));
             HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.addView(actions);heading.addView(actionScroll);
             content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
-            posterGrid=new GridLayout(this);posterGrid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-56)/(viewMode.equals("landscape")?272:144)));posterGrid.setClipChildren(false);posterGrid.setClipToPadding(false);posterGrid.setPadding(0,dp(FocusScroll.MARGIN_DP),0,dp(FocusScroll.MARGIN_DP));LinearLayout.LayoutParams gridSpace=new LinearLayout.LayoutParams(-1,-2);gridSpace.topMargin=dp(14);content.addView(posterGrid,gridSpace);posterStatus=text("",13,MUTED);posterStatus.setGravity(Gravity.CENTER);content.addView(posterStatus,new LinearLayout.LayoutParams(-1,dp(38)));
+            posterGrid=new GridLayout(this);posterGrid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-80)/(viewMode.equals("landscape")?216:144)));posterGrid.setClipChildren(false);posterGrid.setClipToPadding(false);posterGrid.setPadding(dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP));LinearLayout.LayoutParams gridSpace=new LinearLayout.LayoutParams(-1,-2);gridSpace.topMargin=dp(14);content.addView(posterGrid,gridSpace);posterStatus=text("",13,MUTED);posterStatus.setGravity(Gravity.CENTER);content.addView(posterStatus,new LinearLayout.LayoutParams(-1,dp(38)));
         }
         if(loadingMore||refreshingPosters||posterGrid==null||!hasMore)return;
         loadingMore=true;int request=revision;int start=offset;
@@ -341,8 +341,8 @@ public final class HomeActivity extends TvActivity {
     private void updatePosterViewButton(){
         boolean media=false,folders=false;for(int i=0;i<posterGrid.getChildCount();i++){Object tag=posterGrid.getChildAt(i).getTag();if(tag instanceof JSONObject){if("Folder".equals(((JSONObject)tag).optString("Type")))folders=true;else media=true;}}
         viewModeButton.setVisibility(folderMode&&!media?View.GONE:View.VISIBLE);
-        int inset=folders?FocusScroll.MARGIN_DP:0;
-        int cell=folders?216:144;if(media)cell=Math.max(cell,viewMode.equals("landscape")?276:144);
+        int inset=FocusScroll.MARGIN_DP;
+        int cell=folders?216:144;if(media)cell=Math.max(cell,viewMode.equals("landscape")?216:144);
         posterGrid.setPadding(dp(inset),dp(FocusScroll.MARGIN_DP),dp(inset),dp(FocusScroll.MARGIN_DP));
         posterGrid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-56-2*inset)/cell));
     }
@@ -475,7 +475,7 @@ public final class HomeActivity extends TvActivity {
             if(request!=revision)return;
             List<JSONObject> items=EtknApi.rows(result);status.setText(items.isEmpty()?"该媒体库暂无合集":"合集 · "+selectedLibrary.optString("Name","媒体库"));
             if(items.isEmpty())return;
-            GridLayout grid=grid();grid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-56)/(viewMode.equals("landscape")?272:144)));
+            GridLayout grid=grid();grid.setPadding(dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP),dp(FocusScroll.MARGIN_DP));grid.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-80)/(viewMode.equals("landscape")?216:144)));
             for(JSONObject item:items)posterCard(grid,item,()->openCollection(item),episodeCountMode,viewMode.equals("landscape"));
             if(grid.getChildCount()>0)grid.getChildAt(0).requestFocus();
         });
