@@ -213,37 +213,38 @@ abstract class TvActivity extends Activity {
         LinearLayout ratings=row();ratings.setGravity(android.view.Gravity.CENTER);ratings.setPadding(0,dp(17),0,dp(3));ratings.setBackground(fade);ratings.setVisibility("BoxSet".equals(media.optString("Type"))?View.GONE:View.VISIBLE);
         FrameLayout.LayoutParams ratingBounds=new FrameLayout.LayoutParams(-1,dp(42),android.view.Gravity.BOTTOM);artwork.addView(ratings,ratingBounds);
         if(landscape){
-            bannerIdentity(artwork,media);
             TextView year=text(media.optString("ProductionYear"),11,Color.WHITE);year.setPadding(0,0,dp(8),0);year.setGravity(android.view.Gravity.CENTER_VERTICAL);year.setVisibility(year.getText().length()==0?View.GONE:View.VISIBLE);ratings.addView(year,new LinearLayout.LayoutParams(-2,-1));
         }
         ImageView doubanIcon=new ImageView(this);doubanIcon.setImageDrawable(doubanMark());doubanIcon.setBackground(shape(Color.rgb(0,119,34),0));doubanIcon.setPadding(dp(3),dp(3),dp(3),dp(3));ratings.addView(doubanIcon,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView douban=text(rating(media,"DoubanRating"),11,Color.WHITE);douban.setGravity(android.view.Gravity.CENTER_VERTICAL);douban.setPadding(0,0,0,0);LinearLayout.LayoutParams scoreSpace=new LinearLayout.LayoutParams(-2,-1);scoreSpace.leftMargin=dp(3);scoreSpace.rightMargin=dp(8);ratings.addView(douban,scoreSpace);
         ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());ratings.addView(star,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
-        org.json.JSONObject userData=media.optJSONObject("UserData");
+        TextView badge=null;org.json.JSONObject userData=media.optJSONObject("UserData");
         if("Series".equalsIgnoreCase(media.optString("Type"))&&userData!=null){
             int count=episodeCountMode.equals("total")?media.optInt("RecursiveItemCount",userData.optInt("UnplayedItemCount")):userData.optInt("UnplayedItemCount");
-            if(count>0){TextView badge=text((episodeCountMode.equals("total")?"总 ":"未看 ")+count+" 集",10,Color.WHITE);badge.setGravity(android.view.Gravity.CENTER);badge.setPadding(dp(6),0,dp(6),0);badge.setBackground(shape(Color.argb(216,0,119,34),0));FrameLayout.LayoutParams badgeBounds=new FrameLayout.LayoutParams(-2,dp(24),android.view.Gravity.TOP|android.view.Gravity.RIGHT);badgeBounds.setMargins(0,dp(6),dp(6),0);artwork.addView(badge,badgeBounds);}
+            if(count>0){badge=text((episodeCountMode.equals("total")?"总 ":"未看 ")+count+" 集",10,Color.WHITE);badge.setGravity(android.view.Gravity.CENTER);badge.setPadding(dp(6),0,dp(6),0);badge.setBackground(shape(Color.argb(216,0,119,34),0));FrameLayout.LayoutParams badgeBounds=new FrameLayout.LayoutParams(-2,dp(24),android.view.Gravity.TOP|android.view.Gravity.RIGHT);badgeBounds.setMargins(0,dp(6),dp(6),0);artwork.addView(badge,badgeBounds);}
         }
+        if(landscape)bannerIdentity(artwork,media,badge);
         if(!landscape){
             TextView title=text(EtknApi.title(media),14,Color.WHITE);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,imageDp(25)));scaleImageText(title,14,25);
             TextView year=text(media.optString("ProductionYear"),12,MUTED);year.setGravity(android.view.Gravity.CENTER);year.setPadding(0,0,0,0);card.addView(year,new LinearLayout.LayoutParams(-1,imageDp(20)));scaleImageText(year,12,20);
         }
         if(adaptive){addAdaptiveGridItem(grid,card,gap,6);fitArtworkHeight(card,artwork,artRatio);}
         else{GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=imageDp(cardWidth);layout.height=imageDp(cardHeight);layout.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));grid.addView(card,layout);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(imageHeight);artwork.requestLayout();GridLayout.LayoutParams bounds=(GridLayout.LayoutParams)card.getLayoutParams();bounds.width=imageDp(cardWidth);bounds.height=imageDp(cardHeight);bounds.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));card.setLayoutParams(bounds);});}
-        if(landscape)Images.visibleArtwork(api,width->api.artwork(media,"Backdrop",Math.max(360,Math.min(720,width))),poster,success->{if(!success)Images.thumbnail(api,api.image(media),poster,poster.getWidth(),poster.getHeight(),ok->{});});
+        if(landscape){
+            Runnable loadBackdrop=()->Images.visibleArtwork(api,width->api.artwork(media,"Backdrop",imageSize()==TvPreferences.IMAGE_EXTREMELY_LARGE?720:360),poster,success->{if(!success)Images.thumbnail(api,api.image(media),poster,poster.getWidth(),poster.getHeight(),ok->{});});
+            loadBackdrop.run();imageSizeUpdater(poster,loadBackdrop);
+        }
         else Images.load(api,api.image(media),poster);
         card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);});
         return card;
     }
-    private void bannerIdentity(FrameLayout artwork,org.json.JSONObject media){
+    private void bannerIdentity(FrameLayout artwork,org.json.JSONObject media,View badge){
         FrameLayout identity=new FrameLayout(this);identity.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.argb(140,0,0,0),Color.TRANSPARENT}));
-        FrameLayout.LayoutParams area=new FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP|android.view.Gravity.START);artwork.addView(identity,area);
-        TextView title=text(EtknApi.title(media),22,Color.WHITE);title.setTypeface(null,Typeface.BOLD);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,0,0,0);title.setGravity(android.view.Gravity.TOP);title.setShadowLayer(3,0,1,Color.BLACK);title.setVisibility(View.INVISIBLE);
+        FrameLayout.LayoutParams area=new FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP|android.view.Gravity.START);artwork.addView(identity,2,area);
+        TextView title=text(EtknApi.title(media),20,Color.WHITE);title.setTypeface(androidx.core.content.res.ResourcesCompat.getFont(this,R.font.smiley_sans));title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setIncludeFontPadding(false);title.setGravity(android.view.Gravity.TOP|android.view.Gravity.START);
         identity.addView(title,new FrameLayout.LayoutParams(-1,-1));
-        ImageView logo=new ImageView(this);logo.setScaleType(ImageView.ScaleType.FIT_CENTER);Images.rounded(logo,dp(2));identity.addView(logo,new FrameLayout.LayoutParams(imageDp(128),imageDp(36),android.view.Gravity.START|android.view.Gravity.CENTER_VERTICAL));
-        Runnable resize=()->{int width=artwork.getWidth()>0?artwork.getWidth():imageDp(192);area.height=Math.round(width*0.27f);identity.setLayoutParams(area);identity.setPadding(Math.round(width*0.05f),Math.round(width*0.04f),Math.round(width*0.22f),Math.round(width*0.02f));FrameLayout.LayoutParams logoBounds=(FrameLayout.LayoutParams)logo.getLayoutParams();logoBounds.width=Math.round(width*0.64f);logoBounds.height=Math.round(width*0.18f);logo.setLayoutParams(logoBounds);title.setTextSize(22*imageScale());};resize.run();imageSizeUpdater(identity,resize);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resize.run();});
-        Images.visibleArtwork(api,width->api.artwork(media,"Logo",Math.min(720,Math.max(180,width))),logo,ok->{logo.setVisibility(ok?View.VISIBLE:View.GONE);title.setVisibility(ok?View.GONE:View.VISIBLE);});
+        Runnable resize=()->{int width=artwork.getWidth()>0?artwork.getWidth():imageDp(192);area.height=Math.round(width*0.34f);identity.setLayoutParams(area);identity.setPadding(Math.round(width*0.045f),Math.round(width*0.04f),Math.max(Math.round(width*0.045f),badge==null?0:badge.getMeasuredWidth()+dp(12)),Math.round(width*0.025f));title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,width*0.10f);title.setShadowLayer(Math.max(dp(1),width*0.012f),0,width*0.005f,Color.argb(235,0,0,0));};resize.run();imageSizeUpdater(identity,resize);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resize.run();});
     }
     private String rating(org.json.JSONObject media,String field){double value=media.optDouble(field,Double.NaN);return Double.isNaN(value)?"–":String.format(java.util.Locale.ROOT,"%.1f",value);}
     android.graphics.drawable.Drawable doubanMark(){

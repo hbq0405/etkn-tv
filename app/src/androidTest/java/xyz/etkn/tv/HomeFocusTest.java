@@ -61,22 +61,40 @@ public class HomeFocusTest {
             assertEquals(String.valueOf(firstCount),android.net.Uri.parse(server.lastListingPath).getQueryParameter("StartIndex"));
             java.util.Set<String> ids=new java.util.HashSet<>();for(int i=0;i<posterGrid().getChildCount();i++)assertTrue("追加分页不能重复",ids.add(((JSONObject)posterGrid().getChildAt(i).getTag()).optString("Id")));
             int loaded=posterGrid().getChildCount();View focus=posterGrid().getChildAt(1);instrumentation.runOnMainSync(focus::requestFocus);call("refreshPosters",new Class<?>[]{});await(()->!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));assertEquals(loaded,posterGrid().getChildCount());assertSame(focus,home.getCurrentFocus());
-            server.missingFirstLogo=true;call("toggleView",new Class<?>[]{});await(()->"landscape".equals(field(HomeActivity.class,"viewMode"))&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+            server.styledBannerTitles=true;server.imagePaths.clear();call("toggleView",new Class<?>[]{});await(()->"landscape".equals(field(HomeActivity.class,"viewMode"))&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
             instrumentation.runOnMainSync(()->{
                 ViewGroup card=(ViewGroup)posterGrid().getChildAt(0);assertEquals("横幅下方不再保留片名年份",1,card.getChildCount());
                 ViewGroup art=(ViewGroup)card.getChildAt(0),ratings=(ViewGroup)art.getChildAt(1),identity=(ViewGroup)art.getChildAt(2);
                 assertEquals("2020",((android.widget.TextView)ratings.getChildAt(0)).getText().toString());assertTrue(ratings.getChildAt(1) instanceof android.widget.ImageView);
                 assertEquals(Math.round(art.getWidth()*9f/16f),art.getHeight());assertTrue(identity.getTop()<ratings.getTop());
             });
-            await(()->findText(posterGrid().getChildAt(0),"海报影片").isShown());
-            await(()->{ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(1)).getChildAt(0),identity=(ViewGroup)art.getChildAt(2);return identity.getChildAt(0).getVisibility()==View.GONE&&((android.widget.ImageView)identity.getChildAt(1)).getDrawable()!=null;});
-            String logoPath=server.imagePaths.stream().filter(path->path.contains("/Items/item-1/Images/Logo?")).findFirst().orElseThrow();
-            ViewGroup firstArt=(ViewGroup)((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0),secondArt=(ViewGroup)((ViewGroup)posterGrid().getChildAt(1)).getChildAt(0);
-            int backdropWidth=Math.max(360,Math.min(720,firstArt.getWidth()));
-            assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/item-0/Images/Backdrop?")&&String.valueOf(backdropWidth).equals(android.net.Uri.parse(path).getQueryParameter("maxWidth"))));
-            assertEquals(Math.min(720,Math.max(180,Math.round(secondArt.getWidth()*0.64f))),Integer.parseInt(android.net.Uri.parse(logoPath).getQueryParameter("maxWidth")));
-            instrumentation.runOnMainSync(()->{android.view.ViewGroup identity=(android.view.ViewGroup)secondArt.getChildAt(2);android.widget.ImageView logo=(android.widget.ImageView)identity.getChildAt(1);android.widget.FrameLayout.LayoutParams bounds=(android.widget.FrameLayout.LayoutParams)logo.getLayoutParams();assertEquals(Math.round(secondArt.getWidth()*0.64f),bounds.width);assertEquals(Math.round(secondArt.getWidth()*0.18f),bounds.height);assertEquals(android.widget.ImageView.ScaleType.FIT_CENTER,logo.getScaleType());});
-            saveScreenshot("landscape-logo-and-title-fallback.png");
+            float previousTextSize=0;
+            for(int size=0;size<5;size++){
+                final int level=size,requestedWidth=size==TvPreferences.IMAGE_EXTREMELY_LARGE?720:360;
+                instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
+                await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),192,12,level)&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
+                await(()->{ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0);return String.valueOf(art.getChildAt(0).getTag()).contains("maxWidth="+requestedWidth+"&")&&((android.widget.ImageView)art.getChildAt(0)).getDrawable()!=null;});
+                float[] textSize={0};
+                instrumentation.runOnMainSync(()->{
+                    for(int i=0;i<Math.min(4,posterGrid().getChildCount());i++){
+                        ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(i)).getChildAt(0),identity=(ViewGroup)art.getChildAt(2);
+                        assertEquals("横幅仅保留文字片名",1,identity.getChildCount());
+                        android.widget.TextView title=(android.widget.TextView)identity.getChildAt(0);
+                        assertTrue("文字无需等待图片响应",title.isShown());assertEquals(View.VISIBLE,title.getVisibility());
+                        assertEquals(2,title.getMaxLines());assertTrue(title.getLineCount()<=2);assertTrue(title.getPaint().getShadowLayerRadius()>0);
+                        assertEquals(androidx.core.content.res.ResourcesCompat.getFont(home,R.font.smiley_sans),title.getTypeface());
+                        assertTrue("片名靠左",identity.getPaddingLeft()<art.getWidth()/10);assertTrue(title.getLeft()<art.getWidth()/10);
+                        assertTrue("片名区域覆盖完整行高",title.getLayout().getHeight()<=title.getHeight());
+                        if(art.getChildCount()>3)assertTrue("长片名不能与集数角标重叠",title.getRight()<=art.getChildAt(3).getLeft());
+                        if(i==0)textSize[0]=title.getTextSize();
+                    }
+                });
+                if(size>0)assertTrue("卡片变大时字号随之增大",textSize[0]>previousTextSize);previousTextSize=textSize[0];
+                if(size==0||size==2||size==4)saveScreenshot("banner-title-size-"+size+".png");
+            }
+            assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/item-0/Images/Backdrop?")&&"360".equals(android.net.Uri.parse(path).getQueryParameter("maxWidth"))));
+            assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/item-0/Images/Backdrop?")&&"720".equals(android.net.Uri.parse(path).getQueryParameter("maxWidth"))));
+            assertFalse("媒体库横幅不请求Logo",server.imagePaths.stream().anyMatch(path->path.contains("/Images/Logo")));
         }finally{closePosterFixture();}
     }
 
@@ -694,7 +712,7 @@ public class HomeFocusTest {
         final byte[][] logos=new byte[3][];
         volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt,failFirstFacet,holdFacet,respectLimits;
         volatile String lastResumePath="";
-        volatile boolean missingFirstLogo;
+        volatile boolean missingFirstLogo,styledBannerTitles;
         final java.util.concurrent.CountDownLatch facetGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.List<String> latestPaths=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         final java.util.List<String> imagePaths=new java.util.concurrent.CopyOnWriteArrayList<>();
@@ -785,7 +803,7 @@ public class HomeFocusTest {
             if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){
                 limit=Math.min(limit,listingPageCap);
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
-                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name","海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
+                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name",styledBannerTitles?new String[]{"长安三万里","The Grand Budapest Hotel","这个杀手不太冷：导演剪辑特别版","宇宙探索编辑部"}[i%4]:"海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
                 for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
                 if(deleted&&start==0)page.remove(0);
                 return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:120).put("EpisodeCountMode","unplayed");
