@@ -27,7 +27,7 @@
 - 发行证书 SHA-256：e02d42443875c3631be48199e0df419b0570fcc421be7ff2b620f4c643e67bd7。
 - ADB 192.168.31.188:5555 覆盖安装返回 Success，回读 0.1.74 / code 75；电视安装 APK 的 SHA-256 与本地产物一致。正式 MAIN/LEANBACK_LAUNCHER 的 SetupActivity 启动返回 Status: ok。未卸载正式应用或清除账号数据。
 - 电视实际年份目录的最终视觉验收仍待用户返回该目录确认；模拟器结果和设备安装成功不代替该验收。
-- GitHub：`main` 与 `v0.1.74` 已推送；Release `433056952` 于 2026-11-03 18:17:17 UTC 正式发布，并核实为 latest。`main` 和标签剥离后的提交均为 `9667681552d5ea4abcbd805b611c01615528e2df`。
+- GitHub：Release `433056952` 于 2026-11-03 18:17:17 UTC 正式发布，并核实为 latest；发布时 `main` 和 `v0.1.74` 标签剥离后的提交均为发行源码 `9667681552d5ea4abcbd805b611c01615528e2df`。随后发布收据以提交 `aeb680b` 推送到 `main`，标签保持不变。
 - 公开下载验证：APK、播放器源码 ZIP、发行说明、`SHA256SUMS.txt`、`update.json` 五项资产均与本地字节数及 SHA-256 一致；`releases/latest/download/update.json` 也一致。匿名下载证据保存在 `outputs/etkn-tv-0.1.74/verification/anonymous-v0.1.74-20261104/`。
 - Telegram 通知工作流 `41692353084` 对应本次 Release 与源码提交，状态成功；日志确认真实 `message_id=63442`，未重复触发通知。
 - 发行后仅补充此发布记录；不移动 `v0.1.74` 标签或替换已校验资产。
