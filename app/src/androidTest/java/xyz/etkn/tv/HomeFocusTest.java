@@ -74,7 +74,7 @@ public class HomeFocusTest {
                 instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
                 await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),192,12,level)&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
                 await(()->{ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0);return String.valueOf(art.getChildAt(0).getTag()).contains("maxWidth="+requestedWidth+"&")&&((android.widget.ImageView)art.getChildAt(0)).getDrawable()!=null;});
-                float[] metrics=new float[7];
+                float[] metrics=new float[13];
                 instrumentation.runOnMainSync(()->{
                     for(int i=0;i<Math.min(4,posterGrid().getChildCount());i++){
                         ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(i)).getChildAt(0),identity=(ViewGroup)art.getChildAt(2);
@@ -88,14 +88,16 @@ public class HomeFocusTest {
                         if(art.getChildCount()>3)assertTrue("长片名不能与集数角标重叠",title.getRight()<=art.getChildAt(3).getLeft());
                         if(i==0){
                             ViewGroup scores=(ViewGroup)art.getChildAt(1);android.widget.TextView year=(android.widget.TextView)scores.getChildAt(0),score=(android.widget.TextView)scores.getChildAt(2);
+                            android.widget.TextView badgeText=(android.widget.TextView)art.getChildAt(3);
                             metrics[0]=title.getTextSize();metrics[1]=year.getTextSize();metrics[2]=score.getTextSize();metrics[3]=scores.getChildAt(1).getWidth();metrics[4]=scores.getHeight();metrics[5]=year.getPaddingRight();metrics[6]=((android.widget.LinearLayout.LayoutParams)score.getLayoutParams()).leftMargin;
+                            metrics[7]=badgeText.getTextSize();metrics[8]=badgeText.getWidth();metrics[9]=badgeText.getHeight();metrics[10]=badgeText.getPaddingLeft();metrics[11]=((android.widget.FrameLayout.LayoutParams)badgeText.getLayoutParams()).rightMargin;metrics[12]=((android.widget.FrameLayout.LayoutParams)badgeText.getLayoutParams()).topMargin;
                         }
                     }
                 });
                 if(previousMetrics!=null){
                     assertTrue("卡片变大时片名随之增大",metrics[0]>previousMetrics[0]);
                     assertTrue("年份字号必须随卡片变大",metrics[1]>previousMetrics[1]);
-                    float scale=metrics[0]/previousMetrics[0];for(int part=1;part<metrics.length;part++)assertEquals("年份、评分、图标、间距及遮罩必须与片名等比例缩放",previousMetrics[part]*scale,metrics[part],part<=2?0.05f:1.5f);
+                    float scale=metrics[0]/previousMetrics[0];for(int part=1;part<metrics.length;part++)assertEquals("横幅缩放指标 "+part+" 必须与片名等比例变化",previousMetrics[part]*scale,metrics[part],part<=2?0.05f:part==8?5.0f:1.5f);
                 }
                 previousMetrics=metrics;
                 if(size==0||size==2||size==4)saveScreenshot("banner-title-size-"+size+".png");
@@ -103,6 +105,22 @@ public class HomeFocusTest {
             assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/item-0/Images/Backdrop?")&&"360".equals(android.net.Uri.parse(path).getQueryParameter("maxWidth"))));
             assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/item-0/Images/Backdrop?")&&"720".equals(android.net.Uri.parse(path).getQueryParameter("maxWidth"))));
             assertFalse("媒体库横幅不请求Logo",server.imagePaths.stream().anyMatch(path->path.contains("/Images/Logo")));
+            call("toggleView",new Class<?>[]{});await(()->"portrait".equals(field(HomeActivity.class,"viewMode"))&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+            float[] previousPortraitMetrics=null;
+            for(int size=0;size<5;size++){
+                final int level=size;instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
+                await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),132,6,level)&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
+                await(()->posterGrid().getChildAt(0).getWidth()>0&&((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0).getWidth()>0);
+                float[] portraitMetrics=new float[15];
+                instrumentation.runOnMainSync(()->{
+                    ViewGroup card=(ViewGroup)posterGrid().getChildAt(0);ViewGroup art=(ViewGroup)card.getChildAt(0);assertEquals("竖幅保持海报比例",Math.round(art.getWidth()*1.5f),art.getHeight());
+                    android.widget.TextView title=(android.widget.TextView)card.getChildAt(1),year=(android.widget.TextView)card.getChildAt(2);ViewGroup scores=(ViewGroup)art.getChildAt(1);android.widget.TextView rating=(android.widget.TextView)scores.getChildAt(1),badgeText=(android.widget.TextView)art.getChildAt(2);
+                    portraitMetrics[0]=title.getTextSize();portraitMetrics[1]=title.getHeight();portraitMetrics[2]=title.getPaddingTop();portraitMetrics[3]=year.getTextSize();portraitMetrics[4]=year.getHeight();portraitMetrics[5]=rating.getTextSize();portraitMetrics[6]=scores.getChildAt(0).getWidth();portraitMetrics[7]=scores.getHeight();portraitMetrics[8]=((android.widget.LinearLayout.LayoutParams)rating.getLayoutParams()).leftMargin;portraitMetrics[9]=badgeText.getTextSize();portraitMetrics[10]=badgeText.getWidth();portraitMetrics[11]=badgeText.getHeight();portraitMetrics[12]=badgeText.getPaddingLeft();portraitMetrics[13]=((android.widget.FrameLayout.LayoutParams)badgeText.getLayoutParams()).rightMargin;portraitMetrics[14]=((android.widget.FrameLayout.LayoutParams)badgeText.getLayoutParams()).topMargin;
+                });
+                if(previousPortraitMetrics!=null){assertTrue("竖幅卡片变大时片名随之增大",portraitMetrics[0]>previousPortraitMetrics[0]);float scale=portraitMetrics[0]/previousPortraitMetrics[0];for(int part=1;part<portraitMetrics.length;part++)assertEquals("竖幅缩放指标 "+part+" 必须与片名等比例变化",previousPortraitMetrics[part]*scale,portraitMetrics[part],part==0||part==3||part==5||part==9?0.05f:part==10?5.0f:2.0f);}
+                previousPortraitMetrics=portraitMetrics;
+                if(size==0||size==2||size==4)saveScreenshot("poster-size-"+size+".png");
+            }
         }finally{closePosterFixture();}
     }
 
@@ -596,24 +614,64 @@ public class HomeFocusTest {
             call("loadPosterPage",new Class<?>[]{boolean.class},true);await(()->posterGrid().getChildCount()==60);assertTrue("迟到的首屏加载不能从主菜单抢走焦点",home.nav.hasFocus());
         }finally{closePosterFixture();}
     }
+    @Test public void sparseFolderMediaKeepsFullGridCardWidthAcrossAllSizes()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.browseFeatures=true;openPosterFixture(server);
+            TvPreferences preferences=new TvPreferences(home,home.api);
+            int[][] fullWidths=new int[2][5];
+            for(int mode=0;mode<2;mode++){
+                if(mode==1){call("toggleView",new Class<?>[]{});await(()->"landscape".equals(field(HomeActivity.class,"viewMode"))&&posterGrid().getChildCount()==60);}
+                for(int size=0;size<5;size++){
+                    final int level=size,cardWidth=mode==0?132:192,gap=mode==0?6:12;
+                    instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
+                    await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),cardWidth,gap,level)&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
+                    fullWidths[mode][size]=posterGrid().getChildAt(0).getWidth();
+                }
+            }
+            call("toggleView",new Class<?>[]{});await(()->"portrait".equals(field(HomeActivity.class,"viewMode"))&&posterGrid().getChildCount()==60);
+            call("toggleFolders",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"Folder".equals(((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type")));
+            server.folderMediaCount=1;instrumentation.runOnMainSync(()->posterGrid().getChildAt(0).performClick());await(()->posterGrid().getChildCount()==1);
+            for(int count=1;count<=2;count++){
+                final int items=count;
+                if(count==2){server.folderMediaCount=2;call("loadPosterPage",new Class<?>[]{boolean.class},true);await(()->posterGrid().getChildCount()==items);}
+                for(int mode=0;mode<2;mode++){
+                    if(!((mode==0?"portrait":"landscape").equals(field(HomeActivity.class,"viewMode")))){call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==items);}
+                    for(int size=0;size<5;size++){
+                        final int level=size,cardWidth=mode==0?132:192,gap=mode==0?6:12;
+                        instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
+                        await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),cardWidth,gap,level)&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
+                        saveScreenshot("folder-"+count+"-"+mode+"-size-"+size+".png");
+                        for(int index=0;index<items;index++){
+                            ViewGroup card=(ViewGroup)posterGrid().getChildAt(index);View art=card.getChildAt(0);
+                            assertEquals("目录内 "+items+" 项应保持满行卡片列宽 mode="+mode+" size="+size,fullWidths[mode][size],card.getWidth(),1);
+                            assertEquals(Math.round(card.getWidth()*(mode==0?1.5f:9f/16f)),art.getHeight());
+                            if(index>0)assertEquals("两项仍在同一行",posterGrid().getChildAt(0).getTop(),card.getTop());
+                        }
+                    }
+                }
+            }
+            assertTrue(server.mutations.isEmpty());assertNull(server.unexpectedPath);
+        }finally{closePosterFixture();}
+    }
+    private int expectedAdaptiveCardWidth(GridLayout grid,int gapDp){return (grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight())/grid.getColumnCount()-2*home.dp(gapDp);}
     @Test public void folderBrowseRestoresPaginationAndGeneratesCoverOnlyByMenu()throws Exception{
         try(Fixture server=new Fixture()){
             server.browseFeatures=true;server.canRefresh=true;openPosterFixture(server);
             assertTrue(descendants(home.content).stream().anyMatch(v->v instanceof android.widget.Button&&"文件夹".equals(((android.widget.Button)v).getText().toString())));
             call("toggleFolders",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"Folder".equals(((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type")));
-            assertEquals(home.dp(192),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals(android.graphics.Color.TRANSPARENT,((android.graphics.drawable.ColorDrawable)posterGrid().getChildAt(0).getBackground()).getColor());assertEquals(View.GONE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());
+            assertEquals(expectedAdaptiveCardWidth(posterGrid(),12),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals(android.graphics.Color.TRANSPARENT,((android.graphics.drawable.ColorDrawable)posterGrid().getChildAt(0).getBackground()).getColor());assertEquals(View.GONE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());
             instrumentation.runOnMainSync(()->{
-                View first=posterGrid().getChildAt(0),second=posterGrid().getChildAt(1);assertEquals(home.dp(192),first.getWidth());assertEquals(home.dp(150),first.getHeight());
-                assertEquals(home.dp(108),((ViewGroup)first).getChildAt(0).getHeight());assertEquals(home.dp(24),second.getLeft()-first.getRight());
+                View first=posterGrid().getChildAt(0),second=posterGrid().getChildAt(1);assertEquals(expectedAdaptiveCardWidth(posterGrid(),12),first.getWidth());assertEquals(Math.round(first.getWidth()*9f/16f)+home.imageDp(42),first.getHeight());
+                assertEquals(Math.round(first.getWidth()*9f/16f),((ViewGroup)first).getChildAt(0).getHeight());assertEquals(home.dp(24),second.getLeft()-first.getRight());
                 int[] location=new int[2];first.getLocationOnScreen(location);assertTrue("首张目录应预留首页同等左侧空间",location[0]>=home.dp(40));
                 Rect visible=new Rect();assertTrue(first.getGlobalVisibleRect(visible));assertEquals("聚焦放大不能裁切目录宽度",Math.round(first.getWidth()*first.getScaleX()),visible.width(),1);
             });saveScreenshot("folder-compact-first-focus.png");
             call("loadPosterPage",new Class<?>[]{boolean.class},false);await(()->posterGrid().getChildCount()==70);
             instrumentation.runOnMainSync(()->{posterGrid().getChildAt(65).requestFocus();posterGrid().getChildAt(65).performClick();});await(()->posterGrid().getChildCount()==2);
-            assertEquals("portrait",field(HomeActivity.class,"viewMode"));assertEquals(home.dp(132),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals(View.VISIBLE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-media-portrait.png");
-            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==2&&"landscape".equals(field(HomeActivity.class,"viewMode")));assertEquals(home.dp(192),posterGrid().getChildAt(0).getLayoutParams().width);
+            assertEquals("portrait",field(HomeActivity.class,"viewMode"));assertEquals(expectedAdaptiveCardWidth(posterGrid(),6),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals(View.VISIBLE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-media-portrait.png");
+            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==2&&"landscape".equals(field(HomeActivity.class,"viewMode")));assertEquals(expectedAdaptiveCardWidth(posterGrid(),12),posterGrid().getChildAt(0).getLayoutParams().width);
             assertTrue(server.mutations.isEmpty());key(KeyEvent.KEYCODE_BACK);await(()->posterGrid().getChildCount()==70&&home.getCurrentFocus()!=null&&home.getCurrentFocus().getTag() instanceof JSONObject&&"tv-folder-category65".equals(((JSONObject)home.getCurrentFocus().getTag()).optString("Id")));
-            assertEquals(home.dp(192),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals("landscape",field(HomeActivity.class,"viewMode"));assertEquals(View.GONE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-page-restored.png");key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals("生成封面",itemMenu().getListView().getAdapter().getItem(0));chooseItemAction(0);
+            assertEquals(expectedAdaptiveCardWidth(posterGrid(),12),posterGrid().getChildAt(0).getLayoutParams().width);assertEquals("landscape",field(HomeActivity.class,"viewMode"));assertEquals(View.GONE,((View)field(HomeActivity.class,"viewModeButton")).getVisibility());saveScreenshot("folder-page-restored.png");key(KeyEvent.KEYCODE_MENU);await(()->itemMenu()!=null&&itemMenu().isShowing());assertEquals("生成封面",itemMenu().getListView().getAdapter().getItem(0));chooseItemAction(0);
             await(()->server.mutations.stream().anyMatch(x->x.contains("/FolderCover?FolderId=tv-folder-category65"))&&!Boolean.TRUE.equals(field(HomeActivity.class,"mediaActionBusy")));
             key(KeyEvent.KEYCODE_BACK);await(()->library("library-1")!=null);instrumentation.runOnMainSync(()->library("library-1").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
             assertFalse(descendants(home.content).stream().anyMatch(v->v instanceof android.widget.Button&&((android.widget.Button)v).getText().toString().startsWith("文件夹")));assertNull(server.unexpectedPath);
@@ -655,7 +713,7 @@ public class HomeFocusTest {
             for(String menu:new String[]{"类型","出品公司"}){
                 Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(FacetActivity.class.getName(),null,false);instrumentation.runOnMainSync(()->namedButton(home.content,menu).performClick());facets=(FacetActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(facets);
                 FacetActivity active=facets;await(()->((GridLayout)objectField(active,"cards")).getChildCount()==2&&Boolean.TRUE.equals(objectField(active,"canArtwork")));GridLayout cards=(GridLayout)objectField(active,"cards");
-                assertEquals(active.dp(192),cards.getChildAt(0).getWidth());assertFalse(((JSONObject)cards.getChildAt(0).getTag()).optString("Name").contains("标签"));assertTrue(server.mutations.stream().noneMatch(value->value.contains("/FacetArtwork?"))||menu.equals("出品公司"));
+                assertEquals((cards.getWidth()-cards.getPaddingLeft()-cards.getPaddingRight())/cards.getColumnCount()-2*active.dp(12),cards.getChildAt(0).getWidth());assertFalse(((JSONObject)cards.getChildAt(0).getTag()).optString("Name").contains("标签"));assertTrue(server.mutations.stream().noneMatch(value->value.contains("/FacetArtwork?"))||menu.equals("出品公司"));
                 key(KeyEvent.KEYCODE_MENU);await(()->objectField(active,"actionMenu")!=null&&((android.app.AlertDialog)objectField(active,"actionMenu")).isShowing());android.app.AlertDialog actions=(android.app.AlertDialog)objectField(active,"actionMenu");assertEquals(menu.equals("类型")?"生成封面":"拉取图标",actions.getListView().getAdapter().getItem(0));
                 instrumentation.runOnMainSync(()->actions.getListView().performItemClick(null,0,0));await(()->!Boolean.TRUE.equals(objectField(active,"busy"))&&cards.getChildAt(0).getTag() instanceof JSONObject&&((JSONObject)cards.getChildAt(0).getTag()).has("ImageTags"));
                 assertTrue(server.mutations.stream().anyMatch(value->value.contains("/FacetArtwork?")&&(menu.equals("类型")||value.contains("Action=icon"))));assertEquals("facet-0",((JSONObject)active.getCurrentFocus().getTag()).optString("Id"));saveScreenshot(menu.equals("类型")?"type-facets.png":"company-facets.png");
@@ -740,6 +798,7 @@ public class HomeFocusTest {
         final java.util.concurrent.CountDownLatch latestGate=new java.util.concurrent.CountDownLatch(1),resumeGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.atomic.AtomicInteger views=new java.util.concurrent.atomic.AtomicInteger();
         volatile int viewCalls;
+        volatile int folderMediaCount=2;
         volatile int facetCount=2;
         byte[] facetImage;
         Fixture()throws Exception{
@@ -799,8 +858,8 @@ public class HomeFocusTest {
             }
             if(browseFeatures&&path.contains("/Folders?")){
                 android.net.Uri uri=android.net.Uri.parse(path);String token=uri.getQueryParameter("FolderId"),startText=uri.getQueryParameter("StartIndex");int start=startText==null?0:Integer.parseInt(startText);boolean root=token==null||token.isEmpty();JSONArray rows=new JSONArray();
-                for(int i=start;i<Math.min(start+limit,root?70:2);i++){JSONObject row=new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root);if(root)row.put("ImageTags",new JSONObject().put("Primary","folder-cover"));rows.put(row);}
-                return new JSONObject().put("Items",rows).put("TotalRecordCount",root?70:2);
+                for(int i=start;i<Math.min(start+limit,root?70:folderMediaCount);i++){JSONObject row=new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root).put("ImageTags",new JSONObject().put("Primary",root?"folder-cover":"poster"));rows.put(row);}
+                return new JSONObject().put("Items",rows).put("TotalRecordCount",root?70:folderMediaCount);
             }
             if(browseFeatures&&path.contains("ParentId=library-5")){
                 String value=android.net.Uri.parse(path).getQueryParameter("StartIndex");int start=value==null?0:Integer.parseInt(value);JSONArray rows=new JSONArray();for(int i=start;i<Math.min(start+limit,70);i++)rows.put(new JSONObject().put("Id","collection-"+i).put("Name","电影合集 "+i).put("Type","BoxSet"));return new JSONObject().put("Items",rows).put("TotalRecordCount",70);

@@ -143,7 +143,7 @@ public class DiscoveryFlowTest {
             int availableDp=Math.max(1,Math.round((width-browse.getPaddingLeft()-browse.getPaddingRight())/density));
             int mediumColumns=Math.max(1,(availableDp+12)/144);
             int columns=Math.max(1,mediumColumns+TvPreferences.IMAGE_MEDIUM-size);
-            await(()->browse.getWidth()==width&&grid.getColumnCount()==columns&&grid.getChildAt(columns).getTop()>focused.getTop());
+            await(()->browse.getWidth()==width&&grid.getColumnCount()==columns&&grid.getChildAt(columns).getTop()>focused.getTop()&&focused.getHeight()==Math.round(focused.getWidth()*1.5f));
             onMain(()->{
                 int left=grid.getLeft()+focused.getLeft();
                 int right=width-grid.getLeft()-grid.getChildAt(columns-1).getRight();
@@ -153,8 +153,10 @@ public class DiscoveryFlowTest {
                 assertEquals(21,grid.getChildCount());
             });
         }
+        int fullWidth=focused.getWidth(),fullLeft=focused.getLeft();
         onMain(()->{while(grid.getChildCount()>1)grid.removeViewAt(grid.getChildCount()-1);});
-        await(()->Math.abs(grid.getLeft()+focused.getLeft()-(originalWidth-grid.getLeft()-focused.getRight()))<=1);
+        await(()->!grid.isLayoutRequested());
+        onMain(()->{assertEquals("仅剩一项仍保持正常列宽",fullWidth,focused.getWidth());assertEquals(fullLeft,focused.getLeft());});
     }
     @Test public void imageSizePreferenceResizesPosterGridAndDefaultsToMedium()throws Exception{
         TvPreferences preferences=new TvPreferences(activity,activity.api);

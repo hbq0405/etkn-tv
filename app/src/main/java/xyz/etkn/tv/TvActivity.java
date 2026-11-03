@@ -72,7 +72,7 @@ abstract class TvActivity extends Activity {
         if(view.isLaidOut()&&!view.isLayoutRequested()){action.run();return;}
         view.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener(){@Override public void onGlobalLayout(){view.getViewTreeObserver().removeOnGlobalLayoutListener(this);if(!isFinishing()&&!isDestroyed())action.run();}});
     }
-    private static final class AdaptiveGridConfig {int cardWidthDp,gapDp,horizontalInsetDp,lastColumns=-1;AdaptiveGridConfig(int cardWidthDp,int gapDp,int horizontalInsetDp){this.cardWidthDp=cardWidthDp;this.gapDp=gapDp;this.horizontalInsetDp=horizontalInsetDp;}}
+    private static final class AdaptiveGridConfig {int cardWidthDp,gapDp,horizontalInsetDp,lastColumns=-1,lastWidth=-1;AdaptiveGridConfig(int cardWidthDp,int gapDp,int horizontalInsetDp){this.cardWidthDp=cardWidthDp;this.gapDp=gapDp;this.horizontalInsetDp=horizontalInsetDp;}}
     boolean isAdaptiveGrid(GridLayout grid){return grid.getTag(R.id.adaptive_grid) instanceof AdaptiveGridConfig;}
     void watchGridColumns(GridLayout grid,int cardWidthDp,int gapDp,int horizontalInsetDp){
         grid.setTag(R.id.adaptive_grid,new AdaptiveGridConfig(cardWidthDp,gapDp,horizontalInsetDp));
@@ -89,16 +89,19 @@ abstract class TvActivity extends Activity {
         AdaptiveGridConfig config=(AdaptiveGridConfig)tag;
         int width=grid.getWidth()>0?grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight():dp(Math.max(1,getResources().getConfiguration().screenWidthDp-config.horizontalInsetDp));
         int columns=cardColumns(width,config.cardWidthDp,config.gapDp);
-        if(columns==config.lastColumns)return;
+        if(columns==config.lastColumns&&width==config.lastWidth)return;
         for(int i=0;i<grid.getChildCount();i++){
             View child=grid.getChildAt(i);if(!(child.getLayoutParams() instanceof GridLayout.LayoutParams))continue;
-            GridLayout.LayoutParams layout=(GridLayout.LayoutParams)child.getLayoutParams();layout.rowSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);layout.width=0;layout.height=ViewGroup.LayoutParams.WRAP_CONTENT;layout.setGravity(android.view.Gravity.FILL_HORIZONTAL);child.setLayoutParams(layout);
+            GridLayout.LayoutParams layout=(GridLayout.LayoutParams)child.getLayoutParams();layout.rowSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.columnSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.width=Math.max(1,width/columns-layout.leftMargin-layout.rightMargin);layout.height=ViewGroup.LayoutParams.WRAP_CONTENT;layout.setGravity(android.view.Gravity.START);child.setLayoutParams(layout);
         }
-        grid.setColumnCount(columns);config.lastColumns=columns;
+        grid.setColumnCount(columns);config.lastColumns=columns;config.lastWidth=width;
     }
     void addAdaptiveGridItem(GridLayout grid,View card,int gapDp,int verticalGapDp){
-        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=0;layout.height=ViewGroup.LayoutParams.WRAP_CONTENT;
-        layout.rowSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);layout.setGravity(android.view.Gravity.FILL_HORIZONTAL);
+        AdaptiveGridConfig config=(AdaptiveGridConfig)grid.getTag(R.id.adaptive_grid);
+        int width=grid.getWidth()>0?grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight():dp(Math.max(1,getResources().getConfiguration().screenWidthDp-config.horizontalInsetDp));
+        // 少量条目仍占一个正常列宽，不能按现有条目数拉伸填满整行。
+        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=CardGeometry.cardWidth(width,Math.max(1,grid.getColumnCount()),dp(gapDp));layout.height=ViewGroup.LayoutParams.WRAP_CONTENT;
+        layout.rowSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.columnSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.setGravity(android.view.Gravity.START);
         layout.setMargins(dp(gapDp),dp(verticalGapDp),dp(gapDp),dp(verticalGapDp));grid.addView(card,layout);
     }
     void fitArtworkHeight(View card,View artwork,float heightToWidth){
@@ -212,35 +215,43 @@ abstract class TvActivity extends Activity {
         android.graphics.drawable.GradientDrawable fade=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(235,0,0,0)});
         LinearLayout ratings=row();ratings.setGravity(android.view.Gravity.CENTER);ratings.setPadding(0,dp(17),0,dp(3));ratings.setBackground(fade);ratings.setVisibility("BoxSet".equals(media.optString("Type"))?View.GONE:View.VISIBLE);
         FrameLayout.LayoutParams ratingBounds=new FrameLayout.LayoutParams(-1,dp(42),android.view.Gravity.BOTTOM);artwork.addView(ratings,ratingBounds);
-        if(landscape){
-            TextView year=text(media.optString("ProductionYear"),11,Color.WHITE);year.setPadding(0,0,dp(8),0);year.setGravity(android.view.Gravity.CENTER_VERTICAL);year.setVisibility(year.getText().length()==0?View.GONE:View.VISIBLE);ratings.addView(year,new LinearLayout.LayoutParams(-2,-1));
+        int scaleBaseWidthDp=landscape?192:132;
+        java.util.List<Runnable> artworkScaleUpdates=new java.util.ArrayList<>();
+        TextView ratingYear=landscape?text(media.optString("ProductionYear"),11,Color.WHITE):null;
+        if(ratingYear!=null){
+            ratingYear.setPadding(0,0,dp(8),0);ratingYear.setGravity(android.view.Gravity.CENTER_VERTICAL);ratingYear.setVisibility(ratingYear.getText().length()==0?View.GONE:View.VISIBLE);ratings.addView(ratingYear,new LinearLayout.LayoutParams(-2,-1));
         }
         ImageView doubanIcon=new ImageView(this);doubanIcon.setImageDrawable(doubanMark());doubanIcon.setBackground(shape(Color.rgb(0,119,34),0));doubanIcon.setPadding(dp(3),dp(3),dp(3),dp(3));ratings.addView(doubanIcon,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView douban=text(rating(media,"DoubanRating"),11,Color.WHITE);douban.setGravity(android.view.Gravity.CENTER_VERTICAL);douban.setPadding(0,0,0,0);LinearLayout.LayoutParams scoreSpace=new LinearLayout.LayoutParams(-2,-1);scoreSpace.leftMargin=dp(3);scoreSpace.rightMargin=dp(8);ratings.addView(douban,scoreSpace);
         ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());ratings.addView(star,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
-        if(landscape){
-            TextView year=(TextView)ratings.getChildAt(0);
-            Runnable resizeRatings=()->{
-                float unit=(artwork.getWidth()>0?artwork.getWidth():imageDp(192))/192f;
-                ratingBounds.height=Math.round(42*unit);ratings.setLayoutParams(ratingBounds);ratings.setPadding(0,Math.round(17*unit),0,Math.round(3*unit));
-                for(TextView value:new TextView[]{year,douban,tmdb})value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*unit);
-                year.setPadding(0,0,Math.round(8*unit),0);
-                for(ImageView icon:new ImageView[]{doubanIcon,star}){LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)icon.getLayoutParams();bounds.width=bounds.height=Math.round(18*unit);icon.setLayoutParams(bounds);}
-                int padding=Math.round(3*unit);doubanIcon.setPadding(padding,padding,padding,padding);
-                scoreSpace.leftMargin=Math.round(3*unit);scoreSpace.rightMargin=Math.round(8*unit);douban.setLayoutParams(scoreSpace);tmdbSpace.leftMargin=Math.round(3*unit);tmdb.setLayoutParams(tmdbSpace);
-            };resizeRatings.run();imageSizeUpdater(ratings,resizeRatings);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resizeRatings.run();});
-        }
+        Runnable resizeRatings=()->{
+            float scale=artworkScale(artwork,scaleBaseWidthDp);
+            ratingBounds.height=Math.round(42*scale);ratings.setLayoutParams(ratingBounds);ratings.setPadding(0,Math.round(17*scale),0,Math.round(3*scale));
+            for(TextView value:new TextView[]{ratingYear,douban,tmdb})if(value!=null)value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scale);
+            if(ratingYear!=null)ratingYear.setPadding(0,0,Math.round(8*scale),0);
+            for(ImageView icon:new ImageView[]{doubanIcon,star}){LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)icon.getLayoutParams();bounds.width=bounds.height=Math.round(18*scale);icon.setLayoutParams(bounds);}
+            int padding=Math.round(3*scale);doubanIcon.setPadding(padding,padding,padding,padding);
+            scoreSpace.leftMargin=Math.round(3*scale);scoreSpace.rightMargin=Math.round(8*scale);douban.setLayoutParams(scoreSpace);tmdbSpace.leftMargin=Math.round(3*scale);tmdb.setLayoutParams(tmdbSpace);
+        };
+        artworkScaleUpdates.add(resizeRatings);
         TextView badge=null;org.json.JSONObject userData=media.optJSONObject("UserData");
         if("Series".equalsIgnoreCase(media.optString("Type"))&&userData!=null){
             int count=episodeCountMode.equals("total")?media.optInt("RecursiveItemCount",userData.optInt("UnplayedItemCount")):userData.optInt("UnplayedItemCount");
-            if(count>0){badge=text((episodeCountMode.equals("total")?"总 ":"未看 ")+count+" 集",10,Color.WHITE);badge.setGravity(android.view.Gravity.CENTER);badge.setPadding(dp(6),0,dp(6),0);badge.setBackground(shape(Color.argb(216,0,119,34),0));FrameLayout.LayoutParams badgeBounds=new FrameLayout.LayoutParams(-2,dp(24),android.view.Gravity.TOP|android.view.Gravity.RIGHT);badgeBounds.setMargins(0,dp(6),dp(6),0);artwork.addView(badge,badgeBounds);}
+            if(count>0){
+                TextView episodeBadge=text((episodeCountMode.equals("total")?"总 ":"未看 ")+count+" 集",10,Color.WHITE);episodeBadge.setGravity(android.view.Gravity.CENTER);episodeBadge.setPadding(dp(6),0,dp(6),0);episodeBadge.setBackground(shape(Color.argb(216,0,119,34),0));FrameLayout.LayoutParams badgeBounds=new FrameLayout.LayoutParams(-2,dp(24),android.view.Gravity.TOP|android.view.Gravity.RIGHT);badgeBounds.setMargins(0,dp(6),dp(6),0);artwork.addView(episodeBadge,badgeBounds);badge=episodeBadge;
+                artworkScaleUpdates.add(()->{float scale=artworkScale(artwork,scaleBaseWidthDp);episodeBadge.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,10*scale);episodeBadge.setPadding(Math.round(6*scale),0,Math.round(6*scale),0);badgeBounds.height=Math.round(24*scale);badgeBounds.topMargin=Math.round(6*scale);badgeBounds.rightMargin=Math.round(6*scale);episodeBadge.setLayoutParams(badgeBounds);});
+            }
         }
         if(landscape)bannerIdentity(artwork,media,badge);
         if(!landscape){
-            TextView title=text(EtknApi.title(media),14,Color.WHITE);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,imageDp(25)));scaleImageText(title,14,25);
-            TextView year=text(media.optString("ProductionYear"),12,MUTED);year.setGravity(android.view.Gravity.CENTER);year.setPadding(0,0,0,0);card.addView(year,new LinearLayout.LayoutParams(-1,imageDp(20)));scaleImageText(year,12,20);
+            TextView title=text(EtknApi.title(media),14,Color.WHITE);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,imageDp(25)));
+            artworkScaleUpdates.add(()->{float scale=artworkScale(artwork,scaleBaseWidthDp);title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,14*scale);title.setPadding(Math.round(2*scale),Math.round(3*scale),Math.round(2*scale),0);LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)title.getLayoutParams();bounds.height=Math.round(25*scale);title.setLayoutParams(bounds);});
+            TextView year=text(media.optString("ProductionYear"),12,MUTED);year.setGravity(android.view.Gravity.CENTER);year.setPadding(0,0,0,0);card.addView(year,new LinearLayout.LayoutParams(-1,imageDp(20)));
+            artworkScaleUpdates.add(()->{float scale=artworkScale(artwork,scaleBaseWidthDp);year.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,12*scale);LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)year.getLayoutParams();bounds.height=Math.round(20*scale);year.setLayoutParams(bounds);});
         }
+        Runnable resizeArtworkContent=()->artworkScaleUpdates.forEach(Runnable::run);
+        resizeArtworkContent.run();imageSizeUpdater(artwork,resizeArtworkContent);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resizeArtworkContent.run();});
         if(adaptive){addAdaptiveGridItem(grid,card,gap,6);fitArtworkHeight(card,artwork,artRatio);}
         else{GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=imageDp(cardWidth);layout.height=imageDp(cardHeight);layout.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));grid.addView(card,layout);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(imageHeight);artwork.requestLayout();GridLayout.LayoutParams bounds=(GridLayout.LayoutParams)card.getLayoutParams();bounds.width=imageDp(cardWidth);bounds.height=imageDp(cardHeight);bounds.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));card.setLayoutParams(bounds);});}
         if(landscape){
@@ -256,8 +267,9 @@ abstract class TvActivity extends Activity {
         FrameLayout.LayoutParams area=new FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP|android.view.Gravity.START);artwork.addView(identity,2,area);
         TextView title=text(EtknApi.title(media),20,Color.WHITE);title.setTypeface(androidx.core.content.res.ResourcesCompat.getFont(this,R.font.smiley_sans));title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setIncludeFontPadding(false);title.setGravity(android.view.Gravity.TOP|android.view.Gravity.START);
         identity.addView(title,new FrameLayout.LayoutParams(-1,-1));
-        Runnable resize=()->{int width=artwork.getWidth()>0?artwork.getWidth():imageDp(192);area.height=Math.round(width*0.34f);identity.setLayoutParams(area);identity.setPadding(Math.round(width*0.045f),Math.round(width*0.04f),Math.max(Math.round(width*0.045f),badge==null?0:badge.getMeasuredWidth()+dp(12)),Math.round(width*0.025f));title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,width*0.10f);title.setShadowLayer(Math.max(dp(1),width*0.012f),0,width*0.005f,Color.argb(235,0,0,0));};resize.run();imageSizeUpdater(identity,resize);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resize.run();});
+        Runnable resize=()->{int width=artwork.getWidth()>0?artwork.getWidth():imageDp(192);float scale=width/(float)dp(192);area.height=Math.round(width*0.34f);identity.setLayoutParams(area);int badgeInset=badge==null?0:badge.getMeasuredWidth()+((FrameLayout.LayoutParams)badge.getLayoutParams()).rightMargin+Math.round(dp(6)*scale);identity.setPadding(Math.round(width*0.045f),Math.round(width*0.04f),Math.max(Math.round(width*0.045f),badgeInset),Math.round(width*0.025f));title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,width*0.10f);title.setShadowLayer(Math.max(dp(1),width*0.012f),0,width*0.005f,Color.argb(235,0,0,0));};resize.run();imageSizeUpdater(identity,resize);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resize.run();});if(badge!=null)badge.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resize.run();});
     }
+    private float artworkScale(FrameLayout artwork,int baseWidthDp){return (artwork.getWidth()>0?artwork.getWidth():imageDp(baseWidthDp))/(float)baseWidthDp;}
     private String rating(org.json.JSONObject media,String field){double value=media.optDouble(field,Double.NaN);return Double.isNaN(value)?"–":String.format(java.util.Locale.ROOT,"%.1f",value);}
     android.graphics.drawable.Drawable doubanMark(){
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(24,24,android.graphics.Bitmap.Config.ARGB_8888);
