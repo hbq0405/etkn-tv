@@ -33,6 +33,7 @@ public class HomeFocusTest {
     private void await(BooleanSupplier condition)throws Exception{long end=System.currentTimeMillis()+20000;while(System.currentTimeMillis()<end){boolean[] ready={false};instrumentation.runOnMainSync(()->ready[0]=condition.getAsBoolean());if(ready[0]){settle();return;}Thread.sleep(100);}fail("等待媒体库状态超时");}
     @SuppressWarnings("unchecked") private View library(String id){return ((java.util.Map<String,View>)field(HomeActivity.class,"libraryCards")).get(id);}
     private void call(String name,Class<?>[] types,Object... args){instrumentation.runOnMainSync(()->{try{java.lang.reflect.Method method=HomeActivity.class.getDeclaredMethod(name,types);method.setAccessible(true);method.invoke(home,args);}catch(Exception error){throw new AssertionError(error);}});}
+    private int expectedAdaptiveColumns(GridLayout grid,int cardWidthDp,int gapDp,int imageSize){float density=home.getResources().getDisplayMetrics().density;int availableDp=Math.max(1,Math.round((grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight())/density));int medium=Math.max(1,(availableDp+2*gapDp)/(cardWidthDp+2*gapDp));return Math.max(1,medium+TvPreferences.IMAGE_MEDIUM-imageSize);}
 
     @Test public void continueWatchingClickOpensPlayerDirectly()throws Exception{
         PlayerActivity playback=null;
@@ -208,17 +209,31 @@ public class HomeFocusTest {
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
 
+    @Test public void mediaLibraryMenuGridResizesSafelyAcrossAllImageLevels()throws Exception{
+        try(Fixture server=new Fixture()){
+            openMenuHomeFixture(server);call("loadLibraries",new Class<?>[]{});
+            await(()->"library".equals(field(HomeActivity.class,"mode"))&&library("library-0")!=null&&library("library-0").getWidth()>0);
+            GridLayout grid=(GridLayout)library("library-0").getParent();TvPreferences preferences=new TvPreferences(home,home.api);
+            for(int size:new int[]{TvPreferences.IMAGE_EXTREMELY_SMALL,TvPreferences.IMAGE_SMALL,TvPreferences.IMAGE_MEDIUM,TvPreferences.IMAGE_LARGE,TvPreferences.IMAGE_EXTREMELY_LARGE}){
+                instrumentation.runOnMainSync(()->{preferences.setImageSize(size);home.onResume();});
+                await(()->grid.getColumnCount()==expectedAdaptiveColumns(grid,192,12,size));
+                instrumentation.runOnMainSync(()->{View card=library("library-0"),art=((ViewGroup)card).getChildAt(0);assertEquals(Math.round(art.getWidth()*9f/16f),art.getHeight());});
+            }
+            instrumentation.runOnMainSync(()->{preferences.setImageSize(TvPreferences.IMAGE_MEDIUM);home.onResume();});
+            await(()->grid.getColumnCount()==expectedAdaptiveColumns(grid,192,12,TvPreferences.IMAGE_MEDIUM));
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
     @Test public void landscapeCardsMatchHomeLibrariesAndKeepFocusedEdgesVisible()throws Exception{
         try(Fixture server=new Fixture()){
             openMenuHomeFixture(server);await(()->library("library-0").getWidth()>0);
-            int width=library("library-0").getWidth(),height=library("library-0").getHeight();new TvPreferences(home,home.api).saveLibraryView("library-0","portrait");
+            new TvPreferences(home,home.api).saveLibraryView("library-0","portrait");
             instrumentation.runOnMainSync(()->library("library-0").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()==60);
             call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"landscape".equals(field(HomeActivity.class,"viewMode")));
             instrumentation.runOnMainSync(()->{
                 View first=posterGrid().getChildAt(0),second=posterGrid().getChildAt(1);
-                assertEquals("横幅宽度须与首页媒体库一致",width,first.getWidth());assertEquals("横幅高度须与首页媒体库一致",height,first.getHeight());
-                assertEquals(home.dp(108),((ViewGroup)first).getChildAt(0).getHeight());assertEquals(home.dp(24),second.getLeft()-first.getRight());
-                assertEquals(Math.max(2,(home.getResources().getConfiguration().screenWidthDp-80)/216),posterGrid().getColumnCount());
+                View artwork=((ViewGroup)first).getChildAt(0);
+                assertTrue("横幅宽度按网格列数填充",first.getWidth()>0);assertEquals(Math.round(artwork.getWidth()*9f/16f),artwork.getHeight());assertEquals(home.dp(24),second.getLeft()-first.getRight());
+                assertEquals(expectedAdaptiveColumns(posterGrid(),192,12,TvPreferences.IMAGE_MEDIUM),posterGrid().getColumnCount());
                 assertNotNull(findText(first,"海报影片"));assertNotNull(findText(first,"2020"));assertNotNull(findText(first,"8.1"));assertNotNull(findText(first,"7.1"));
             });
             for(int index:new int[]{0,posterGrid().getColumnCount()-1,posterGrid().getColumnCount()}){
@@ -228,8 +243,14 @@ public class HomeFocusTest {
                     assertTrue("焦点框须保留左侧安全区",position[0]>=home.dp(40));assertEquals("聚焦横幅宽度不能裁切",Math.round(art.getWidth()*card.getScaleX()),visible.width(),2);assertEquals("聚焦横幅高度不能裁切",Math.round(art.getHeight()*card.getScaleY()),visible.height(),2);
                 });saveScreenshot("landscape-focused-"+index+".png");
             }
+            TvPreferences imagePreferences=new TvPreferences(home,home.api);
+            for(int size:new int[]{TvPreferences.IMAGE_EXTREMELY_SMALL,TvPreferences.IMAGE_SMALL,TvPreferences.IMAGE_MEDIUM,TvPreferences.IMAGE_LARGE,TvPreferences.IMAGE_EXTREMELY_LARGE}){
+                instrumentation.runOnMainSync(()->{imagePreferences.setImageSize(size);home.applyImageSizeNow();});
+                await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),192,12,size));
+                instrumentation.runOnMainSync(()->{View first=posterGrid().getChildAt(0),art=((ViewGroup)first).getChildAt(0);assertEquals(Math.round(art.getWidth()*9f/16f),art.getHeight());});
+            }
             call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"portrait".equals(field(HomeActivity.class,"viewMode")));
-            instrumentation.runOnMainSync(()->{View first=posterGrid().getChildAt(0);assertEquals(home.dp(132),first.getWidth());assertEquals(home.dp(255),first.getHeight());int[] position=new int[2];first.getLocationOnScreen(position);assertTrue("竖幅也须保留左侧焦点空间",position[0]>=home.dp(40));});
+            instrumentation.runOnMainSync(()->{View first=posterGrid().getChildAt(0),art=((ViewGroup)first).getChildAt(0);assertEquals(Math.round(art.getWidth()*1.5f),art.getHeight());int[] position=new int[2];first.getLocationOnScreen(position);assertTrue("竖幅也须保留左侧焦点空间",position[0]>=home.dp(40));});
         }finally{closePosterFixture();}
     }
 

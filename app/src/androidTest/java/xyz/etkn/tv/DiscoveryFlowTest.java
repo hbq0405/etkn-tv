@@ -1,5 +1,6 @@
 package xyz.etkn.tv;
 
+import android.app.AlertDialog;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.content.Intent;
@@ -7,7 +8,9 @@ import android.content.SharedPreferences;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.KeyEvent;
 import android.widget.GridLayout;
+import android.widget.Button;
 import android.widget.TextView;
 import androidx.test.platform.app.InstrumentationRegistry;
 import org.json.JSONArray;
@@ -124,6 +127,86 @@ public class DiscoveryFlowTest {
         SystemClock.sleep(350);instrumentation.waitForIdleSync();
         onMain(()->assertEquals("详情页状态",activity.status.getText().toString()));
     }
+    @Test public void posterWallCentersAndReflowsAtDifferentWidths()throws Exception{
+        GridLayout grid=(GridLayout)field("posterGrid");
+        View browse=(View)field("browseView");
+        TvPreferences preferences=new TvPreferences(activity,activity.api);int size=preferences.imageSize();
+        float density=activity.getResources().getDisplayMetrics().density;
+        int originalWidth=browse.getWidth();
+        onMain(()->{
+            for(int i=0;i<20;i++)invoke("discoveryCard",new Class<?>[]{GridLayout.class,JSONObject.class,Runnable.class},grid,server.item("movie"),(Runnable)()->{});
+            grid.getChildAt(0).requestFocus();
+        });
+        View focused=grid.getChildAt(0);
+        for(int width:new int[]{originalWidth,originalWidth/2,originalWidth*3/4,originalWidth}){
+            onMain(()->{ViewGroup.LayoutParams bounds=browse.getLayoutParams();bounds.width=width;browse.setLayoutParams(bounds);});
+            int availableDp=Math.max(1,Math.round((width-browse.getPaddingLeft()-browse.getPaddingRight())/density));
+            int mediumColumns=Math.max(1,(availableDp+12)/144);
+            int columns=Math.max(1,mediumColumns+TvPreferences.IMAGE_MEDIUM-size);
+            await(()->browse.getWidth()==width&&grid.getColumnCount()==columns&&grid.getChildAt(columns).getTop()>focused.getTop());
+            onMain(()->{
+                int left=grid.getLeft()+focused.getLeft();
+                int right=width-grid.getLeft()-grid.getChildAt(columns-1).getRight();
+                assertTrue("海报墙两侧留白应相等",Math.abs(left-right)<=1);
+                assertEquals(Math.round(focused.getWidth()*1.5f),focused.getHeight());
+                assertSame("重排后保持同一卡片焦点",focused,activity.getCurrentFocus());
+                assertEquals(21,grid.getChildCount());
+            });
+        }
+        onMain(()->{while(grid.getChildCount()>1)grid.removeViewAt(grid.getChildCount()-1);});
+        await(()->Math.abs(grid.getLeft()+focused.getLeft()-(originalWidth-grid.getLeft()-focused.getRight()))<=1);
+    }
+    @Test public void imageSizePreferenceResizesPosterGridAndDefaultsToMedium()throws Exception{
+        TvPreferences preferences=new TvPreferences(activity,activity.api);
+        GridLayout grid=(GridLayout)field("posterGrid");
+        View card=grid.getChildAt(0);
+        assertEquals(TvPreferences.IMAGE_MEDIUM,preferences.imageSize());
+        float density=activity.getResources().getDisplayMetrics().density;
+        for(int size:new int[]{TvPreferences.IMAGE_EXTREMELY_SMALL,TvPreferences.IMAGE_SMALL,TvPreferences.IMAGE_MEDIUM,TvPreferences.IMAGE_LARGE,TvPreferences.IMAGE_EXTREMELY_LARGE}){
+            onMain(()->{preferences.setImageSize(size);activity.applyImageSizeNow();card.requestFocus();});
+            await(()->{
+                int availableDp=Math.max(1,Math.round((grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight())/density));
+                int mediumColumns=Math.max(1,(availableDp+12)/144);
+                return grid.getColumnCount()==Math.max(1,mediumColumns+TvPreferences.IMAGE_MEDIUM-size)&&card.getWidth()>0;
+            });
+            onMain(()->{
+                assertEquals(Math.round(card.getWidth()*1.5f),card.getHeight());
+                assertSame(card,activity.getCurrentFocus());
+            });
+        }
+        onMain(()->{preferences.setImageSize(TvPreferences.IMAGE_MEDIUM);activity.applyImageSizeNow();});
+    }
+    @Test public void discoveryFiltersWaitForConfirmationAndSubmitKeywordAndCompanyTogether()throws Exception{
+        int initial=server.queryRequests;
+        onMain(()->{
+            invoke("openFilters",new Class<?>[0]);
+            ((Map<String,String>)field("keywordFilters")).put("科幻","科幻");
+            ((Map<String,String>)field("studioFilters")).put("华纳兄弟","华纳兄弟");
+            invoke("toggleHide",new Class<?>[0]);
+            assertEquals("筛选尚未确认时不应重新请求",initial,server.queryRequests);
+            ((Button)field("filterConfirmButton")).performClick();
+        });
+        await(()->server.queryRequests==initial+1);
+        JSONObject payload=new JSONObject(server.lastQueryBody);
+        assertEquals("科幻",payload.getJSONArray("keywords").getString(0));
+        assertEquals("华纳兄弟",payload.getJSONArray("studios").getString(0));
+        assertTrue(payload.getBoolean("hide_in_library"));
+    }
+    @Test public void discoveryMenuHasRoomForFocusedButton()throws Exception{
+        onMain(()->assertEquals(activity.dp(82),((View)field("menu")).getLayoutParams().height));
+    }
+    @Test public void multiChoiceRightKeyJumpsToApplyButton()throws Exception{
+        JSONArray options=new JSONArray();
+        for(int i=0;i<12;i++)options.put(new JSONObject().put("value","v"+i).put("label","选项"+i));
+        Map<String,String> selected=new LinkedHashMap<>();
+        onMain(()->invoke("chooseMultiOptions",new Class<?>[]{String.class,JSONArray.class,Map.class,Runnable.class,String.class},"关键词（可多选）",options,selected,(Runnable)()->{},"keyword"));
+        await(()->field("multiChoiceDialog")!=null);
+        AlertDialog dialog=(AlertDialog)field("multiChoiceDialog");
+        onMain(()->dialog.getListView().requestFocus());
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);
+        await(()->dialog.getButton(AlertDialog.BUTTON_POSITIVE).hasFocus());
+        onMain(dialog::dismiss);
+    }
     private void onMain(Runnable action){
         Throwable[] failure={null};
         instrumentation.runOnMainSync(()->{try{action.run();}catch(Throwable error){failure[0]=error;}});
@@ -143,7 +226,8 @@ public class DiscoveryFlowTest {
         final ServerSocket socket=new ServerSocket(0,16,InetAddress.getByName("127.0.0.1"));
         final CountDownLatch castRequested=new CountDownLatch(1),castGate=new CountDownLatch(1),castSent=new CountDownLatch(1),cloudRequested=new CountDownLatch(1),cloudGate=new CountDownLatch(1);
         volatile boolean closed,delayCast,delayCloud,duplicateSha;
-        volatile int seasonRequests,cloudRequests,delayedCloudSent;
+        volatile int seasonRequests,cloudRequests,delayedCloudSent,queryRequests;
+        volatile String lastQueryBody="{}";
         Fixture()throws Exception{
             Thread accept=new Thread(()->{while(!closed)try{
                 Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception error){if(!closed)android.util.Log.e("DiscoveryFixture","request",error);}});worker.setDaemon(true);worker.start();
@@ -172,7 +256,8 @@ public class DiscoveryFlowTest {
                 while((value=input.read())!=-1){headers.write(value);byte[] bytes=headers.toByteArray();int n=bytes.length;if(n>=4&&bytes[n-4]==13&&bytes[n-3]==10&&bytes[n-2]==13&&bytes[n-1]==10)break;}
                 String[] lines=headers.toString("US-ASCII").split("\r\n");String path=lines[0].split(" ")[1];int length=0;
                 for(String line:lines)if(line.toLowerCase(Locale.ROOT).startsWith("content-length:"))length=Integer.parseInt(line.substring(15).trim());
-                for(int i=0;i<length;i++)if(input.read()==-1)throw new EOFException();
+                ByteArrayOutputStream requestBody=new ByteArrayOutputStream();for(int i=0;i<length;i++){int next=input.read();if(next==-1)throw new EOFException();requestBody.write(next);}
+                if(path.contains("/query/")){queryRequests++;lastQueryBody=requestBody.toString("UTF-8");}
                 boolean cast=path.contains("/credits")&&delayCast,cloud=path.contains("-resources")&&delayCloud;
                 if(cast){castRequested.countDown();if(!castGate.await(8,TimeUnit.SECONDS))throw new IOException("演员响应等待超时");}
                 if(cloud){cloudRequested.countDown();if(!cloudGate.await(8,TimeUnit.SECONDS))throw new IOException("资源响应等待超时");}

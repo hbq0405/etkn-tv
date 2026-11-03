@@ -47,12 +47,14 @@ public final class PlayerActivity extends TvActivity {
     private boolean foreground,reportedStart,versionConfirmed,audioPending,subtitlePending;
     private boolean softwareVideo,playWhenReady=true;
     private boolean softwareAudio=true,enhancedSubtitles=true;
-    private boolean videoFrameSeen,completedByCredits;
+    private boolean videoFrameSeen,completedByCredits,introSkippedAtStart,creditsSkipCancelled;
     private long videoReadySince;
     private String videoDecoder="等待解码器";
     private TextView videoInfo;
+    private TextView skipNotice;
     private int skipMode;
     private long skipTarget=-1;
+    private long creditsCountdownStartedAt=-1;
     private long pendingSeekPosition=-1;
     private boolean seekKeys,focusNextWhenLoaded;
     private int audioIndex=PlaybackSelection.AUTO,subtitleIndex=PlaybackSelection.AUTO;
@@ -62,6 +64,8 @@ public final class PlayerActivity extends TvActivity {
     private final Handler timer=new Handler(Looper.getMainLooper());
     private final Runnable seekCommit=this::commitSeek;
     private final Runnable seekProgressHide=this::hideSeekProgress;
+    private final Runnable hideSkipNotice=()->{if(skipNotice!=null)skipNotice.setVisibility(View.GONE);};
+    private final Runnable creditsCountdown=this::updateCreditsCountdown;
     private final Runnable seekProgressUpdate=new Runnable(){@Override public void run(){
         if(player==null||!seekKeys)return;
         seekProgress.setDuration(Math.max(0,player.getDuration()));seekProgress.setPosition(pendingSeekPosition>=0?pendingSeekPosition:player.getCurrentPosition());seekProgress.setBufferedPosition(player.getBufferedPosition());timer.postDelayed(this,200);
@@ -107,6 +111,7 @@ public final class PlayerActivity extends TvActivity {
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);overlay.bottomMargin=dp(70);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
         skipButton=button("跳过片头",this::skipSegment);skipButton.setBackground(selectionBackground());skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
         status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
+        skipNotice=text("",18,android.graphics.Color.WHITE);skipNotice.setPadding(dp(24),dp(12),dp(24),dp(12));skipNotice.setBackgroundColor(android.graphics.Color.argb(190,0,0,0));skipNotice.setVisibility(View.GONE);FrameLayout.LayoutParams noticeLayout=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);noticeLayout.topMargin=dp(48);stage.addView(skipNotice,noticeLayout);
         episodePanel=new PlayerEpisodePanel(this,itemId,this::playEpisode,this::loadNextEpisode);
         episodePanel.setVisibility(View.GONE);stage.addView(episodePanel,new FrameLayout.LayoutParams(dp(Math.min(480,getResources().getConfiguration().screenWidthDp*3/5)),-1,Gravity.END));
         setContentView(stage);video.hideController();video.requestFocus();
@@ -257,7 +262,8 @@ public final class PlayerActivity extends TvActivity {
             if(subtitleIndex==-1)preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,true);
             else if(subtitleIndex>=0)preferences.setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false);
             player.setTrackSelectionParameters(preferences.build());
-            long startPosition=SkipSegments.initialPosition(source.optJSONArray("Chapters"),position,source.optLong("RunTimeTicks",0)/10000,skipMode==TvPreferences.SKIP_AUTO&&playWhenReady);
+            JSONArray chapters=source.optJSONArray("Chapters");long duration=source.optLong("RunTimeTicks",0)/10000;long startPosition=SkipSegments.initialPosition(chapters,position,duration,skipMode==TvPreferences.SKIP_AUTO&&playWhenReady);
+            SkipSegments.Segment startSegment=SkipSegments.at(chapters,Math.max(0,position),duration);introSkippedAtStart=skipMode==TvPreferences.SKIP_AUTO&&playWhenReady&&startPosition>Math.max(0,position)&&startSegment!=null&&"跳过片头".equals(startSegment.label);
             playbackTiming.event("initial_position","position_ms="+startPosition);
             player.setMediaItem(new MediaItem.Builder().setUri(address).setSubtitleConfigurations(subtitles).build(),startPosition);
             reportedStart=false;
@@ -271,13 +277,23 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onRenderedFirstFrame(){playbackTiming.event("first_frame");videoFrameSeen=true;videoReadySince=0;updateVideoInfo();}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
-                @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();}if(state==Player.STATE_ENDED)advanceQueue();}
+                @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();if(introSkippedAtStart){introSkippedAtStart=false;showSkipNotice("已跳过片头",2200);}}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
             updateTimelineMarkers();playbackTiming.event("prepare");player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();if(episodePanel.isShown())renderEpisodes();else video.requestFocus();updateTrackButtons();
         }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
     }
     private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}
+    private void showSkipNotice(String value,long hideAfter){if(skipNotice==null)return;timer.removeCallbacks(hideSkipNotice);skipNotice.setText(value);skipNotice.setVisibility(View.VISIBLE);if(hideAfter>0)timer.postDelayed(hideSkipNotice,hideAfter);}
+    private void cancelCreditsCountdown(){timer.removeCallbacks(creditsCountdown);creditsCountdownStartedAt=-1;if(skipNotice!=null&&skipNotice.getText().toString().startsWith("即将跳过片尾"))hideSkipNotice.run();}
+    private void updateCreditsCountdown(){
+        if(player==null)return;long duration=player.getDuration();SkipSegments.Segment segment=SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),duration);
+        if(segment==null||segment.end!=duration){cancelCreditsCountdown();creditsSkipCancelled=false;return;}
+        if(!player.isPlaying()||creditsSkipCancelled){cancelCreditsCountdown();return;}
+        long remaining=5000-(android.os.SystemClock.elapsedRealtime()-creditsCountdownStartedAt);
+        if(remaining<=0){skipTarget=segment.end;cancelCreditsCountdown();skipSegment();return;}
+        showSkipNotice("即将跳过片尾 "+((remaining+999)/1000),0);timer.postDelayed(creditsCountdown,Math.min(1000,remaining));
+    }
     private void handlePlayerError(PlaybackException error){
         if(enhancedSubtitles&&TvPlayerFactory.subtitleFailure(error)){stopPlayer();enhancedSubtitles=false;Toast.makeText(this,"特效字幕异常，已切换兼容字幕",Toast.LENGTH_LONG).show();startSource();return;}
         if(softwareAudio&&TvPlayerFactory.rendererFailure(error,C.TRACK_TYPE_AUDIO)){stopPlayer();softwareAudio=false;message("音频解码失败，正在尝试系统解码…");startSource();return;}
@@ -317,8 +333,15 @@ public final class PlayerActivity extends TvActivity {
     }
     private void updateSkip(){
         SkipSegments.Segment segment=skipMode==TvPreferences.SKIP_OFF||pendingSeekPosition>=0||player.getPlaybackState()!=Player.STATE_READY?null:SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),player.getDuration());
+        if(segment==null){cancelCreditsCountdown();creditsSkipCancelled=false;}
         skipTarget=segment==null?-1:segment.end;
-        if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO&&player.isPlaying()){skipSegment();return;}
+        if(segment!=null&&skipMode==TvPreferences.SKIP_AUTO){
+            if(segment.end==player.getDuration()){
+                if(player.isPlaying()&&!creditsSkipCancelled){if(creditsCountdownStartedAt<0){creditsCountdownStartedAt=android.os.SystemClock.elapsedRealtime();updateCreditsCountdown();}}else cancelCreditsCountdown();
+                return;
+            }
+            creditsSkipCancelled=false;cancelCreditsCountdown();if(player.isPlaying()){skipSegment();return;}
+        }
         if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys&&!episodePanel.isShown()){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
     }
     private void updateTimelineMarkers(){
@@ -329,8 +352,8 @@ public final class PlayerActivity extends TvActivity {
     private void skipSegment(){
         if(player==null||skipTarget<0)return;
         if(skipTarget==player.getDuration()){
-            completedByCredits=true;skipTarget=-1;stopPlayer();advanceQueue();
-        }else{player.seekTo(skipTarget);updateSkip();}
+            cancelCreditsCountdown();completedByCredits=true;skipTarget=-1;stopPlayer();advanceQueue();
+        }else{if(skipMode==TvPreferences.SKIP_AUTO)showSkipNotice("已跳过片头",2200);player.seekTo(skipTarget);updateSkip();}
     }
     private static final class TrackRef{
         final Tracks.Group group;final int index;
@@ -421,9 +444,9 @@ public final class PlayerActivity extends TvActivity {
             reports.execute(()->{try{api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);}catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
-    private void stopPlayer(){if(translation!=null){translation.close();translation=null;}hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}}
+    private void stopPlayer(){if(translation!=null){translation.close();translation=null;}cancelCreditsCountdown();creditsSkipCancelled=false;hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}}
     @Override protected void onStart(){super.onStart();if(!LoginGate.isSatisfied()&&api.session.persist()!=SessionStore.PERSIST_FULL)return;foreground=true;if(info!=null&&player==null)startSource();}
-    @Override protected void onPause(){hideSeekProgress();super.onPause();}
+    @Override protected void onPause(){cancelCreditsCountdown();hideSeekProgress();super.onPause();}
     @Override protected void onStop(){foreground=false;stopPlayer();super.onStop();}
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle state){state.putFloat("speed",playbackSpeed);state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("softwareAudio",softwareAudio);state.putBoolean("enhancedSubtitles",enhancedSubtitles);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
@@ -432,6 +455,7 @@ public final class PlayerActivity extends TvActivity {
         if(down)focusNextWhenLoaded=false;
         if(key==KeyEvent.KEYCODE_BACK){if(down&&event.getRepeatCount()==0){
             if(episodePanel.isShown())hideEpisodes();
+            else if(creditsCountdownStartedAt>=0){creditsSkipCancelled=true;cancelCreditsCountdown();}
             else if(seekKeys||controls.getVisibility()==View.VISIBLE||video.isControllerFullyVisible()){hideSeekProgress();video.hideController();controls.setVisibility(View.GONE);video.requestFocus();}
             else finish();
         }return true;}

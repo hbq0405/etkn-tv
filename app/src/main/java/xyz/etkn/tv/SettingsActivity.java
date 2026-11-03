@@ -28,7 +28,7 @@ public final class SettingsActivity extends TvActivity {
     private File downloaded;
     private boolean installing;
     private JSONObject playbackPreferences;
-    private Button defaultAudio,defaultSubtitle,skipButton,loginModeButton;
+    private Button defaultAudio,defaultSubtitle,skipButton,loginModeButton,imageSizeButton;
     private boolean preferenceSaving,adminRememberSaving;
     private LinearLayout loginSection,adminRememberRow;
     private AlertDialog preferenceDialog;
@@ -53,9 +53,12 @@ public final class SettingsActivity extends TvActivity {
             skipButton=settingRow(Color.WHITE);skipButton.setOnClickListener(view->chooseSkipMode());playback.addView(skipButton);showSkipMode();
             playback.addView(note("音轨与字幕和个人中心同步：个人配置覆盖全局，未配置时跟随全局；按添加顺序确定优先级。"));
             playback.addView(note("片头片尾仅对有片头片尾标记的影片生效，保存到此电视当前账号。"));
+            TvPreferences preferences=new TvPreferences(this,api);
+            LinearLayout display=section("显示");
+            imageSizeButton=settingRow(Color.WHITE);imageSizeButton.setOnClickListener(view->chooseImageSize(preferences));display.addView(imageSizeButton);showImageSize(preferences);
+            display.addView(note("调整首页、媒体库、影视探索中的海报卡片与横幅大小，保存到此电视当前账号。"));
             LinearLayout notices=section("通知");
             notices.addView(switchRow("我的订阅 / 追更入库通知","提醒本账号订阅内容，以及收藏或观看过的剧集更新。后台检查受电视系统调度影响。",IngestNotifications.enabled(this),on->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);}));
-            TvPreferences preferences=new TvPreferences(this,api);
             LinearLayout home=section("首页");
             home.addView(switchRow("智能推荐轮播","首页背景按你的观影口味自动轮播推荐，不再跟随焦点联动。保存到此电视当前账号。",preferences.smartCarousel(),on->preferences.setSmartCarousel(on)));
         }
@@ -145,6 +148,8 @@ public final class SettingsActivity extends TvActivity {
     }
     private void showLoginMode(){loginModeButton.setText(rowText("登录方式",LoginGate.LABELS[LoginGate.mode(this)]));}
     private void chooseLoginMode(){preferenceDialog=new AlertDialog.Builder(this).setTitle("登录方式").setSingleChoiceItems(LoginGate.LABELS,LoginGate.mode(this),(dialog,index)->{LoginGate.setMode(this,index);showLoginMode();dialog.dismiss();}).setNegativeButton("取消",null).create();preferenceDialog.show();}
+    private void showImageSize(TvPreferences preferences){imageSizeButton.setText(rowText("图片大小",TvPreferences.IMAGE_SIZE_LABELS[preferences.imageSize()]));}
+    private void chooseImageSize(TvPreferences preferences){preferenceDialog=new AlertDialog.Builder(this).setTitle("图片大小").setSingleChoiceItems(TvPreferences.IMAGE_SIZE_LABELS,preferences.imageSize(),(dialog,index)->{preferences.setImageSize(index);showImageSize(preferences);dialog.dismiss();}).setNegativeButton("取消",null).create();preferenceDialog.show();}
     private void showPreferences(JSONObject value){
         playbackPreferences=value;defaultAudio.setEnabled(true);defaultSubtitle.setEnabled(true);
         defaultAudio.setText(rowText("默认音轨",preferenceSummary(false)));defaultSubtitle.setText(rowText("默认字幕",preferenceSummary(true)));

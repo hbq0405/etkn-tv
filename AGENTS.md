@@ -7,6 +7,7 @@
 - 局域网自动发现探测媒体8097/8096及管理5257，通过公开连接信息读取真实媒体地址并校验实例身份；手动填写媒体服务器地址，不得把普通Emby服务器误识别为ETKN。
 - 更新仓库经用户授权为 `hbq0405/etkn-tv`，源码与 APK/更新信息同仓库公开，Releases 保存发行资产；不上传凭据或签名私钥，发布前验证哈希、版本和签名。
 - 发行签名私钥保存在本机私有目录，永不提交；所有后续版本必须沿用同一私钥。
+- 所有 APK 构建（包括本地测试与验收）一律使用现有正式发行签名；仪器测试通过 `testBuildType=release` 构建并核验 APK 证书，不构建或安装 Debug/临时签名 APK。签名配置只通过私有路径读取，禁止输出凭据内容。
 - ExoPlayer 的 NextLib/libass 原生扩展固定版本；TrueHD 修复使用 third_party/nextlib_compat 和四 ABI JNI 库。发布遵循 GPL-3.0，附原始许可、对应源码与重建信息；不能以支持列表代替真实解码输出验证。
 - 当前 FFmpeg 静态链接进 JNI，原生重建使用 `scripts/Build-PlayerNative.py`；旧动态链接入口不适用于当前 APK。四 ABI 重建后检查 ELF 依赖与真实解码，具体流程见 `docs/build-and-release-sop.md`。
 - 最小修改、真实构建验证；明确区分源码完成、APK构建、设备实测和GitHub发布。

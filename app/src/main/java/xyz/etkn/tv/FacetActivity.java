@@ -31,7 +31,7 @@ public final class FacetActivity extends TvActivity {
         content.addView(text(getIntent().getStringExtra("title"),24,Color.WHITE));
         batchArtwork=button("Types".equals(kind)?"生成封面":"拉取图标",()->{List<JSONObject> items=new ArrayList<>();for(int i=0;i<cards.getChildCount();i++)items.add((JSONObject)cards.getChildAt(i).getTag());startArtwork(items);});
         batchArtwork.setVisibility(View.GONE);content.addView(batchArtwork);content.addView(status);
-        cards=new GridLayout(this);cards.setColumnCount(Math.max(2,(getResources().getConfiguration().screenWidthDp-80)/216));cards.setClipChildren(false);cards.setClipToPadding(false);cards.setPadding(0,dp(12),0,dp(12));content.addView(cards);
+        cards=new GridLayout(this);cards.setClipChildren(false);cards.setClipToPadding(false);cards.setPadding(0,dp(12),0,dp(12));watchGridColumns(cards,192,12,80);content.addView(cards);
         async(()->api.get("/api/tv/Users/Me"),user->{JSONObject policy=user.optJSONObject("Policy"),tv=user.optJSONObject("TvPermissions");canArtwork=policy!=null&&policy.optBoolean("IsAdministrator")||tv!=null&&tv.optBoolean("CanRefreshMetadata");updateArtworkButton();});
         load();
     }
@@ -54,7 +54,7 @@ public final class FacetActivity extends TvActivity {
         TextView placeholder=text(item.optString("Name"),24,Color.WHITE);placeholder.setGravity(Gravity.CENTER);placeholder.setMaxLines(2);placeholder.setPadding(dp(10),0,dp(10),0);art.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
         if(item.has("ImageTags")){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(9));art.addView(image,new FrameLayout.LayoutParams(-1,-1));Images.visibleThumbnail(api,api.server+artwork(item)+"&tag="+EtknApi.encode(item.optJSONObject("ImageTags").optString("Primary")),image,dp(208),dp(117),success->{if(success)placeholder.setVisibility(View.INVISIBLE);});}
         TextView label=text(item.optString("Name"),12,Color.WHITE);label.setMaxLines(2);label.setPadding(0,dp(4),0,0);card.addView(label,new LinearLayout.LayoutParams(-1,dp(42)));
-        GridLayout.LayoutParams space=new GridLayout.LayoutParams();space.width=dp(192);space.height=dp(150);space.setMargins(dp(12),dp(5),dp(12),dp(5));cards.addView(card,space);
+        addAdaptiveGridItem(cards,card,12,5);fitArtworkHeight(card,art,9f/16f);
         card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(focused?dp(8):0);art.setElevation(dp(focused?8:4));art.setForeground(focused?focusOutline():null);});
         card.setOnClickListener(view->{focusId=item.optString("Id");startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",item.optString("Kind")).putExtra("facetValue",item.optString("Value")).putExtra("facetParent",parent));});
         card.setOnLongClickListener(view->{showActions(item);return true;});

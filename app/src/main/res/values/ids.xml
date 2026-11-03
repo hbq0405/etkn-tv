@@ -1,0 +1,4 @@
+<resources>
+    <item name="image_size_updater" type="id" />
+    <item name="adaptive_grid" type="id" />
+</resources>

@@ -707,7 +707,8 @@ public class DetailFlowTest {
                 onMain(()->((ExoPlayer)field(previous,"player")).addListener(new Player.Listener(){@Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(reason==Player.DISCONTINUITY_REASON_SEEK)seeks[0]++;}}));
                 Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);
                 try{
-                    onMain(()->{if(mode==TvPreferences.SKIP_AUTO)((ExoPlayer)field(previous,"player")).play();else ((Button)field(previous,"skipButton")).performClick();});
+                    if(mode==TvPreferences.SKIP_AUTO){onMain(()->{ExoPlayer player=(ExoPlayer)field(previous,"player");player.setPlaybackSpeed(0.1f);player.play();});await(()->((TextView)field(previous,"skipNotice")).getText().toString().startsWith("即将跳过片尾"));}
+                    else onMain(()->((Button)field(previous,"skipButton")).performClick());
                     PlayerActivity next=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);assertNotNull("片尾应直接切下一集",next);playback=next;
                     await(()->field(next,"player")!=null&&((ExoPlayer)field(next,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->((ExoPlayer)field(next,"player")).pause());
                     assertEquals("episode-1-3",next.getIntent().getStringExtra("id"));assertTrue(previous.isFinishing());assertNull(field(previous,"player"));
@@ -716,6 +717,29 @@ public class DetailFlowTest {
                     assertTrue("保留实际停止位置，不伪造末尾进度",stopped.getLong("PositionTicks")<duration[0]*10000);closePlayer();
                 }finally{instrumentation.removeMonitor(monitor);}
             }
+        }finally{cleanup();}
+    }
+
+    @Test public void backCancelsAutomaticCreditsCountdownWithoutExitingPlayback()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"episode-1-2");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_AUTO);play();PlayerActivity active=playback;int stoppedBefore=server.stopped.size();long[] duration={0};
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(active,"player");duration[0]=player.getDuration();player.seekTo(10000);});
+            await(()->((Long)field(active,"skipTarget"))==duration[0]);
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(active,"player");player.setPlaybackSpeed(0.1f);player.play();});
+            await(()->((TextView)field(active,"skipNotice")).getText().toString().startsWith("即将跳过片尾"));long[] position={0};
+            onMain(()->position[0]=((ExoPlayer)field(active,"player")).getCurrentPosition());instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
+            assertFalse("返回应取消片尾跳过而不是退出",active.isFinishing());assertEquals(Boolean.TRUE,field(active,"creditsSkipCancelled"));assertEquals(View.GONE,((View)field(active,"skipNotice")).getVisibility());
+            SystemClock.sleep(5500);assertFalse("取消后不应重新启动倒计时",active.isFinishing());assertNotNull(field(active,"player"));assertEquals(stoppedBefore,server.stopped.size());long[] after={0};onMain(()->after[0]=((ExoPlayer)field(active,"player")).getCurrentPosition());
+            assertTrue("取消跳过后继续播放",after[0]>position[0]);
+        }finally{cleanup();}
+    }
+
+    @Test public void resumingInsideIntroShowsAutomaticSkipNotice()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"episode-1-2");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_AUTO);
+            playback=(PlayerActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),PlayerActivity.class).putExtra("id","episode-1-2").putExtra("title","合成剧集").putExtra("seriesId","series-one").putExtra("position",2000L).putExtra("resume",true).putExtra("resolved",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            PlayerActivity active=playback;await(()->field(active,"player")!=null&&((ExoPlayer)field(active,"player")).getPlaybackState()==Player.STATE_READY&&((View)field(active,"skipNotice")).getVisibility()==View.VISIBLE);
+            assertEquals("已跳过片头",((TextView)field(active,"skipNotice")).getText().toString());long[] position={0};onMain(()->position[0]=((ExoPlayer)field(active,"player")).getCurrentPosition());assertTrue(position[0]>=3000);
         }finally{cleanup();}
     }
 

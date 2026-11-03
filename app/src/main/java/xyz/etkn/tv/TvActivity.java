@@ -24,7 +24,9 @@ abstract class TvActivity extends Activity {
     ScrollView screenScroll;
     EtknApi api;
     int dp(float value) { return Math.round(getResources().getDisplayMetrics().density*value); }
-    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
+    private TvPreferences preferences;
+    private int appliedImageSize=-1;
+    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); preferences=new TvPreferences(this,api); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
     private final android.os.Handler noticeTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable noticePoll=new Runnable(){@Override public void run(){IngestNotifications.check(TvActivity.this);noticeTimer.postDelayed(this,60000);}};
     private final java.util.Map<Long,String> refreshTasks=new java.util.LinkedHashMap<>();
@@ -34,8 +36,59 @@ abstract class TvActivity extends Activity {
     private static int foregroundActivities;
     @Override protected void onStart(){super.onStart();foregroundActivities++;}
     @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
-    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);if(LoginGate.isSatisfied()){IngestNotifications.resumed(this);noticeTimer.post(noticePoll);refreshForeground=true;noticeTimer.post(refreshPoll);}}
+    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);if(LoginGate.isSatisfied()){int size=preferences.imageSize();if(appliedImageSize>=0&&appliedImageSize!=size)applyImageSizeNow();appliedImageSize=size;IngestNotifications.resumed(this);noticeTimer.post(noticePoll);refreshForeground=true;noticeTimer.post(refreshPoll);}}
     @Override protected void onPause(){refreshForeground=false;noticeTimer.removeCallbacks(refreshPoll);noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
+    int imageSize(){return preferences.imageSize();}
+    float imageScale(){switch(imageSize()){case TvPreferences.IMAGE_EXTREMELY_SMALL:return 0.72f;case TvPreferences.IMAGE_SMALL:return 0.86f;case TvPreferences.IMAGE_LARGE:return 1.14f;case TvPreferences.IMAGE_EXTREMELY_LARGE:return 1.28f;default:return 1f;}}
+    int imageDimension(int baseDp){return Math.round(baseDp*imageScale());}
+    int imageDp(int baseDp){return dp(imageDimension(baseDp));}
+    void scaleImageText(TextView view,float baseSp,int baseHeightDp){
+        Runnable update=()->{
+            view.setTextSize(baseSp*imageScale());
+            ViewGroup.LayoutParams layout=view.getLayoutParams();
+            int height=imageDp(baseHeightDp);
+            if(layout!=null&&layout.height!=height){layout.height=height;view.setLayoutParams(layout);}
+        };
+        update.run();imageSizeUpdater(view,update);
+    }
+
+    void imageSizeUpdater(View view,Runnable updater){view.setTag(R.id.image_size_updater,updater);}
+    private static final class AdaptiveGridConfig {int cardWidthDp,gapDp,horizontalInsetDp,lastColumns=-1;AdaptiveGridConfig(int cardWidthDp,int gapDp,int horizontalInsetDp){this.cardWidthDp=cardWidthDp;this.gapDp=gapDp;this.horizontalInsetDp=horizontalInsetDp;}}
+    boolean isAdaptiveGrid(GridLayout grid){return grid.getTag(R.id.adaptive_grid) instanceof AdaptiveGridConfig;}
+    void watchGridColumns(GridLayout grid,int cardWidthDp,int gapDp,int horizontalInsetDp){
+        grid.setTag(R.id.adaptive_grid,new AdaptiveGridConfig(cardWidthDp,gapDp,horizontalInsetDp));
+        Runnable update=()->resizeAdaptiveGrid(grid);imageSizeUpdater(grid,update);
+        grid.addOnLayoutChangeListener((view,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{if(right-left!=oldRight-oldLeft)update.run();});
+        update.run();
+    }
+    void setAdaptiveGridTarget(GridLayout grid,int cardWidthDp,int gapDp){
+        Object tag=grid.getTag(R.id.adaptive_grid);if(!(tag instanceof AdaptiveGridConfig))return;
+        AdaptiveGridConfig config=(AdaptiveGridConfig)tag;config.cardWidthDp=cardWidthDp;config.gapDp=gapDp;config.lastColumns=-1;resizeAdaptiveGrid(grid);
+    }
+    void resizeAdaptiveGrid(GridLayout grid){
+        Object tag=grid.getTag(R.id.adaptive_grid);if(!(tag instanceof AdaptiveGridConfig))return;
+        AdaptiveGridConfig config=(AdaptiveGridConfig)tag;float density=getResources().getDisplayMetrics().density;
+        int width=grid.getWidth()>0?grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight():dp(Math.max(1,getResources().getConfiguration().screenWidthDp-config.horizontalInsetDp));
+        int availableDp=Math.max(1,Math.round(width/density));int mediumColumns=Math.max(1,(availableDp+2*config.gapDp)/(config.cardWidthDp+2*config.gapDp));
+        int offset=TvPreferences.IMAGE_MEDIUM-imageSize();int columns=Math.max(1,mediumColumns+offset);
+        if(columns==config.lastColumns)return;
+        for(int i=0;i<grid.getChildCount();i++){
+            View child=grid.getChildAt(i);if(!(child.getLayoutParams() instanceof GridLayout.LayoutParams))continue;
+            GridLayout.LayoutParams layout=(GridLayout.LayoutParams)child.getLayoutParams();layout.rowSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);layout.width=0;layout.height=ViewGroup.LayoutParams.WRAP_CONTENT;layout.setGravity(android.view.Gravity.FILL_HORIZONTAL);child.setLayoutParams(layout);
+        }
+        grid.setColumnCount(columns);config.lastColumns=columns;
+    }
+    void addAdaptiveGridItem(GridLayout grid,View card,int gapDp,int verticalGapDp){
+        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=0;layout.height=ViewGroup.LayoutParams.WRAP_CONTENT;
+        layout.rowSpec=GridLayout.spec(GridLayout.UNDEFINED);layout.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);layout.setGravity(android.view.Gravity.FILL_HORIZONTAL);
+        layout.setMargins(dp(gapDp),dp(verticalGapDp),dp(gapDp),dp(verticalGapDp));grid.addView(card,layout);
+    }
+    void fitArtworkHeight(View card,View artwork,float heightToWidth){
+        Runnable update=()->{int width=card.getWidth();if(width<=0)return;int height=Math.round(width*heightToWidth);ViewGroup.LayoutParams layout=artwork.getLayoutParams();if(layout.height!=height){layout.height=height;artwork.setLayoutParams(layout);}};
+        card.addOnLayoutChangeListener((view,left,top,right,bottom,oldLeft,oldTop,oldRight,oldBottom)->{if(right-left!=oldRight-oldLeft)update.run();});card.post(update);
+    }
+    void applyImageSizeNow(){applyImageSize(getWindow().getDecorView());}
+    private void applyImageSize(View view){Object update=view.getTag(R.id.image_size_updater);if(update instanceof Runnable)((Runnable)update).run();if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)applyImageSize(group.getChildAt(i));}}
     void refreshSubmitted(String itemId,org.json.JSONObject result){
         status.setText(result.optBoolean("submitted")?"元数据刷新任务已提交":"task_already_running".equals(result.optString("reason"))?"已有元数据刷新任务正在运行":"当前媒体无需提交刷新任务");
         long runId=result.optLong("RefreshRunId");
@@ -112,12 +165,15 @@ abstract class TvActivity extends Activity {
     }
     View mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click, boolean landscape, boolean resume, java.util.function.Consumer<View> focused) {
         boolean compact=resume||"CollectionFolder".equals(media.optString("Type"));
+        boolean adaptive=isAdaptiveGrid(grid);int gap=compact||focused!=null?12:6;
+        int cardWidth=compact?192:landscape?264:132,cardHeight=compact?150:landscape?215:248;
+        float artRatio=compact||landscape?9f/16f:1.5f;
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
         FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));artwork.setForegroundGravity(android.view.Gravity.FILL);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
-        int imageHeight=compact?108:landscape?139:198;card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(imageHeight)));
-        TextView title=text(resume?EtknApi.resumeTitle(media):EtknApi.title(media),compact?12:14,Color.WHITE);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,dp(compact?42:46)));
-        int gap=compact||focused!=null?12:6;
-        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(compact?192:landscape?264:132);layout.height=dp(compact?150:landscape?215:248);layout.setMargins(dp(gap),dp(5),dp(gap),dp(5));grid.addView(card,layout);
+        int imageHeight=compact?108:landscape?139:198;card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(Math.round(cardWidth*artRatio)):imageDp(imageHeight)));
+        TextView title=text(resume?EtknApi.resumeTitle(media):EtknApi.title(media),compact?12:14,Color.WHITE);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,adaptive?dp(compact?42:46):imageDp(compact?42:46)));scaleImageText(title,compact?12:14,compact?42:46);
+        if(adaptive){addAdaptiveGridItem(grid,card,gap,5);fitArtworkHeight(card,artwork,artRatio);}
+        else{GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=imageDp(cardWidth);layout.height=imageDp(cardHeight);layout.setMargins(imageDp(gap),dp(5),imageDp(gap),dp(5));grid.addView(card,layout);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(imageHeight);artwork.requestLayout();((LinearLayout.LayoutParams)title.getLayoutParams()).height=imageDp(compact?42:46);title.requestLayout();GridLayout.LayoutParams bounds=(GridLayout.LayoutParams)card.getLayoutParams();bounds.width=imageDp(cardWidth);bounds.height=imageDp(cardHeight);bounds.setMargins(imageDp(gap),dp(5),imageDp(gap),dp(5));card.setLayoutParams(bounds);});}
         String image=landscape&&!"CollectionFolder".equals(media.optString("Type"))?api.artwork(media,"Backdrop",640):api.image(media);
         Images.visible(api,image,poster,success->{if(!success&&!image.equals(api.image(media)))Images.load(api,api.image(media),poster);});
         card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
@@ -133,7 +189,8 @@ abstract class TvActivity extends Activity {
     View posterCard(GridLayout grid,org.json.JSONObject media,Runnable click,String episodeCountMode,boolean landscape){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
         FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
-        card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(landscape?108:198)));
+        boolean adaptive=isAdaptiveGrid(grid);int imageHeight=landscape?108:198,cardWidth=landscape?192:132,cardHeight=landscape?150:255,gap=landscape?12:6;float artRatio=landscape?9f/16f:1.5f;
+        card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(Math.round(cardWidth*artRatio)):imageDp(imageHeight)));
         android.graphics.drawable.GradientDrawable fade=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(235,0,0,0)});
         LinearLayout ratings=row();ratings.setGravity(android.view.Gravity.CENTER);ratings.setPadding(0,dp(17),0,dp(3));ratings.setBackground(fade);ratings.setVisibility("BoxSet".equals(media.optString("Type"))?View.GONE:View.VISIBLE);
         FrameLayout.LayoutParams ratingBounds=new FrameLayout.LayoutParams(-1,dp(42),android.view.Gravity.BOTTOM);artwork.addView(ratings,ratingBounds);
@@ -146,10 +203,10 @@ abstract class TvActivity extends Activity {
             int count=episodeCountMode.equals("total")?media.optInt("RecursiveItemCount",userData.optInt("UnplayedItemCount")):userData.optInt("UnplayedItemCount");
             if(count>0){TextView badge=text((episodeCountMode.equals("total")?"总 ":"未看 ")+count+" 集",10,Color.WHITE);badge.setGravity(android.view.Gravity.CENTER);badge.setPadding(dp(6),0,dp(6),0);badge.setBackground(shape(Color.argb(216,0,119,34),0));FrameLayout.LayoutParams badgeBounds=new FrameLayout.LayoutParams(-2,dp(24),android.view.Gravity.TOP|android.view.Gravity.RIGHT);badgeBounds.setMargins(0,dp(6),dp(6),0);artwork.addView(badge,badgeBounds);}
         }
-        TextView title=text(EtknApi.title(media),landscape?12:14,Color.WHITE);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,dp(landscape?24:25)));
-        TextView year=text(media.optString("ProductionYear"),landscape?10:12,MUTED);year.setGravity(android.view.Gravity.CENTER);year.setPadding(0,0,0,0);card.addView(year,new LinearLayout.LayoutParams(-1,dp(landscape?18:20)));
-        int gap=landscape?12:6;
-        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(landscape?192:132);layout.height=dp(landscape?150:255);layout.setMargins(dp(gap),dp(6),dp(gap),dp(6));grid.addView(card,layout);
+        TextView title=text(EtknApi.title(media),landscape?12:14,Color.WHITE);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,adaptive?dp(landscape?24:25):imageDp(landscape?24:25)));scaleImageText(title,landscape?12:14,landscape?24:25);
+        TextView year=text(media.optString("ProductionYear"),landscape?10:12,MUTED);year.setGravity(android.view.Gravity.CENTER);year.setPadding(0,0,0,0);card.addView(year,new LinearLayout.LayoutParams(-1,adaptive?dp(landscape?18:20):imageDp(landscape?18:20)));scaleImageText(year,landscape?10:12,landscape?18:20);
+        if(adaptive){addAdaptiveGridItem(grid,card,gap,6);fitArtworkHeight(card,artwork,artRatio);}
+        else{GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=imageDp(cardWidth);layout.height=imageDp(cardHeight);layout.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));grid.addView(card,layout);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(imageHeight);artwork.requestLayout();((LinearLayout.LayoutParams)title.getLayoutParams()).height=imageDp(landscape?24:25);title.requestLayout();((LinearLayout.LayoutParams)year.getLayoutParams()).height=imageDp(landscape?18:20);year.requestLayout();GridLayout.LayoutParams bounds=(GridLayout.LayoutParams)card.getLayoutParams();bounds.width=imageDp(cardWidth);bounds.height=imageDp(cardHeight);bounds.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));card.setLayoutParams(bounds);});}
         if(landscape){String backdrop=api.artwork(media,"Backdrop",640);Images.visible(api,backdrop,poster,success->{if(!success)Images.load(api,api.image(media),poster);});}
         else Images.load(api,api.image(media),poster);
         card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);});
@@ -171,7 +228,8 @@ abstract class TvActivity extends Activity {
     }
     android.graphics.drawable.Drawable focusOutline(){return new FocusPulse(dp(9),dp(3),ACCENT);}
     GridLayout grid() { return grid(content); }
-    GridLayout grid(LinearLayout target) { GridLayout grid=new GridLayout(this); int width=getResources().getConfiguration().screenWidthDp; grid.setColumnCount(Math.max(3,(width-72)/144)); target.addView(grid); return grid; }
+    GridLayout grid(LinearLayout target) { return grid(target,132,6,72); }
+    GridLayout grid(LinearLayout target,int cardWidthDp,int gapDp,int horizontalInsetDp) { GridLayout grid=new GridLayout(this);grid.setClipChildren(false);grid.setClipToPadding(false);watchGridColumns(grid,cardWidthDp,gapDp,horizontalInsetDp);target.addView(grid);return grid; }
     void loadAvatar(ImageView view) {
         view.setImageResource(android.R.drawable.ic_menu_myplaces);
         async(()->api.get("/api/tv/Users/Me"),user->{String tag=user.optString("PrimaryImageTag");if(!tag.isEmpty())Images.load(api,api.server+api.userPath()+"/Images/Primary?maxWidth=160&tag="+EtknApi.encode(tag),view);});
