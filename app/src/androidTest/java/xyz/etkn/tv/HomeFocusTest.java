@@ -70,7 +70,38 @@ public class HomeFocusTest {
             });
             await(()->findText(posterGrid().getChildAt(0),"海报影片").isShown());
             await(()->{ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(1)).getChildAt(0),identity=(ViewGroup)art.getChildAt(2);return identity.getChildAt(0).getVisibility()==View.GONE&&((android.widget.ImageView)identity.getChildAt(1)).getDrawable()!=null;});
+            String logoPath=server.imagePaths.stream().filter(path->path.contains("/Items/item-1/Images/Logo?")).findFirst().orElseThrow();
+            ViewGroup firstArt=(ViewGroup)((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0),secondArt=(ViewGroup)((ViewGroup)posterGrid().getChildAt(1)).getChildAt(0);
+            int backdropWidth=Math.max(360,Math.min(720,firstArt.getWidth()));
+            assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/item-0/Images/Backdrop?")&&String.valueOf(backdropWidth).equals(android.net.Uri.parse(path).getQueryParameter("maxWidth"))));
+            assertEquals(Math.min(720,Math.max(180,Math.round(secondArt.getWidth()*0.64f))),Integer.parseInt(android.net.Uri.parse(logoPath).getQueryParameter("maxWidth")));
+            instrumentation.runOnMainSync(()->{android.view.ViewGroup identity=(android.view.ViewGroup)secondArt.getChildAt(2);android.widget.ImageView logo=(android.widget.ImageView)identity.getChildAt(1);android.widget.FrameLayout.LayoutParams bounds=(android.widget.FrameLayout.LayoutParams)logo.getLayoutParams();assertEquals(Math.round(secondArt.getWidth()*0.64f),bounds.width);assertEquals(Math.round(secondArt.getWidth()*0.18f),bounds.height);assertEquals(android.widget.ImageView.ScaleType.FIT_CENTER,logo.getScaleType());});
             saveScreenshot("landscape-logo-and-title-fallback.png");
+        }finally{closePosterFixture();}
+    }
+
+    @Test public void shortPosterPagesFillViewportAndStationaryBottomFocusKeepsLoading()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.respectLimits=true;server.listingPageCap=6;
+            openMenuHomeFixture(server);
+            TvPreferences preferences=new TvPreferences(home,home.api);preferences.setImageSize(TvPreferences.IMAGE_MEDIUM);preferences.saveLibraryView("library-0","landscape");
+            instrumentation.runOnMainSync(()->library("library-0").performClick());
+            await(()->posterGrid()!=null&&posterGrid().getChildCount()>6&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+            int loaded=posterGrid().getChildCount();assertTrue("首屏补齐不能全量拉取媒体库",loaded<120);
+            ScrollView scroll=(ScrollView)field(HomeActivity.class,"homeScroll");
+            server.holdNextListing=true;
+            View last=posterGrid().getChildAt(loaded-1);
+            instrumentation.runOnMainSync(()->{scroll.setOnScrollChangeListener(null);assertTrue(last.requestFocus());});
+            assertTrue("没有滚动事件时末行焦点仍应触发分页",server.listingStarted.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            int requests=server.listingCalls;
+            for(int i=0;i<3;i++)key(KeyEvent.KEYCODE_DPAD_DOWN);
+            assertEquals("请求在途时按下不能重复派发",requests,server.listingCalls);
+            server.listingGate.countDown();
+            await(()->posterGrid().getChildCount()>loaded&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+            assertTrue(server.listingPaths.stream().anyMatch(path->String.valueOf(loaded).equals(android.net.Uri.parse(path).getQueryParameter("StartIndex"))));
+            assertEquals("每个分页起点只能派发一次",server.listingPaths.size(),new java.util.HashSet<>(server.listingPaths).size());
+            assertSame("追加页面保留原卡片",last,posterGrid().getChildAt(loaded-1));
+            java.util.Set<String> ids=new java.util.HashSet<>();for(int i=0;i<posterGrid().getChildCount();i++)assertTrue(ids.add(((JSONObject)posterGrid().getChildAt(i).getTag()).optString("Id")));
         }finally{closePosterFixture();}
     }
 
@@ -288,8 +319,8 @@ public class HomeFocusTest {
                 await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),192,12,size));
                 instrumentation.runOnMainSync(()->{View first=posterGrid().getChildAt(0),art=((ViewGroup)first).getChildAt(0);assertEquals(Math.round(art.getWidth()*9f/16f),art.getHeight());});
             }
-            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"portrait".equals(field(HomeActivity.class,"viewMode")));
-            instrumentation.runOnMainSync(()->{View first=posterGrid().getChildAt(0),art=((ViewGroup)first).getChildAt(0);assertEquals(Math.round(art.getWidth()*1.5f),art.getHeight());int[] position=new int[2];first.getLocationOnScreen(position);assertTrue("竖幅也须保留左侧焦点空间",position[0]>=home.dp(40));});
+            call("toggleView",new Class<?>[]{});await(()->posterGrid().getChildCount()==60&&"portrait".equals(field(HomeActivity.class,"viewMode"))&&posterGrid().getChildAt(0).getWidth()>0&&!posterGrid().isLayoutRequested());
+            instrumentation.runOnMainSync(()->{View first=posterGrid().getChildAt(0),art=((ViewGroup)first).getChildAt(0);assertEquals(Math.round(art.getWidth()*1.5f),art.getHeight());Rect visible=new Rect();int[] position=new int[2];art.getLocationOnScreen(position);assertTrue(art.getGlobalVisibleRect(visible));assertEquals("竖幅焦点左侧不能裁切",position[0],visible.left,1);assertEquals("竖幅焦点宽度不能裁切",Math.round(art.getWidth()*first.getScaleX()),visible.width(),2);});
         }finally{closePosterFixture();}
     }
 
@@ -660,16 +691,22 @@ public class HomeFocusTest {
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image;
         final byte[] updatedImage;
+        final byte[][] logos=new byte[3][];
         volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt,failFirstFacet,holdFacet,respectLimits;
         volatile String lastResumePath="";
         volatile boolean missingFirstLogo;
         final java.util.concurrent.CountDownLatch facetGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.List<String> latestPaths=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        final java.util.List<String> imagePaths=new java.util.concurrent.CopyOnWriteArrayList<>();
+        final java.util.List<String> listingPaths=new java.util.concurrent.CopyOnWriteArrayList<>();
         final java.util.List<String> mutations=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         volatile boolean closed;
         volatile String unexpectedPath;
         volatile String lastListingPath="";
         volatile int listingCalls;
+        volatile int listingPageCap=Integer.MAX_VALUE;
+        volatile boolean holdNextListing;
+        final java.util.concurrent.CountDownLatch listingStarted=new java.util.concurrent.CountDownLatch(1),listingGate=new java.util.concurrent.CountDownLatch(1);
         volatile int refreshStatusRequests;
         volatile String taskStatus="running";
         volatile boolean holdFirstLatest,holdResume,holdCardImages,changed;
@@ -686,6 +723,9 @@ public class HomeFocusTest {
             paint.setColor(Color.WHITE);paint.setTextSize(40);canvas.drawText("TV Focus Fixture",100,190,paint);
             ByteArrayOutputStream bytes=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,90,bytes);image=bytes.toByteArray();Bitmap large=Bitmap.createScaledBitmap(bitmap,1066,600,true);ByteArrayOutputStream largeBytes=new ByteArrayOutputStream();large.compress(Bitmap.CompressFormat.JPEG,90,largeBytes);facetImage=largeBytes.toByteArray();large.recycle();bitmap.recycle();
             Bitmap updated=Bitmap.createBitmap(32,32,Bitmap.Config.ARGB_8888);updated.eraseColor(Color.MAGENTA);ByteArrayOutputStream newer=new ByteArrayOutputStream();updated.compress(Bitmap.CompressFormat.PNG,100,newer);updated.recycle();updatedImage=newer.toByteArray();
+            for(int i=0;i<logos.length;i++){
+                String label=i==0?"WIDE TITLE":i==1?"TITLE":"TV";Paint lettering=new Paint(Paint.ANTI_ALIAS_FLAG);lettering.setColor(Color.WHITE);lettering.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);lettering.setTextSize(100);Rect bounds=new Rect();lettering.getTextBounds(label,0,label.length(),bounds);Bitmap logo=Bitmap.createBitmap(bounds.width(),bounds.height(),Bitmap.Config.ARGB_8888);new Canvas(logo).drawText(label,-bounds.left,-bounds.top,lettering);ByteArrayOutputStream png=new ByteArrayOutputStream();logo.compress(Bitmap.CompressFormat.PNG,100,png);logo.recycle();logos[i]=png.toByteArray();
+            }
             Thread thread=new Thread(()->{while(!closed){try{Socket client=socket.accept();Thread worker=new Thread(()->{try{serve(client);}catch(Exception ignored){}},"focus-request");worker.setDaemon(true);worker.start();}catch(Exception ignored){if(closed)return;}}},"focus-fixture");thread.setDaemon(true);thread.start();
         }
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
@@ -693,6 +733,7 @@ public class HomeFocusTest {
             try(client){
                 BufferedReader reader=new BufferedReader(new InputStreamReader(client.getInputStream(),StandardCharsets.UTF_8));
                 String request=reader.readLine();if(request==null)return;String method=request.split(" ")[0],path=request.split(" ")[1];while(true){String line=reader.readLine();if(line==null||line.isEmpty())break;}
+                if(path.contains("/Images/"))imagePaths.add(path);
                 if(!method.equals("GET")){
                     if(path.contains("/FacetArtwork?")){
                         mutations.add(method+" "+path);if(holdFacet)facetGate.await(15,java.util.concurrent.TimeUnit.SECONDS);
@@ -712,13 +753,15 @@ public class HomeFocusTest {
                 if(path.endsWith("/Views"))viewCalls=views.incrementAndGet();
                 if(holdFirstLatest&&path.contains("/Items/Latest?ParentId=library-0&"))latestGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
                 if(holdResume&&path.contains("/Items/Resume?"))resumeGate.await(25,java.util.concurrent.TimeUnit.SECONDS);
-                if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){lastListingPath=path;listingCalls++;}
+                if(!path.startsWith("/api/tv/"))unexpectedPath=path; if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){lastListingPath=path;listingCalls++;listingPaths.add(path);}
+                if(holdNextListing&&(path.contains("/Items?")||path.contains("/Browse?"))){listingStarted.countDown();listingGate.await(20,java.util.concurrent.TimeUnit.SECONDS);}
                 if(path.contains("/Items/Latest?"))latestPaths.add(path);
                 if(path.contains("/Items/Resume?"))lastResumePath=path;
                 if(missingFirstLogo&&path.contains("/Items/item-0/Images/Logo")){client.getOutputStream().write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));return;}
                 boolean picture=path.contains("/Images/")||path.contains("/FolderCover?")||path.contains("/FacetArtwork?");
-                byte[] body=picture?(path.contains("/FacetArtwork?")&&facetCount>2?facetImage:path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
-                OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
+                boolean isLogo=path.contains("/Images/Logo");java.util.regex.Matcher logoId=java.util.regex.Pattern.compile("/Items/item-(\\d+)/").matcher(path);int logoIndex=logoId.find()?Integer.parseInt(logoId.group(1))%logos.length:0;
+                byte[] body=picture?(isLogo?logos[logoIndex]:path.contains("/FacetArtwork?")&&facetCount>2?facetImage:path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
+                OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?(isLogo?"image/png":"image/jpeg"):"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
             }
         }
         JSONObject response(String path)throws Exception{
@@ -740,6 +783,7 @@ public class HomeFocusTest {
             if(path.contains("check_status"))return new JSONObject().put("user",new JSONObject().put("can_access_discovery",false));
             if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin)).put("TvPermissions",new JSONObject().put("CanRefreshMetadata",canRefresh));
             if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){
+                limit=Math.min(limit,listingPageCap);
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
                 JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name","海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
                 for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
@@ -753,6 +797,6 @@ public class HomeFocusTest {
             for(int i=0;i<items.length();i++)items.getJSONObject(i).getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);
             return new JSONObject().put("Items",items);
         }
-        @Override public void close()throws IOException{closed=true;latestGate.countDown();resumeGate.countDown();cardGate.countDown();updateGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;latestGate.countDown();resumeGate.countDown();cardGate.countDown();updateGate.countDown();listingGate.countDown();socket.close();}
     }
 }

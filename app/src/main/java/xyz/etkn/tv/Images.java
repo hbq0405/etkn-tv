@@ -61,6 +61,18 @@ final class Images {
         };
         view.getViewTreeObserver().addOnPreDrawListener(listener);
     }
+    /** Resolve card requests after measurement, independently of display size levels. */
+    static void visibleArtwork(EtknApi api,java.util.function.IntFunction<String> url,ImageView view,java.util.function.Consumer<Boolean> done){
+        ViewTreeObserver.OnPreDrawListener listener=new ViewTreeObserver.OnPreDrawListener(){
+            @Override public boolean onPreDraw(){
+                if(view.isShown()&&view.getWidth()>0&&view.getGlobalVisibleRect(new android.graphics.Rect())){
+                    view.getViewTreeObserver().removeOnPreDrawListener(this);thumbnail(api,url.apply(view.getWidth()),view,view.getWidth(),view.getHeight(),done);
+                }
+                return true;
+            }
+        };
+        view.getViewTreeObserver().addOnPreDrawListener(listener);
+    }
     private static Bitmap thumbnail(Bitmap bitmap,int width,int height){
         if(bitmap==null||width<=0||height<=0)return bitmap;
         float scale=Math.min(1f,Math.max((float)width/bitmap.getWidth(),(float)height/bitmap.getHeight()));

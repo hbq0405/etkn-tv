@@ -231,7 +231,7 @@ abstract class TvActivity extends Activity {
         }
         if(adaptive){addAdaptiveGridItem(grid,card,gap,6);fitArtworkHeight(card,artwork,artRatio);}
         else{GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=imageDp(cardWidth);layout.height=imageDp(cardHeight);layout.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));grid.addView(card,layout);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(imageHeight);artwork.requestLayout();GridLayout.LayoutParams bounds=(GridLayout.LayoutParams)card.getLayoutParams();bounds.width=imageDp(cardWidth);bounds.height=imageDp(cardHeight);bounds.setMargins(imageDp(gap),imageDp(6),imageDp(gap),imageDp(6));card.setLayoutParams(bounds);});}
-        if(landscape){String backdrop=api.artwork(media,"Backdrop",640);Images.visible(api,backdrop,poster,success->{if(!success)Images.load(api,api.image(media),poster);});}
+        if(landscape)Images.visibleArtwork(api,width->api.artwork(media,"Backdrop",Math.max(360,Math.min(720,width))),poster,success->{if(!success)Images.thumbnail(api,api.image(media),poster,poster.getWidth(),poster.getHeight(),ok->{});});
         else Images.load(api,api.image(media),poster);
         card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);});
         return card;
@@ -241,9 +241,9 @@ abstract class TvActivity extends Activity {
         FrameLayout.LayoutParams area=new FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP|android.view.Gravity.START);artwork.addView(identity,area);
         TextView title=text(EtknApi.title(media),22,Color.WHITE);title.setTypeface(null,Typeface.BOLD);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,0,0,0);title.setGravity(android.view.Gravity.TOP);title.setShadowLayer(3,0,1,Color.BLACK);title.setVisibility(View.INVISIBLE);
         identity.addView(title,new FrameLayout.LayoutParams(-1,-1));
-        ImageView logo=new ImageView(this);logo.setScaleType(ImageView.ScaleType.FIT_START);Images.rounded(logo,dp(2));identity.addView(logo,new FrameLayout.LayoutParams(-1,-1));
-        Runnable resize=()->{int height=imageDp(52);area.height=height;identity.setLayoutParams(area);identity.setPadding(imageDp(10),imageDp(8),imageDp(42),imageDp(4));title.setTextSize(22*imageScale());};resize.run();imageSizeUpdater(identity,resize);
-        Images.visible(api,api.artwork(media,"Logo",480),logo,ok->{logo.setVisibility(ok?View.VISIBLE:View.GONE);title.setVisibility(ok?View.GONE:View.VISIBLE);});
+        ImageView logo=new ImageView(this);logo.setScaleType(ImageView.ScaleType.FIT_CENTER);Images.rounded(logo,dp(2));identity.addView(logo,new FrameLayout.LayoutParams(imageDp(128),imageDp(36),android.view.Gravity.START|android.view.Gravity.CENTER_VERTICAL));
+        Runnable resize=()->{int width=artwork.getWidth()>0?artwork.getWidth():imageDp(192);area.height=Math.round(width*0.27f);identity.setLayoutParams(area);identity.setPadding(Math.round(width*0.05f),Math.round(width*0.04f),Math.round(width*0.22f),Math.round(width*0.02f));FrameLayout.LayoutParams logoBounds=(FrameLayout.LayoutParams)logo.getLayoutParams();logoBounds.width=Math.round(width*0.64f);logoBounds.height=Math.round(width*0.18f);logo.setLayoutParams(logoBounds);title.setTextSize(22*imageScale());};resize.run();imageSizeUpdater(identity,resize);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resize.run();});
+        Images.visibleArtwork(api,width->api.artwork(media,"Logo",Math.min(720,Math.max(180,width))),logo,ok->{logo.setVisibility(ok?View.VISIBLE:View.GONE);title.setVisibility(ok?View.GONE:View.VISIBLE);});
     }
     private String rating(org.json.JSONObject media,String field){double value=media.optDouble(field,Double.NaN);return Double.isNaN(value)?"–":String.format(java.util.Locale.ROOT,"%.1f",value);}
     android.graphics.drawable.Drawable doubanMark(){

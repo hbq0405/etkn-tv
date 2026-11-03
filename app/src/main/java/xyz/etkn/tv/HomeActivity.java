@@ -93,7 +93,7 @@ public final class HomeActivity extends TvActivity {
         });
         homeScroll=new FocusScroll.Vertical(this);homeScroll.setFillViewport(true);homeScroll.setClipToPadding(false);
         content=column();homeScroll.addView(content);stage.addView(homeScroll,new FrameLayout.LayoutParams(-1,-1));
-        homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{if("items".equals(mode)&&posterGrid!=null&&hasMore&&!loadingMore&&homeScroll.getChildAt(0)!=null&&y+homeScroll.getHeight()>=homeScroll.getChildAt(0).getHeight()-prefetchDistance(posterGrid))loadPosterPage(false);});
+        homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->maybeLoadPosterPage());
         nav=row();nav.setPadding(dp(28),dp(8),dp(18),dp(8));
         menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackgroundColor(android.graphics.Color.argb(245,11,17,26));menu.addView(nav);menu.setVisibility(View.GONE);
         stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(76),Gravity.TOP));
@@ -103,7 +103,7 @@ public final class HomeActivity extends TvActivity {
         if(getIntent().hasExtra("collection")){try{libraryOrigin="detail";openCollection(new JSONObject(getIntent().getStringExtra("collection")));}catch(Exception error){loadHome();}}
         else if(getIntent().hasExtra("facetKind")){try{JSONObject library=new JSONObject().put("Id","facet").put("Name",getIntent().getStringExtra("facetValue")).put("SourceType","facet");openLibrary(library);libraryOrigin="detail";}catch(Exception error){loadHome();}}
         else loadHome();checkUpdateOnce();
-        stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->homeBackdrop.resumeFocused("home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView())));
+        stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->{homeBackdrop.resumeFocused("home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView()));maybeLoadPosterPage();});
     }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
     private void showMenu(){previousFocus=getCurrentFocus();homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
@@ -122,6 +122,7 @@ public final class HomeActivity extends TvActivity {
             }
             if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()!=View.VISIBLE){View focused=getCurrentFocus();if(focused==null||focused.focusSearch(View.FOCUS_UP)==null){showMenu();menuTransitionKey=event.getKeyCode();return true;}}
             if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN&&menu.getVisibility()==View.VISIBLE){hideMenu();menuTransitionKey=event.getKeyCode();return true;}
+            if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_DOWN)maybeLoadPosterPage();
         }
         return super.dispatchKeyEvent(event);
     }
@@ -322,6 +323,13 @@ public final class HomeActivity extends TvActivity {
             async(()->api.get(path),result->{if(request!=revision)return;List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",items.size());status.setText(items.isEmpty()?"暂无影片":"共 "+total+" 项  ·  第 "+(start/limit+1)+" 页");for(JSONObject item:items)mediaCard(grid,item,()->{if(mode.equals("resume"))resumePlayback(item);else detail(item);});LinearLayout pages=row();if(start>0)pages.addView(button("上一页",()->{offset=Math.max(0,start-limit);loadItems();}));if(!mode.equals("resume")&&start+items.size()<total)pages.addView(button("下一页",()->{offset=start+items.size();loadItems();}));content.addView(pages);});
         });
     }
+    private void maybeLoadPosterPage(){
+        if(!"items".equals(mode)||posterGrid==null||posterGrid.getChildCount()==0||!hasMore||loadingMore||refreshingPosters||menu.getVisibility()==View.VISIBLE)return;
+        if(posterGrid.isLayoutRequested()){int request=revision;afterLayout(posterGrid,()->{if(request==revision)maybeLoadPosterPage();});return;}
+        int focused=posterGrid.indexOfChild(getCurrentFocus()),columns=Math.max(1,posterGrid.getColumnCount());
+        boolean lastRow=focused>=0&&focused/columns==(posterGrid.getChildCount()-1)/columns;
+        if(lastRow||homeScroll.getScrollY()+homeScroll.getHeight()>=content.getHeight()-prefetchDistance(posterGrid))loadPosterPage(false);
+    }
     private void loadPosterPage(boolean reset){
         if(selectedLibrary==null&&activeCollection==null)return;
         if(reset){offset=0;posterGrid=null;loadingMore=false;refreshingPosters=false;pendingPosterRefresh=false;hasMore=true;++revision;content.removeAllViews();content.setPadding(dp(28),dp(20),dp(28),dp(24));homeScroll.scrollTo(0,0);homeBackdrop.clear();
@@ -346,7 +354,7 @@ public final class HomeActivity extends TvActivity {
         loadingMore=true;int request=revision;int start=offset;
         String path=posterQuery(posterPageSize(),start);
         posterStatus.setText("正在加载…");
-        async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{if(request!=revision)return;loadingMore=false;if(result.has("_loadError")){posterStatus.setText(result.optString("_loadError"));return;}List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",start+items.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);offset=start+items.size();hasMore=!items.isEmpty()&&offset<total;libraryMeta.setText(libraryMetaLabel(total));for(JSONObject item:items)addPoster(item);updatePosterViewButton();posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");if(restorePosterCount>0){if(offset<Math.min(restorePosterCount,total)&&hasMore){loadPosterPage(false);return;}restorePosterPosition(request);}else if(start==0&&!items.isEmpty()){View first=posterGrid.getChildAt(0);homeScroll.post(()->{if(request==revision&&first.getParent()==posterGrid&&menu.getVisibility()!=View.VISIBLE){first.requestFocus();homeScroll.scrollTo(0,0);}});}else if(items.isEmpty()&&start==0)posterStatus.setText("暂无媒体项");if(pendingPosterRefresh)refreshPosters();});
+        async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",error.getMessage()==null?"加载失败":error.getMessage());}},result->{if(request!=revision)return;loadingMore=false;if(result.has("_loadError")){posterStatus.setText(result.optString("_loadError"));return;}List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",start+items.size());episodeCountMode=result.optString("EpisodeCountMode",episodeCountMode);offset=start+items.size();hasMore=!items.isEmpty()&&offset<total;libraryMeta.setText(libraryMetaLabel(total));for(JSONObject item:items)addPoster(item);updatePosterViewButton();posterStatus.setText(offset<total?"已加载 "+offset+" / "+total:"共 "+total+" 项");if(restorePosterCount>0){if(offset<Math.min(restorePosterCount,total)&&hasMore){loadPosterPage(false);return;}restorePosterPosition(request);}else if(start==0&&!items.isEmpty()){View first=posterGrid.getChildAt(0);homeScroll.post(()->{if(request==revision&&first.getParent()==posterGrid&&menu.getVisibility()!=View.VISIBLE){first.requestFocus();homeScroll.scrollTo(0,0);}});}else if(items.isEmpty()&&start==0)posterStatus.setText("暂无媒体项");if(pendingPosterRefresh)refreshPosters();afterLayout(posterGrid,()->{if(request==revision)maybeLoadPosterPage();});});
     }
     private void addPoster(JSONObject item){
         boolean folder="Folder".equals(item.optString("Type"));
