@@ -68,13 +68,13 @@ public class HomeFocusTest {
                 assertEquals("2020",((android.widget.TextView)ratings.getChildAt(0)).getText().toString());assertTrue(ratings.getChildAt(1) instanceof android.widget.ImageView);
                 assertEquals(Math.round(art.getWidth()*9f/16f),art.getHeight());assertTrue(identity.getTop()<ratings.getTop());
             });
-            float previousTextSize=0;
+            float[] previousMetrics=null;
             for(int size=0;size<5;size++){
                 final int level=size,requestedWidth=size==TvPreferences.IMAGE_EXTREMELY_LARGE?720:360;
                 instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
                 await(()->posterGrid().getColumnCount()==expectedAdaptiveColumns(posterGrid(),192,12,level)&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
                 await(()->{ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0);return String.valueOf(art.getChildAt(0).getTag()).contains("maxWidth="+requestedWidth+"&")&&((android.widget.ImageView)art.getChildAt(0)).getDrawable()!=null;});
-                float[] textSize={0};
+                float[] metrics=new float[7];
                 instrumentation.runOnMainSync(()->{
                     for(int i=0;i<Math.min(4,posterGrid().getChildCount());i++){
                         ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(i)).getChildAt(0),identity=(ViewGroup)art.getChildAt(2);
@@ -86,10 +86,18 @@ public class HomeFocusTest {
                         assertTrue("片名靠左",identity.getPaddingLeft()<art.getWidth()/10);assertTrue(title.getLeft()<art.getWidth()/10);
                         assertTrue("片名区域覆盖完整行高",title.getLayout().getHeight()<=title.getHeight());
                         if(art.getChildCount()>3)assertTrue("长片名不能与集数角标重叠",title.getRight()<=art.getChildAt(3).getLeft());
-                        if(i==0)textSize[0]=title.getTextSize();
+                        if(i==0){
+                            ViewGroup scores=(ViewGroup)art.getChildAt(1);android.widget.TextView year=(android.widget.TextView)scores.getChildAt(0),score=(android.widget.TextView)scores.getChildAt(2);
+                            metrics[0]=title.getTextSize();metrics[1]=year.getTextSize();metrics[2]=score.getTextSize();metrics[3]=scores.getChildAt(1).getWidth();metrics[4]=scores.getHeight();metrics[5]=year.getPaddingRight();metrics[6]=((android.widget.LinearLayout.LayoutParams)score.getLayoutParams()).leftMargin;
+                        }
                     }
                 });
-                if(size>0)assertTrue("卡片变大时字号随之增大",textSize[0]>previousTextSize);previousTextSize=textSize[0];
+                if(previousMetrics!=null){
+                    assertTrue("卡片变大时片名随之增大",metrics[0]>previousMetrics[0]);
+                    assertTrue("年份字号必须随卡片变大",metrics[1]>previousMetrics[1]);
+                    float scale=metrics[0]/previousMetrics[0];for(int part=1;part<metrics.length;part++)assertEquals("年份、评分、图标、间距及遮罩必须与片名等比例缩放",previousMetrics[part]*scale,metrics[part],part<=2?0.05f:1.5f);
+                }
+                previousMetrics=metrics;
                 if(size==0||size==2||size==4)saveScreenshot("banner-title-size-"+size+".png");
             }
             assertTrue(server.imagePaths.stream().anyMatch(path->path.contains("/Items/item-0/Images/Backdrop?")&&"360".equals(android.net.Uri.parse(path).getQueryParameter("maxWidth"))));

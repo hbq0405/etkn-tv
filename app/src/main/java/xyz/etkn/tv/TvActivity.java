@@ -219,6 +219,18 @@ abstract class TvActivity extends Activity {
         TextView douban=text(rating(media,"DoubanRating"),11,Color.WHITE);douban.setGravity(android.view.Gravity.CENTER_VERTICAL);douban.setPadding(0,0,0,0);LinearLayout.LayoutParams scoreSpace=new LinearLayout.LayoutParams(-2,-1);scoreSpace.leftMargin=dp(3);scoreSpace.rightMargin=dp(8);ratings.addView(douban,scoreSpace);
         ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());ratings.addView(star,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
+        if(landscape){
+            TextView year=(TextView)ratings.getChildAt(0);
+            Runnable resizeRatings=()->{
+                float unit=(artwork.getWidth()>0?artwork.getWidth():imageDp(192))/192f;
+                ratingBounds.height=Math.round(42*unit);ratings.setLayoutParams(ratingBounds);ratings.setPadding(0,Math.round(17*unit),0,Math.round(3*unit));
+                for(TextView value:new TextView[]{year,douban,tmdb})value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*unit);
+                year.setPadding(0,0,Math.round(8*unit),0);
+                for(ImageView icon:new ImageView[]{doubanIcon,star}){LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)icon.getLayoutParams();bounds.width=bounds.height=Math.round(18*unit);icon.setLayoutParams(bounds);}
+                int padding=Math.round(3*unit);doubanIcon.setPadding(padding,padding,padding,padding);
+                scoreSpace.leftMargin=Math.round(3*unit);scoreSpace.rightMargin=Math.round(8*unit);douban.setLayoutParams(scoreSpace);tmdbSpace.leftMargin=Math.round(3*unit);tmdb.setLayoutParams(tmdbSpace);
+            };resizeRatings.run();imageSizeUpdater(ratings,resizeRatings);artwork.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)resizeRatings.run();});
+        }
         TextView badge=null;org.json.JSONObject userData=media.optJSONObject("UserData");
         if("Series".equalsIgnoreCase(media.optString("Type"))&&userData!=null){
             int count=episodeCountMode.equals("total")?media.optInt("RecursiveItemCount",userData.optInt("UnplayedItemCount")):userData.optInt("UnplayedItemCount");
