@@ -25,19 +25,14 @@ final class FocusBackdrop extends FrameLayout {
     private boolean actionVisible;
     private boolean resumeFocused;
     private boolean visibleShowDetails,pendingShowDetails,pendingContent,pendingLogoReady,transitionRunning;
-    private Bitmap sharp,blurred,lastBlurred,displayed;
-    private String imageKey="",pendingBlur="";
+    private Bitmap sharp,displayed;
+
     private String pendingTitle="",pendingMetadata="",pendingOverview="";
     private int contentSerial;
-    private final android.util.LruCache<String,Bitmap> blurredImages=new android.util.LruCache<>(1024*1024){@Override protected int sizeOf(String key,Bitmap image){return image.getAllocationByteCount();}};
 
     FocusBackdrop(TvActivity activity){
-        super(activity);this.activity=activity;setBackgroundColor(Color.TRANSPARENT);setVisibility(GONE);
-        artwork=new FrameLayout(activity){
-            private final android.graphics.Paint fade=new android.graphics.Paint();
-            @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){super.onSizeChanged(w,h,oldw,oldh);if(h>0){fade.setShader(new android.graphics.LinearGradient(0,0,0,h,new int[]{Color.BLACK,Color.BLACK,Color.TRANSPARENT},new float[]{0,.45f,1},android.graphics.Shader.TileMode.CLAMP));fade.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));}}
-            @Override protected void dispatchDraw(android.graphics.Canvas canvas){int layer=canvas.saveLayer(0,0,getWidth(),getHeight(),null);super.dispatchDraw(canvas);canvas.drawRect(0,0,getWidth(),getHeight(),fade);canvas.restoreToCount(layer);}
-        };addView(artwork,new LayoutParams(-1,-1));
+        super(activity);this.activity=activity;setBackgroundColor(TvActivity.INK);setVisibility(GONE);setAlpha(0f);
+        artwork=new FrameLayout(activity);addView(artwork,new LayoutParams(-1,-1));
         backdrop=new ImageView(activity);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);artwork.addView(backdrop,new LayoutParams(-1,-1));
         previousBackdrop=new ImageView(activity);previousBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);artwork.addView(previousBackdrop,new LayoutParams(-1,-1));
         imageLoader=new ImageView(activity);imageLoader.setVisibility(GONE);addView(imageLoader,new LayoutParams(0,0));
@@ -55,7 +50,7 @@ final class FocusBackdrop extends FrameLayout {
     }
 
     void show(JSONObject item,boolean library,boolean showDetails){
-        setVisibility(VISIBLE);current=item;contentSerial++;pendingContent=true;pendingLogoReady=false;sharp=null;blurred=null;imageKey="";pendingBlur="";
+        setVisibility(VISIBLE);current=item;contentSerial++;pendingContent=true;pendingLogoReady=false;sharp=null;
         int serial=contentSerial;
         pendingTitle=library?EtknApi.title(item):EtknApi.resumeTitle(item);
         String type=library?"媒体库":"Episode".equals(item.optString("Type"))||"Series".equals(item.optString("Type"))?"剧集":"电影";
@@ -71,27 +66,16 @@ final class FocusBackdrop extends FrameLayout {
         }
     }
 
-    void clear(){setVisibility(GONE);contentSerial++;cancelTransition(true);current=null;pendingContent=false;visibleShowDetails=false;sharp=null;blurred=null;lastBlurred=null;displayed=null;imageKey="";pendingBlur="";imageLoader.setTag("none:"+System.nanoTime());imageLoader.setImageDrawable(null);pendingLogo.setTag("none:"+System.nanoTime());pendingLogo.setImageDrawable(null);backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");action.setVisibility(GONE);copy.setAlpha(1f);copy.setVisibility(GONE);resumeFocused(false);}
+    void clear(){animate().cancel();setAlpha(0f);resumeFocused=false;setVisibility(GONE);contentSerial++;cancelTransition(true);current=null;pendingContent=false;visibleShowDetails=false;sharp=null;displayed=null;imageLoader.setTag("none:"+System.nanoTime());imageLoader.setImageDrawable(null);pendingLogo.setTag("none:"+System.nanoTime());pendingLogo.setImageDrawable(null);backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");action.setVisibility(GONE);copy.setAlpha(1f);copy.setVisibility(GONE);}
 
-    /** Focus controls only the backdrop image and information; the carousel action stays operable. */
-    void resumeFocused(boolean focused){boolean changed=resumeFocused!=focused;if(changed)cancelTransition(true);resumeFocused=focused;boolean showInfo=focused&&visibleShowDetails&&(!changed||!pendingContent);information.setVisibility(showInfo?VISIBLE:GONE);action.setVisibility(actionVisible&&showInfo?VISIBLE:GONE);displayImage(false);}
+    /** 继续观看/轮播详情聚焦时铺满影片背景，离开后淡出到服务器壁纸。 */
+    void resumeFocused(boolean focused){boolean changed=resumeFocused!=focused;if(changed)cancelTransition(true);resumeFocused=focused;boolean showInfo=focused&&visibleShowDetails&&(!changed||!pendingContent);information.setVisibility(showInfo?VISIBLE:GONE);action.setVisibility(actionVisible&&showInfo?VISIBLE:GONE);if(changed){animate().cancel();animate().alpha(focused?1f:0f).setDuration(TRANSITION_MS).start();}displayImage(false);}
     private void imageLoaded(int serial){
         if(serial!=contentSerial)return;
-        sharp=((BitmapDrawable)imageLoader.getDrawable()).getBitmap();imageKey=String.valueOf(imageLoader.getTag());blurred=blurredImages.get(imageKey);displayImage(true);
+        sharp=((BitmapDrawable)imageLoader.getDrawable()).getBitmap();displayImage(true);
     }
-    private void imageUnavailable(int serial){if(serial!=contentSerial)return;sharp=null;blurred=null;pendingBlur="";render(null,false,true);}
-    private void displayImage(boolean transition){
-        if(blurred!=null)lastBlurred=blurred;
-        Bitmap target=resumeFocused?sharp:blurred;boolean ready=target!=null;if(target==null&&!resumeFocused)target=lastBlurred;
-        render(target,transition,ready);
-        if(sharp==null)return;
-        if(blurred!=null||imageKey.equals(pendingBlur))return;
-        Bitmap source=sharp;String key=imageKey;pendingBlur=key;
-        TvActivity.IO.execute(()->{
-            Bitmap result=BackdropBlur.create(source);
-            post(()->{blurredImages.put(key,result);if(sharp==source&&imageKey.equals(key)){pendingBlur="";blurred=result;displayImage(true);}});
-        });
-    }
+    private void imageUnavailable(int serial){if(serial!=contentSerial)return;sharp=null;render(null,false,true);}
+    private void displayImage(boolean transition){render(sharp,transition&&resumeFocused,sharp!=null);}
 
     private void render(Bitmap image,boolean transition,boolean ready){
         if(displayed==image){if(ready&&!transitionRunning){backdrop.setAlpha(1f);commitPendingContent();revealContent();}return;}

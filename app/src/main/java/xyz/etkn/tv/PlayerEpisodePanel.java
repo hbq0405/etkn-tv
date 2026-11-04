@@ -37,8 +37,8 @@ final class PlayerEpisodePanel extends LinearLayout {
         LinkedHashSet<Integer> seasons=new LinkedHashSet<>();JSONObject selected=rows.get(0);
         for(JSONObject episode:rows){seasons.add(episode.optInt("ParentIndexNumber"));if(currentId.equals(episode.optString("Id")))selected=episode;}
         LinearLayout matrix=host.column();
-        if(seasons.size()>1){LinearLayout seasonRow=host.row();HorizontalScrollView scroll=new FocusScroll.Row(host);scroll.setHorizontalScrollBarEnabled(false);scroll.addView(seasonRow);body.addView(scroll);
-            for(int season:seasons){Button choice=host.button(season==0?"特别篇":"第 "+season+" 季",()->showSeason(matrix,season,null));choice.setBackground(host.selectionBackground());seasonRow.addView(choice);}
+        if(seasons.size()>1){LinearLayout seasonRow=host.row();HorizontalScrollView scroll=new FocusScroll.Row(host);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.addView(seasonRow);body.addView(scroll);
+            for(int season:seasons){JSONObject episode=rows.stream().filter(ep->ep.optInt("ParentIndexNumber")==season).findFirst().get();String name=season==0?"特别篇":"第 "+season+" 季";if(episode.optString("SeasonId").isEmpty())seasonRow.addView(host.button(name,()->showSeason(matrix,season,null)));else{JSONObject poster=new JSONObject();try{poster.put("Id",episode.optString("SeasonId")).put("Name",name).put("Type","Season");}catch(org.json.JSONException error){throw new IllegalStateException(error);}seasonRow.addView(host.seasonCard(poster,()->showSeason(matrix,season,null)));}}
         }
         body.addView(matrix,new LayoutParams(-1,0,1));showSeason(matrix,selected.optInt("ParentIndexNumber"),selected);
     }
@@ -49,8 +49,7 @@ final class PlayerEpisodePanel extends LinearLayout {
         heading.setText("选集 · "+(season==0?"特别篇":"第 "+season+" 季"));
         GridLayout grid=new GridLayout(host);int available=Math.min(480,host.getResources().getConfiguration().screenWidthDp*3/5)-48,columns=Math.max(3,available/112);grid.setColumnCount(columns);
         ScrollView scroll=new FocusScroll.Vertical(host);scroll.addView(grid);matrix.addView(scroll,new LayoutParams(-1,-1));Button focus=null;
-        boolean dates=rows.stream().anyMatch(DetailPresentation::placeholder);
-        for(JSONObject ep:rows){boolean current=currentId.equals(ep.optString("Id"));Button cell=host.button("",()->select.accept(ep));cell.setSingleLine(!dates);cell.setMaxLines(dates?2:1);cell.setPadding(host.dp(6),0,host.dp(6),0);host.themeText(cell,current?TvActivity.ACCENT:TvActivity.TEXT);
+        for(JSONObject ep:rows){boolean dates=DetailPresentation.episodeRowHasDates(rows,grid.getChildCount(),columns);boolean current=currentId.equals(ep.optString("Id"));Button cell=host.button("",()->select.accept(ep));cell.setSingleLine(!dates);cell.setMaxLines(dates?2:1);cell.setPadding(host.dp(6),0,host.dp(6),0);host.themeText(cell,current?TvActivity.ACCENT:TvActivity.TEXT);
             JSONObject data=ep.optJSONObject("UserData");boolean watched=data!=null&&data.optBoolean("Played");int progress=progress(watched,DetailPresentation.position(ep),ep.optLong("RunTimeTicks"));
             cell.setText(host.episodeLabel(ep,(watched?" ✓":"")+(current?" ▶":""),dates));cell.setBackground(host.episodeBackground(progress));describe(cell,ep,watched,progress,current);
             cell.setOnFocusChangeListener((view,focused)->{if(focused)description.setText((current?"正在播放 · ":"")+DetailPresentation.episodeNumber(ep)+" · "+EtknApi.title(ep)+(DetailPresentation.placeholder(ep)?"\n播出："+DetailPresentation.airDate(ep):""));});

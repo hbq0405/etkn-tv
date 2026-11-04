@@ -11,7 +11,7 @@ public final class SetupActivity extends TvActivity {
     static final String EXTRA_ADD_ACCOUNT="addAccount";
     private LanDiscovery discovery;
     private EditText server,username,password;
-    private LinearLayout servers,savedUsers;
+    private LinearLayout servers,savedUsers,loginPanel;
     private int scanRevision;
     private final Set<String> discovered=new HashSet<>();
     @Override public void onCreate(Bundle state) {
@@ -29,20 +29,23 @@ public final class SetupActivity extends TvActivity {
         if(!addAccount&&(LoginGate.requiresPicker(this,api)||api.session.persist()==SessionStore.PERSIST_ACCOUNT&&!api.session.accounts().isEmpty())){showPicker();return;}
         if(!api.token.isEmpty()&&!addAccount){openHome();return;}
         screen(addAccount?"登录新用户":"连接你的 ETKN",addAccount?"为当前 ETKN 媒体服务器添加登录用户。":"自动发现局域网 ETKN 媒体服务器，遥控器点选后登录。");
+        content.setGravity(android.view.Gravity.CENTER);content.setPadding(dp(12),dp(16),dp(12),dp(20));
+        loginPanel=column();loginPanel.setPadding(dp(28),dp(20),dp(28),dp(18));loginPanel.setBackground(shape(PANEL,0));shadow(loginPanel,8);
+        content.addView(loginPanel,new LinearLayout.LayoutParams(Math.min(dp(560),availableWidth(96)),-2));
         if(!addAccount){nav("重新搜索",this::scan);nav("关于 / 检查更新",()->open(SettingsActivity.class));}
         if(!addAccount){
             savedUsers=column();
             List<SavedAccounts.Account> accounts=api.session.accounts();
             if(!accounts.isEmpty()){
-                content.addView(text("已登录用户",16,TEXT));content.addView(savedUsers);
+                loginPanel.addView(text("已登录用户",16,TEXT));loginPanel.addView(savedUsers);
                 for(SavedAccounts.Account account:accounts)savedUsers.addView(button((account.needsPassword?"登录（需密码）：":"使用：")+account.name,()->loginWithPasswordIfNeeded(account)));
             }
         }
-        servers=column();content.addView(servers);
-        server=input("媒体服务器地址，例如 192.168.1.10:8097",false);server.setText(api.session.server());content.addView(server);
-        if(addAccount){server.setFocusable(false);server.setFocusableInTouchMode(false);server.setEnabled(false);servers.setVisibility(android.view.View.GONE);content.addView(text("账号仅保存在当前 ETKN 媒体服务器下，不支持多服务器账号切换。",13,MUTED));}
-        username=input("用户名",false);content.addView(username);password=input("密码",true);content.addView(password);
-        content.addView(button("连接并登录",()->{
+        servers=column();loginPanel.addView(servers);
+        server=input("媒体服务器地址，例如 192.168.1.10:8097",false);server.setText(api.session.server());loginPanel.addView(server);
+        if(addAccount){server.setFocusable(false);server.setFocusableInTouchMode(false);server.setEnabled(false);servers.setVisibility(android.view.View.GONE);loginPanel.addView(text("账号仅保存在当前 ETKN 媒体服务器下，不支持多服务器账号切换。",13,MUTED));}
+        username=input("用户名",false);loginPanel.addView(username);password=input("密码",true);loginPanel.addView(password);
+        loginPanel.addView(button("连接并登录",()->{
             status.setText("正在登录…");String address=server.getText().toString(),name=username.getText().toString(),pass=password.getText().toString();
             password.setText("");int generation=LoginGate.generation();
             IO.execute(()->{

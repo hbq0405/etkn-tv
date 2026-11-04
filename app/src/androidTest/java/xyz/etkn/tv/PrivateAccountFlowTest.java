@@ -4,6 +4,7 @@ import android.app.*;
 import android.content.*;
 import android.os.Bundle;
 import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.view.*;
 import android.widget.*;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -220,7 +221,10 @@ public class PrivateAccountFlowTest {
         await(()->findText(picker.getWindow().getDecorView(),"选择登录用户")!=null);onMain(()->assertEquals(TvAppearance.text(),((TextView)findText(picker.getWindow().getDecorView(),"选择登录用户")).getCurrentTextColor()));
         onMain(picker::finish);device.waitForIdleSync();
         SetupActivity login=(SetupActivity)device.startActivitySync(new Intent(context,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
-        await(()->findText(login.getWindow().getDecorView(),"连接并登录")!=null);onMain(()->assertEquals(TvAppearance.text(),((EditText)field(login,"username")).getCurrentTextColor()));
+        await(()->findText(login.getWindow().getDecorView(),"连接并登录")!=null);onMain(()->{assertEquals(TvAppearance.text(),((EditText)field(login,"username")).getCurrentTextColor());View panel=(View)field(login,"loginPanel");assertEquals(login.dp(8)*TvAppearance.shadow(),panel.getElevation(),0);android.graphics.Outline outline=new android.graphics.Outline();panel.getOutlineProvider().getOutline(panel,outline);assertEquals(login.dp(12),outline.getRadius(),.01f);Rect visible=new Rect();assertTrue(panel.getGlobalVisibleRect(visible));assertEquals(login.getWindow().getDecorView().getWidth()/2,visible.centerX(),2);});
+        Bitmap form=device.getUiAutomation().takeScreenshot();try(FileOutputStream out=new FileOutputStream(new File(evidence,"borderless-login-panel.png"))){form.compress(Bitmap.CompressFormat.PNG,100,out);}finally{form.recycle();}
+        server.appearance=new JSONObject(server.appearance.toString()).put("revision","login-no-shadow").put("mode","light").put("shadow_strength",0);
+        await(()->"login-no-shadow".equals(TvAppearance.current.optString("revision"))&&((View)field(login,"loginPanel")).getElevation()==0);
     }
     private TextView windowText(String text){for(View root:android.view.inspector.WindowInspector.getGlobalWindowViews()){View found=findText(root,text);if(found instanceof TextView)return (TextView)found;}return null;}
     @Test public void switchingToAdminRequiresPasswordAndWrongPasswordPreservesCurrentUser()throws Exception{

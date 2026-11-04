@@ -26,6 +26,9 @@ final class DetailPresentation {
         Calendar tomorrow=(Calendar)today.clone();tomorrow.add(Calendar.DAY_OF_MONTH,1);
         return date.equals(format.format(tomorrow.getTime()))?"明天播出":date;
     }
+    static boolean episodeRowHasDates(List<JSONObject> episodes,int index,int columns){
+        int start=index/columns*columns;for(int i=start;i<Math.min(start+columns,episodes.size());i++)if(placeholder(episodes.get(i)))return true;return false;
+    }
     static JSONObject recommended(List<JSONObject> episodes){
         JSONObject resume=null;String latest="";
         for(JSONObject episode:episodes)if(position(episode)>0){String date=episode.optJSONObject("UserData").optString("LastPlayedDate");if(resume==null||date.compareTo(latest)>0){resume=episode;latest=date;}}

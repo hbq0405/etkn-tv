@@ -1026,7 +1026,9 @@ public class DetailFlowTest {
     @Test public void multipleSeasonsRemainSelectableAndRefreshMatrix()throws Exception{
         try(Fixture server=new Fixture()){
             open(server,"series-many");assertNotNull(button("第 1 季"));assertNotNull(button("第 2 季"));assertNull(button("第 24 集"));
+            onMain(()->button("第 1 季").requestFocus());settle();await(()->server.imagePaths.stream().anyMatch(path->path.contains("/Items/season-1/Images/Primary")));screenshot("season-posters-focused.png");
             onMain(()->button("第 1 季").performClick());settle();assertNotNull(button("第 24 集"));onMain(()->button("第 1 集").requestFocus());settle();screenshot("multi-season.png");
+            onMain(()->button("第 2 季").requestFocus());settle();await(()->server.imagePaths.stream().anyMatch(path->path.contains("/Items/season-2/Images/Primary")));
             onMain(()->button("第 2 季").performClick());settle();assertNull(button("第 24 集"));
             assertTrue(((TextView)field(detail,"episodeTitle")).getText().toString().contains("故事 3"));
         }finally{cleanup();}
@@ -1038,8 +1040,10 @@ public class DetailFlowTest {
         for(int i=0;i<labels.length;i++){String prefix="第 "+(i+4)+" 集";Button cell=null;for(View view:descendants(root))if(view instanceof Button&&((Button)view).getText().toString().startsWith(prefix))cell=(Button)view;assertNotNull(cell);assertTrue(cell.getText().toString(),cell.getText().toString().contains(labels[i]));}
     }
     private void assertUniformDatedMatrix(GridLayout grid){
-        assertTrue(grid.getChildCount()>5);TextView first=(TextView)grid.getChildAt(0);int columns=grid.getColumnCount();
-        for(int i=0;i<grid.getChildCount();i++){TextView cell=(TextView)grid.getChildAt(i);assertEquals(first.getWidth(),cell.getWidth());assertEquals(first.getHeight(),cell.getHeight());assertEquals(first.getBaseline(),cell.getBaseline());assertEquals(2,cell.getLineCount());assertEquals(grid.getChildAt(i/columns*columns).getTop(),cell.getTop());}
+        assertTrue(grid.getChildCount()>9);int columns=grid.getColumnCount();boolean compact=false,tall=false;
+        for(int i=0;i<grid.getChildCount();i++){TextView cell=(TextView)grid.getChildAt(i),first=(TextView)grid.getChildAt(i/columns*columns);int start=i/columns*columns;boolean dates=start<=6&&start+columns>3;
+            assertEquals(first.getWidth(),cell.getWidth());assertEquals(first.getHeight(),cell.getHeight());assertEquals(first.getBaseline(),cell.getBaseline());assertEquals(dates?2:1,cell.getLineCount());assertEquals(first.getTop(),cell.getTop());assertEquals(Math.round((dates?68:44)*grid.getResources().getDisplayMetrics().density),cell.getHeight());compact|=!dates;tall|=dates;}
+        assertTrue("无播出时间的行仍须紧凑",compact);assertTrue("含播出时间的行仍须完整显示两行",tall);
     }
     @Test public void detailActionsAreOneIconRowAndFavoriteBecomesSolidRedHeart()throws Exception{
         try(Fixture server=new Fixture()){

@@ -61,7 +61,7 @@ abstract class TvActivity extends Activity {
         ListView list=dialog.getListView();if(list!=null)list.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener(){@Override public void onChildViewAdded(View parent,View child){themeDialogTree(child);}@Override public void onChildViewRemoved(View parent,View child){}});
     }
     private void updateDialogAppearance(android.app.AlertDialog dialog){
-        if(dialog.getWindow()==null)return;android.graphics.drawable.GradientDrawable background=shape(TvAppearance.surface(appearanceDark()),0);background.setCornerRadius(dp(18));dialog.getWindow().setBackgroundDrawable(background);
+        if(dialog.getWindow()==null)return;android.graphics.drawable.GradientDrawable background=shape(TvAppearance.surface(appearanceDark()),0);background.setCornerRadius(dp(18));dialog.getWindow().setBackgroundDrawable(background);dialog.getWindow().setElevation(dp(8)*TvAppearance.shadow());
         themeDialogTree(dialog.getWindow().getDecorView());updateAppearanceTree(dialog.getWindow().getDecorView());
     }
     private void themeDialogTree(View view){
@@ -228,6 +228,15 @@ abstract class TvActivity extends Activity {
             catch(Exception error) { runOnUiThread(() -> { if(!isFinishing()&&!isDestroyed()) { status.setText(error.getMessage()==null?"连接失败，请重试":error.getMessage()); if(error instanceof EtknApi.AuthException) { api.session.clear(); startActivity(new Intent(this,SetupActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)); finish(); } } }); } });
     }
     void open(Class<?> activity) { startActivity(new Intent(this,activity)); }
+    View seasonCard(org.json.JSONObject season,Runnable click){
+        FrameLayout card=new FrameLayout(this);card.setBackground(shape(PANEL,0));shadow(card,4);card.setContentDescription("季海报 · "+EtknApi.title(season));
+        ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));card.addView(poster,new FrameLayout.LayoutParams(-1,imageDp(138)));
+        Button choice=button(EtknApi.title(season),click);choice.setBackground(transparentFocusBackground());shadow(choice,0);choice.setGravity(android.view.Gravity.BOTTOM|android.view.Gravity.CENTER_HORIZONTAL);choice.setPadding(dp(4),0,dp(4),dp(6));choice.setTextSize(13);choice.setMinHeight(0);card.addView(choice,new FrameLayout.LayoutParams(-1,-1));
+        choice.setOnFocusChangeListener((view,focused)->shadow(card,focused?8:4));
+        LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(imageDp(92),imageDp(170));bounds.setMargins(dp(6),dp(12),dp(10),dp(12));card.setLayoutParams(bounds);
+        imageSizeUpdater(card,()->{bounds.width=imageDp(92);bounds.height=imageDp(170);card.setLayoutParams(bounds);poster.getLayoutParams().height=imageDp(138);poster.requestLayout();choice.setTextSize(13*imageScale());});
+        Images.visible(api,api.image(season),poster,success->{});return card;
+    }
     View mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click) {
         return mediaCard(grid,media,click,"CollectionFolder".equals(media.optString("Type")),false,null);
     }
