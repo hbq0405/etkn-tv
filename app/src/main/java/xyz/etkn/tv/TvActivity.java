@@ -46,8 +46,9 @@ abstract class TvActivity extends Activity {
             if(!result.toString().equals(TvAppearance.current.toString())){TvAppearance.save(this,api.server,result);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();appearanceChanged();}
         });});
     }
-    boolean appearanceDark(){return this instanceof PlayerActivity||TvAppearance.dark();}
-    int resolveColor(int color){return TvAppearance.resolve(color,this instanceof PlayerActivity);}
+    private boolean forceDarkAppearance(){return this instanceof PlayerActivity||this instanceof DetailActivity;}
+    boolean appearanceDark(){return forceDarkAppearance()||TvAppearance.dark();}
+    int resolveColor(int color){return TvAppearance.resolve(color,forceDarkAppearance());}
     void appearanceChanged(){}
     void themeText(TextView view,int color){view.setTag(R.id.appearance_text,color);view.setTextColor(resolveColor(color));themedTexts.add(new java.lang.ref.WeakReference<>(view));}
     private void updateAppearanceViews(){
@@ -76,7 +77,7 @@ abstract class TvActivity extends Activity {
         if(view instanceof ProgressBar){ProgressBar bar=(ProgressBar)view;bar.setProgressTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));bar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));}
         view.invalidate();if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)updateAppearanceTree(group.getChildAt(i));}
     }
-    void shadow(View view,int elevation){view.setTag(R.id.appearance_shadow,elevation);view.setOutlineProvider(new android.view.ViewOutlineProvider(){@Override public void getOutline(View target,android.graphics.Outline outline){outline.setRoundRect(0,0,target.getWidth(),target.getHeight(),dp(12));outline.setAlpha(1);}});view.setElevation(dp(elevation)*TvAppearance.shadow());view.setTranslationZ(0);if(android.os.Build.VERSION.SDK_INT>=28){view.setOutlineAmbientShadowColor(appearanceDark()?Color.BLACK:0xff526c61);view.setOutlineSpotShadowColor(appearanceDark()?Color.BLACK:0xff345a49);}}
+    void shadow(View view,int elevation){view.setTag(R.id.appearance_shadow,elevation);view.setOutlineProvider(new android.view.ViewOutlineProvider(){@Override public void getOutline(View target,android.graphics.Outline outline){outline.setRoundRect(0,0,target.getWidth(),target.getHeight(),dp(12));outline.setAlpha(0);}});view.setElevation(dp(elevation)*TvAppearance.shadow());view.setTranslationZ(0);OuterShadow.apply(view,dp(elevation),TvAppearance.shadow(),appearanceDark());}
     private final android.os.Handler noticeTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable noticePoll=new Runnable(){@Override public void run(){IngestNotifications.check(TvActivity.this);noticeTimer.postDelayed(this,60000);}};
     private final java.util.Map<Long,String> refreshTasks=new java.util.LinkedHashMap<>();
@@ -196,8 +197,8 @@ abstract class TvActivity extends Activity {
     LinearLayout row() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.HORIZONTAL);view.setClipChildren(false);view.setClipToPadding(false); return view; }
     LinearLayout column() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.VERTICAL);view.setClipChildren(false);view.setClipToPadding(false); return view; }
     TextView text(String value, int size, int color) { TextView view = new TextView(this); view.setText(value); view.setTextSize(size); themeText(view,color); view.setPadding(0,dp(5),0,dp(5)); return view; }
-    GradientDrawable shape(int color, int stroke) { return new AppearanceShape(color,stroke,this instanceof PlayerActivity); }
-    private android.graphics.drawable.Drawable focusFill(int color){return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(color,0),new FocusPulse(dp(12),dp(3),ACCENT,this instanceof PlayerActivity)});}
+    GradientDrawable shape(int color, int stroke) { return new AppearanceShape(color,stroke,forceDarkAppearance()); }
+    private android.graphics.drawable.Drawable focusFill(int color){return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(color,0),new FocusPulse(dp(12),dp(3),ACCENT,forceDarkAppearance())});}
     StateListDrawable focusBackground() { StateListDrawable state = new StateListDrawable(); state.addState(new int[]{android.R.attr.state_focused},focusFill(SOFT)); state.addState(new int[]{android.R.attr.state_pressed},shape(SOFT,ACCENT)); state.addState(new int[]{},shape(PANEL,0)); return state; }
     StateListDrawable transparentFocusBackground() { StateListDrawable state=new StateListDrawable();state.addState(new int[]{android.R.attr.state_focused},focusFill(Color.TRANSPARENT));state.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));state.addState(new int[]{},shape(Color.TRANSPARENT,0));return state; }
     StateListDrawable selectionBackground(){
@@ -207,7 +208,7 @@ abstract class TvActivity extends Activity {
     }
     android.graphics.drawable.Drawable episodeBackground(int progress){
         android.graphics.drawable.StateListDrawable outline=new android.graphics.drawable.StateListDrawable();
-        outline.addState(new int[]{android.R.attr.state_focused},new FocusPulse(dp(12),dp(3),ACCENT,this instanceof PlayerActivity));outline.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));outline.addState(new int[]{},shape(Color.TRANSPARENT,0));
+        outline.addState(new int[]{android.R.attr.state_focused},new FocusPulse(dp(12),dp(3),ACCENT,forceDarkAppearance()));outline.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));outline.addState(new int[]{},shape(Color.TRANSPARENT,0));
         android.graphics.drawable.ClipDrawable fill=new android.graphics.drawable.ClipDrawable(shape(PROGRESS,0),android.view.Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);fill.setLevel(progress);
         return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(PANEL,0),fill,outline});
     }
@@ -343,7 +344,7 @@ abstract class TvActivity extends Activity {
         canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("M12 1 15.4 8.2 23 9.2 17.5 14.6 18.8 22.2 12 18.6 5.2 22.2 6.5 14.6 1 9.2 8.6 8.2Z"),paint);
         return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
     }
-    android.graphics.drawable.Drawable focusOutline(){return new FocusPulse(dp(9),dp(3),ACCENT,this instanceof PlayerActivity);}
+    android.graphics.drawable.Drawable focusOutline(){return new FocusPulse(dp(9),dp(3),ACCENT,forceDarkAppearance());}
     GridLayout grid() { return grid(content); }
     GridLayout grid(LinearLayout target) { return grid(target,132,6,72); }
     GridLayout grid(LinearLayout target,int cardWidthDp,int gapDp,int horizontalInsetDp) { GridLayout grid=new GridLayout(this);grid.setClipChildren(false);grid.setClipToPadding(false);watchGridColumns(grid,cardWidthDp,gapDp,horizontalInsetDp);target.addView(grid);return grid; }

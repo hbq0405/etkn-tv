@@ -176,7 +176,7 @@ public class HomeFocusTest {
             instrumentation.runOnMainSync(()->{
                 assertSharedWallpaperUnmasked();
                 View artwork=((ViewGroup)field(HomeActivity.class,"resumeFirst")).getChildAt(0);android.graphics.Outline outline=new android.graphics.Outline();artwork.getOutlineProvider().getOutline(artwork,outline);
-                assertTrue("透明卡片仍应有独立的不透明阴影轮廓",outline.getAlpha()>.99f);assertTrue(artwork.getElevation()>0);
+                assertEquals("关闭原生阴影，外侧阴影不能透入透明底色",0,outline.getAlpha(),0);assertTrue(artwork.getElevation()>0);
                 FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");View images=(View)backdropField(hero,"artwork");
                 Bitmap frame=Bitmap.createBitmap(images.getWidth(),images.getHeight(),Bitmap.Config.ARGB_8888);images.draw(new Canvas(frame));
                 assertEquals("继续观看的影片背景须覆盖整个首页",home.getWindow().getDecorView().getHeight(),images.getHeight());

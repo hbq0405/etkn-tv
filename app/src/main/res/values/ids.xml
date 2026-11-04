@@ -3,4 +3,5 @@
     <item name="adaptive_grid" type="id" />
     <item name="appearance_text" type="id" />
     <item name="appearance_shadow" type="id" />
+    <item name="appearance_outer_shadow" type="id" />
 </resources>
