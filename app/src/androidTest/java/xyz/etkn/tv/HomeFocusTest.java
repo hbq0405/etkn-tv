@@ -353,7 +353,8 @@ public class HomeFocusTest {
 
     @Test public void mediaLibraryMenuGridResizesSafelyAcrossAllImageLevels()throws Exception{
         try(Fixture server=new Fixture()){
-            openMenuHomeFixture(server);call("loadLibraries",new Class<?>[]{});
+            server.appearance=new JSONObject().put("revision","opaque-menu-light").put("mode","light").put("glass_opacity",0);
+            openMenuHomeFixture(server);await(()->"opaque-menu-light".equals(TvAppearance.current.optString("revision")));call("loadLibraries",new Class<?>[]{});
             await(()->"library".equals(field(HomeActivity.class,"mode"))&&library("library-0")!=null&&library("library-0").getWidth()>0);
             GridLayout grid=(GridLayout)library("library-0").getParent();TvPreferences preferences=new TvPreferences(home,home.api);
             for(int size:new int[]{TvPreferences.IMAGE_EXTREMELY_SMALL,TvPreferences.IMAGE_SMALL,TvPreferences.IMAGE_MEDIUM,TvPreferences.IMAGE_LARGE,TvPreferences.IMAGE_EXTREMELY_LARGE}){
@@ -361,11 +362,13 @@ public class HomeFocusTest {
                 await(()->grid.getColumnCount()==expectedAdaptiveColumns(grid,192,12,size));
                 instrumentation.runOnMainSync(()->{View card=library("library-0"),art=((ViewGroup)card).getChildAt(0);assertEquals(Math.round(art.getWidth()*9f/16f),art.getHeight());card.requestFocus();});
                 call("showMenu",new Class<?>[]{});settle();
-                instrumentation.runOnMainSync(()->{Rect card=new Rect(),menu=new Rect();assertTrue(library("library-0").getGlobalVisibleRect(card));assertTrue(((View)field(HomeActivity.class,"menu")).getGlobalVisibleRect(menu));assertTrue("首行聚焦卡片必须避开主菜单 size="+size+" card="+card+" menu="+menu,card.top>=menu.bottom+home.dp(12));});
+                instrumentation.runOnMainSync(()->{Rect card=new Rect(),menu=new Rect();View menuView=(View)field(HomeActivity.class,"menu");assertTrue(library("library-0").getGlobalVisibleRect(card));assertTrue(menuView.getGlobalVisibleRect(menu));assertEquals("恢复原有顶部间距",home.dp(24),home.content.getPaddingTop());assertEquals(0,menu.top);assertEquals(home.dp(76),menu.height());assertEquals(TvAppearance.surface(),((android.graphics.drawable.ColorDrawable)menuView.getBackground()).getColor());});
                 evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"library-clearance");assertTrue(evidence.isDirectory()||evidence.mkdirs());saveScreenshot("menu-size-"+size+".png");call("hideMenu",new Class<?>[]{});
             }
             instrumentation.runOnMainSync(()->{preferences.setImageSize(TvPreferences.IMAGE_MEDIUM);home.onResume();});
             await(()->grid.getColumnCount()==expectedAdaptiveColumns(grid,192,12,TvPreferences.IMAGE_MEDIUM));
+            server.appearance=new JSONObject(server.appearance.toString()).put("revision","opaque-menu-dark").put("mode","dark").put("glass_opacity",.55);await(()->"opaque-menu-dark".equals(TvAppearance.current.optString("revision")));call("showMenu",new Class<?>[]{});settle();
+            instrumentation.runOnMainSync(()->assertEquals(TvAppearance.surface(),((android.graphics.drawable.ColorDrawable)((View)field(HomeActivity.class,"menu")).getBackground()).getColor()));saveScreenshot("menu-dark-opaque.png");
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
     @Test public void landscapeCardsMatchHomeLibrariesAndKeepFocusedEdgesVisible()throws Exception{

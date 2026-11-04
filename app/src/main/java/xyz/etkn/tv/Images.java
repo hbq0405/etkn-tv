@@ -24,6 +24,9 @@ final class Images {
         GradientDrawable outline=new GradientDrawable();outline.setColor(Color.TRANSPARENT);outline.setCornerRadius(radiusPx);
         view.setBackground(outline);view.setClipToOutline(true);
     }
+    static GradientDrawable border(int radiusPx) {
+        GradientDrawable border=new GradientDrawable();border.setColor(Color.TRANSPARENT);border.setCornerRadius(radiusPx);border.setStroke(1,Color.BLACK);return border;
+    }
     static void load(EtknApi api,String url,ImageView view) {
         load(api,url,view,success->{});
     }

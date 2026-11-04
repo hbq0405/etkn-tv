@@ -324,7 +324,7 @@ public final class DetailActivity extends TvActivity {
             LinearLayout seasonRow=row();HorizontalScrollView seasonScroll=new FocusScroll.Row(this);seasonScroll.setHorizontalScrollBarEnabled(false);seasonScroll.setClipToPadding(false);seasonScroll.addView(seasonRow);
             if(seasons.size()>1&&!item.optString("Type").equals("Season")){episodeArea.addView(seasonScroll);for(JSONObject season:seasons)seasonRow.addView(seasonCard(season,()->showSeason(season.optString("Id"))));}
             preview=row();preview.setGravity(Gravity.CENTER_VERTICAL);preview.setPadding(0,dp(8),0,dp(8));
-            episodeImage=new ImageView(this);episodeImage.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(episodeImage,dp(8));preview.addView(episodeImage,new LinearLayout.LayoutParams(dp(224),dp(126)));
+            episodeImage=new ImageView(this);episodeImage.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(episodeImage,dp(8));episodeImage.setForeground(Images.border(dp(8)));preview.addView(episodeImage,new LinearLayout.LayoutParams(dp(224),dp(126)));
             LinearLayout copy=column();copy.setPadding(dp(18),0,0,0);episodeTitle=text("",19,Color.WHITE);episodeTitle.setMaxLines(2);copy.addView(episodeTitle);episodeOverview=text("",14,MUTED);episodeOverview.setMaxLines(4);episodeOverview.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(episodeOverview);preview.addView(copy,new LinearLayout.LayoutParams(0,dp(144),1));episodeArea.addView(preview);
             showSeason(recommended.optString("SeasonId"),recommended);status.setText(allEpisodes.size()+" 集");focusPlay();
         });
@@ -363,7 +363,7 @@ public final class DetailActivity extends TvActivity {
         for(int i=0;i<images.size();i++){
             JSONObject chapter=images.get(i);LinearLayout card=column();card.setFocusable(true);card.setFocusableInTouchMode(false);card.setClickable(true);card.setBackground(transparentFocusBackground());card.setPadding(dp(3),dp(3),dp(3),dp(3));
             LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(180),dp(140));bounds.setMargins(0,dp(8),dp(14),dp(8));cards.addView(card,bounds);
-            ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(8));image.setFocusable(false);card.addView(image,new LinearLayout.LayoutParams(-1,dp(102)));Images.load(api,api.chapterArtwork(item,chapter,480),image);
+            ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(8));image.setForeground(Images.border(dp(8)));image.setFocusable(false);card.addView(image,new LinearLayout.LayoutParams(-1,dp(102)));Images.load(api,api.chapterArtwork(item,chapter,480),image);
             String name=chapter.optString("Name");if(name.isEmpty())name="章节 "+(i+1);TextView label=text(name+"  ·  "+chapterTime(chapter.optLong("StartPositionTicks")),12,Color.WHITE);label.setFocusable(false);label.setFocusableInTouchMode(false);label.setMaxLines(1);label.setEllipsize(android.text.TextUtils.TruncateAt.END);label.setPadding(dp(3),dp(3),dp(3),0);card.addView(label);
             card.setContentDescription(name);card.setOnClickListener(view->playChapter(chapter));
         }
@@ -378,9 +378,10 @@ public final class DetailActivity extends TvActivity {
         JSONArray people=item.optJSONArray("People");if(people==null||people.length()==0)return;
         content.addView(text("演员表",20,Color.WHITE));LinearLayout cast=row();HorizontalScrollView castScroll=new FocusScroll.Row(this);castScroll.setHorizontalScrollBarEnabled(false);castScroll.addView(cast);content.addView(castScroll);
         for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person==null||!person.optString("Type",person.optString("PersonType")).equalsIgnoreCase("Actor"))continue;
-            LinearLayout card=column();card.setFocusable(true);card.setBackground(transparentFocusBackground());card.setPadding(dp(3),dp(3),dp(3),dp(3));LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(112),dp(200));bounds.setMargins(0,dp(8),dp(14),dp(8));cast.addView(card,bounds);
-            card.setContentDescription("演员 · "+person.optString("Name"));card.setClickable(true);card.setOnClickListener(view->startActivity(new Intent(this,PersonActivity.class).putExtra("id",person.optString("Id")).putExtra("name",person.optString("Name"))));
-            ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);portrait.setImageResource(android.R.drawable.ic_menu_myplaces);Images.rounded(portrait,dp(7));card.addView(portrait,new LinearLayout.LayoutParams(-1,dp(130)));Images.load(api,api.artwork(person,"Primary",240),portrait);
+            LinearLayout card=column();card.setPadding(dp(3),dp(3),dp(3),dp(3));LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(112),dp(200));bounds.setMargins(0,dp(8),dp(14),dp(8));cast.addView(card,bounds);
+            ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);portrait.setImageResource(android.R.drawable.ic_menu_myplaces);Images.rounded(portrait,dp(7));portrait.setForeground(Images.border(dp(12)));shadow(portrait,4);portrait.setFocusable(true);portrait.setClickable(true);portrait.setContentDescription("演员 · "+person.optString("Name"));
+            portrait.setOnClickListener(view->startActivity(new Intent(this,PersonActivity.class).putExtra("id",person.optString("Id")).putExtra("name",person.optString("Name"))));
+            portrait.setOnFocusChangeListener((view,focused)->{portrait.setScaleX(focused?FOCUS_SCALE:1f);portrait.setScaleY(focused?FOCUS_SCALE:1f);shadow(portrait,focused?8:4);portrait.setForeground(focused?focusOutline():Images.border(dp(12)));});card.addView(portrait,new LinearLayout.LayoutParams(-1,dp(130)));Images.load(api,api.artwork(person,"Primary",240),portrait);
             TextView name=text(person.optString("Name"),13,Color.WHITE);name.setGravity(Gravity.CENTER);name.setMaxLines(1);card.addView(name);TextView role=text(person.optString("Role"),11,MUTED);role.setGravity(Gravity.CENTER);role.setMaxLines(2);role.setPadding(0,0,0,0);card.addView(role);
         }
     }

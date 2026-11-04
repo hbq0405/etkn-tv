@@ -66,7 +66,7 @@ final class AcquireTracker {
     private static void notify(Context context,long runId,String title,String error){
         String message=(title==null||title.isEmpty()?"云资源":title)+(error==null||error.isEmpty()?"获取失败":"："+error);
         Activity activity=IngestNotifications.foregroundActivity();
-        if(activity!=null&&!activity.isFinishing())activity.runOnUiThread(()->Toast.makeText(activity,"云资源获取失败："+message,Toast.LENGTH_LONG).show());
+        TvNotice.show(activity,"云资源获取失败："+message,Toast.LENGTH_LONG);
         if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"云资源获取",NotificationManager.IMPORTANCE_DEFAULT));
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
         try{NotificationManagerCompat.from(context).notify((int)(runId%Integer.MAX_VALUE),new NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle("云资源获取失败").setContentText(message).setStyle(new NotificationCompat.BigTextStyle().bigText(message)).setAutoCancel(true).build());}catch(SecurityException ignored){}

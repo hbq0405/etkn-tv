@@ -154,7 +154,7 @@ public final class DiscoveryActivity extends TvActivity {
     }
     private View discoveryCard(GridLayout grid,JSONObject item,Runnable click){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());
-        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);card.setClipChildren(false);grid.setClipChildren(false);grid.setClipToPadding(false);
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);artwork.setForeground(Images.border(dp(12)));card.setClipChildren(false);grid.setClipChildren(false);grid.setClipToPadding(false);
         ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));
         artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         // 网页版样式：片名与年份压在海报底部渐变区，不再占用卡片下方空间。
@@ -185,7 +185,7 @@ public final class DiscoveryActivity extends TvActivity {
         if(image.isEmpty())poster.setBackgroundColor(PANEL);else Images.visible(api,image,poster,success->{});
         card.setOnFocusChangeListener((view,hasFocus)->{
             card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);
-            artwork.setForeground(hasFocus?focusOutline():null);
+            artwork.setForeground(hasFocus?focusOutline():Images.border(dp(12)));
             if(hasFocus)browseFocus=card;
         });
         return card;
@@ -284,7 +284,7 @@ public final class DiscoveryActivity extends TvActivity {
         hero.addView(detailBackdrop,new FrameLayout.LayoutParams(-1,-1));
         View shade=backdropShade();shade.setBackgroundColor(Color.argb(150,11,17,26));
         hero.addView(shade,new FrameLayout.LayoutParams(-1,-1));
-        ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(10));
+        ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(10));poster.setForeground(Images.border(dp(10)));
         FrameLayout.LayoutParams posterBounds=new FrameLayout.LayoutParams(dp(124),dp(186),Gravity.BOTTOM|Gravity.START);
         posterBounds.setMargins(dp(20),0,dp(8),dp(16));
         hero.addView(poster,posterBounds);
@@ -434,7 +434,7 @@ public final class DiscoveryActivity extends TvActivity {
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);
         card.setOnClickListener(v->enterPerson(actor));
         FrameLayout artwork=new FrameLayout(this);
-        artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);card.setClipChildren(false);card.setClipToPadding(false);
+        artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);artwork.setForeground(Images.border(dp(12)));card.setClipChildren(false);card.setClipToPadding(false);
         ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(portrait,dp(9));
         artwork.addView(portrait,new FrameLayout.LayoutParams(-1,-1));
         card.addView(artwork,new LinearLayout.LayoutParams(dp(102),dp(150)));
@@ -446,7 +446,7 @@ public final class DiscoveryActivity extends TvActivity {
         grid.addView(card,layout);
         String image=EtknApi.tmdbImage(actor.optString("profile_path"),"w185");
         if(image.isEmpty())portrait.setBackgroundColor(PANEL);else Images.visible(api,image,portrait,success->{});
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():null);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():Images.border(dp(12)));});
     }
     private void enterPerson(JSONObject actor){
         if(actor.optString("id").isEmpty())return;
@@ -468,7 +468,7 @@ public final class DiscoveryActivity extends TvActivity {
         JSONObject personInfo=payload.optJSONObject("person");
         JSONArray works=payload.optJSONArray("works");
         LinearLayout header=row();
-        ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(portrait,dp(10));
+        ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(portrait,dp(10));portrait.setForeground(Images.border(dp(10)));
         LinearLayout.LayoutParams portraitBounds=new LinearLayout.LayoutParams(dp(132),dp(198));portraitBounds.rightMargin=dp(22);portraitBounds.topMargin=dp(6);
         header.addView(portrait,portraitBounds);
         LinearLayout info=column();

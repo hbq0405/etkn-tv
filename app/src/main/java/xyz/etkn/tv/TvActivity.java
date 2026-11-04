@@ -29,6 +29,9 @@ abstract class TvActivity extends Activity {
     private int appliedImageSize=-1;
     @Override public void onCreate(Bundle state) { api = new EtknApi(this); TvAppearance.load(this,api.server);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);super.onCreate(state); preferences=new TvPreferences(this,api); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
     private AppearanceBackground serverBackground;
+    private TextView appNotice;
+    private final android.os.Handler appNoticeHandler=new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable appNoticeHide;
     private boolean appearanceForeground,appearanceLoading;
     private final java.util.ArrayList<java.lang.ref.WeakReference<TextView>> themedTexts=new java.util.ArrayList<>();
     private final java.util.ArrayList<java.lang.ref.WeakReference<android.app.AlertDialog>> themedDialogs=new java.util.ArrayList<>();
@@ -55,6 +58,7 @@ abstract class TvActivity extends Activity {
         themedTexts.removeIf(reference->{TextView view=reference.get();if(view==null)return true;Object color=view.getTag(R.id.appearance_text);if(color instanceof Integer)view.setTextColor(resolveColor((Integer)color));return false;});
         if(serverBackground!=null)serverBackground.update();updateAppearanceTree(getWindow().getDecorView());
         themedDialogs.removeIf(reference->{android.app.AlertDialog dialog=reference.get();if(dialog==null||!dialog.isShowing())return true;updateDialogAppearance(dialog);return false;});
+        if(appNotice!=null&&appNotice.getVisibility()==View.VISIBLE)TvNotice.style(appNotice,this);
     }
     android.app.AlertDialog.Builder dialogBuilder(){return new android.app.AlertDialog.Builder(this,appearanceDark()?android.R.style.Theme_Material_Dialog_Alert:android.R.style.Theme_Material_Light_Dialog_Alert);}
     void themeDialog(android.app.AlertDialog dialog){
@@ -179,12 +183,12 @@ abstract class TvActivity extends Activity {
                 if(result.optLong("RefreshRunId")!=task.getKey()||!result.optBoolean("finished")||refreshTasks.remove(task.getKey())==null)continue;
                 String state=result.optString("status");
                 if(state.equals("succeeded"))metadataRefreshed();
-                else{String message=state.equals("cancelled")?"元数据/图片刷新已取消":state.equals("partial")?"元数据/图片刷新部分失败":"元数据/图片刷新失败";status.setText(message);Toast.makeText(this,message,Toast.LENGTH_SHORT).show();}
+                else{String message=state.equals("cancelled")?"元数据/图片刷新已取消":state.equals("partial")?"元数据/图片刷新部分失败":"元数据/图片刷新失败";status.setText(message);TvNotice.show(this,message,Toast.LENGTH_SHORT);}
             }
             if(!refreshTasks.isEmpty())noticeTimer.postDelayed(refreshPoll,3000);
         });
     }
-    void metadataRefreshed(){status.setText("元数据/图片已刷新");Toast.makeText(this,"元数据/图片已刷新",Toast.LENGTH_SHORT).show();}
+    void metadataRefreshed(){status.setText("元数据/图片已刷新");TvNotice.show(this,"元数据/图片已刷新",Toast.LENGTH_SHORT);}
     void screen(String title, String subtitle) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(36),dp(20),dp(36),dp(18)); root.setBackgroundColor(INK);
         TextView brand = text("ETKN  /  TV", 12, ACCENT); root.addView(brand);
@@ -226,16 +230,30 @@ abstract class TvActivity extends Activity {
     }
     <T> void async(Callable<T> work, Consumer<T> done) {
         IO.execute(() -> { try { T result=work.call(); runOnUiThread(() -> { if(!isFinishing()&&!isDestroyed()) done.accept(result); }); }
-            catch(Exception error) { runOnUiThread(() -> { if(!isFinishing()&&!isDestroyed()) { status.setText(error.getMessage()==null?"连接失败，请重试":error.getMessage()); if(error instanceof EtknApi.AuthException) { api.session.clear(); startActivity(new Intent(this,SetupActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)); finish(); } } }); } });
+            catch(Exception error) { runOnUiThread(() -> { if(!isFinishing()&&!isDestroyed()) { requestError(error.getMessage()==null?"连接失败，请重试":error.getMessage()); if(error instanceof EtknApi.AuthException) { api.session.clear(); startActivity(new Intent(this,SetupActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)); finish(); } } }); } });
+    }
+    void requestError(String message){status.setText(message);}
+    @Override protected void onDestroy(){appNoticeHandler.removeCallbacksAndMessages(null);super.onDestroy();}
+    TextView appNoticeView(){
+        if(appNotice!=null&&appNotice.getParent()!=null)return appNotice;
+        View content=findViewById(android.R.id.content);if(!(content instanceof FrameLayout))return null;
+        appNotice=new TextView(this);appNotice.setVisibility(View.GONE);appNotice.setMaxLines(2);appNotice.setEllipsize(android.text.TextUtils.TruncateAt.END);appNotice.setMaxWidth(getResources().getDisplayMetrics().widthPixels-dp(48));TvNotice.style(appNotice,this);
+        FrameLayout.LayoutParams layout=new FrameLayout.LayoutParams(-2,-2,android.view.Gravity.TOP|android.view.Gravity.CENTER_HORIZONTAL);layout.setMargins(dp(24),dp(48),dp(24),0);((FrameLayout)content).addView(appNotice,layout);return appNotice;
+    }
+    TextView showAppNotice(String message,long duration){
+        if(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()){runOnUiThread(()->showAppNotice(message,duration));return null;}
+        TextView view=appNoticeView();if(view==null)return null;if(appNoticeHide!=null)appNoticeHandler.removeCallbacks(appNoticeHide);appNoticeHide=null;view.setText(message);TvNotice.style(view,this);view.setVisibility(View.VISIBLE);view.bringToFront();
+        if(duration>0){appNoticeHide=()->{if(view.getText().toString().equals(message))view.setVisibility(View.GONE);};appNoticeHandler.postDelayed(appNoticeHide,duration);}return view;
     }
     void open(Class<?> activity) { startActivity(new Intent(this,activity)); }
     View seasonCard(org.json.JSONObject season,Runnable click){
-        FrameLayout card=new FrameLayout(this);card.setBackground(shape(PANEL,0));shadow(card,4);card.setContentDescription("季海报 · "+EtknApi.title(season));
-        ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));card.addView(poster,new FrameLayout.LayoutParams(-1,imageDp(138)));
+        FrameLayout card=new FrameLayout(this);card.setBackground(shape(PANEL,0));shadow(card,4);card.setClipToOutline(true);card.setForeground(Images.border(dp(12)));card.setContentDescription("季海报 · "+EtknApi.title(season));
+        ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));card.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,0xd9000000}));card.addView(shade,new FrameLayout.LayoutParams(-1,imageDp(56),android.view.Gravity.BOTTOM));
         Button choice=button(EtknApi.title(season),click);choice.setBackground(transparentFocusBackground());shadow(choice,0);choice.setGravity(android.view.Gravity.BOTTOM|android.view.Gravity.CENTER_HORIZONTAL);choice.setPadding(dp(4),0,dp(4),dp(6));choice.setTextSize(13);choice.setMinHeight(0);card.addView(choice,new FrameLayout.LayoutParams(-1,-1));
         choice.setOnFocusChangeListener((view,focused)->shadow(card,focused?8:4));
-        LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(imageDp(92),imageDp(170));bounds.setMargins(dp(6),dp(12),dp(10),dp(12));card.setLayoutParams(bounds);
-        imageSizeUpdater(card,()->{bounds.width=imageDp(92);bounds.height=imageDp(170);card.setLayoutParams(bounds);poster.getLayoutParams().height=imageDp(138);poster.requestLayout();choice.setTextSize(13*imageScale());});
+        LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(imageDp(92),imageDp(138));bounds.setMargins(dp(6),dp(12),dp(10),dp(12));card.setLayoutParams(bounds);
+        imageSizeUpdater(card,()->{bounds.width=imageDp(92);bounds.height=imageDp(138);card.setLayoutParams(bounds);shade.getLayoutParams().height=imageDp(56);shade.requestLayout();choice.setTextSize(13*imageScale());});
         Images.visible(api,api.image(season),poster,success->{});return card;
     }
     View mediaCard(GridLayout grid, org.json.JSONObject media, Runnable click) {
@@ -250,14 +268,14 @@ abstract class TvActivity extends Activity {
         int cardWidth=compact?192:landscape?264:132,cardHeight=compact?150:landscape?215:248;
         float artRatio=compact||landscape?9f/16f:1.5f;
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
-        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);artwork.setForegroundGravity(android.view.Gravity.FILL);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);artwork.setForeground(Images.border(dp(12)));artwork.setForegroundGravity(android.view.Gravity.FILL);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         int imageHeight=compact?108:landscape?139:198;card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(Math.round(cardWidth*artRatio)):imageDp(imageHeight)));
         TextView title=text(resume?EtknApi.resumeTitle(media):EtknApi.title(media),compact?12:14,TEXT);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,adaptive?dp(compact?42:46):imageDp(compact?42:46)));scaleImageText(title,compact?12:14,compact?42:46);
         if(adaptive){addAdaptiveGridItem(grid,card,gap,5);fitArtworkHeight(card,artwork,artRatio);}
         else{GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=imageDp(cardWidth);layout.height=imageDp(cardHeight);layout.setMargins(imageDp(gap),dp(5),imageDp(gap),dp(5));grid.addView(card,layout);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(imageHeight);artwork.requestLayout();((LinearLayout.LayoutParams)title.getLayoutParams()).height=imageDp(compact?42:46);title.requestLayout();GridLayout.LayoutParams bounds=(GridLayout.LayoutParams)card.getLayoutParams();bounds.width=imageDp(cardWidth);bounds.height=imageDp(cardHeight);bounds.setMargins(imageDp(gap),dp(5),imageDp(gap),dp(5));card.setLayoutParams(bounds);});}
         String image=landscape&&!"CollectionFolder".equals(media.optString("Type"))?api.artwork(media,"Backdrop",640):api.image(media);
         Images.visible(api,image,poster,success->{if(!success&&!image.equals(api.image(media)))Images.load(api,api.image(media),poster);});
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():Images.border(dp(12)));if(hasFocus&&focused!=null)focused.accept(card);});
         org.json.JSONObject data=media.optJSONObject("UserData");
         if(landscape&&data!=null&&data.optLong("PlaybackPositionTicks")>0&&media.optLong("RunTimeTicks")>0){
             ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setProgress((int)Math.min(1000,1000.0*data.optLong("PlaybackPositionTicks")/media.optLong("RunTimeTicks")));progress.setProgressTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.argb(180,0,0,0)));FrameLayout.LayoutParams bar=new FrameLayout.LayoutParams(-1,dp(4),android.view.Gravity.BOTTOM);bar.leftMargin=dp(10);bar.rightMargin=dp(10);bar.bottomMargin=dp(6);artwork.addView(progress,bar);
@@ -269,7 +287,7 @@ abstract class TvActivity extends Activity {
     }
     View posterCard(GridLayout grid,org.json.JSONObject media,Runnable click,String episodeCountMode,boolean landscape){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
-        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);artwork.setForeground(Images.border(dp(12)));ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         boolean adaptive=isAdaptiveGrid(grid);int imageHeight=landscape?108:198,cardWidth=landscape?192:132,cardHeight=landscape?108:255,gap=landscape?12:6;float artRatio=landscape?9f/16f:1.5f;
         card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(Math.round(cardWidth*artRatio)):imageDp(imageHeight)));
         android.graphics.drawable.GradientDrawable fade=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(235,0,0,0)});
@@ -319,7 +337,7 @@ abstract class TvActivity extends Activity {
             loadBackdrop.run();imageSizeUpdater(poster,loadBackdrop);
         }
         else Images.load(api,api.image(media),poster);
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():null);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():Images.border(dp(12)));});
         return card;
     }
     private void bannerIdentity(FrameLayout artwork,org.json.JSONObject media,View badge){

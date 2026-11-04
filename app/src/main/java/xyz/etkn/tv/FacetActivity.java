@@ -50,12 +50,12 @@ public final class FacetActivity extends TvActivity {
     }
     private void addCard(JSONObject item){
         LinearLayout card=column();card.setTag(item);card.setFocusable(true);card.setClickable(true);card.setClipChildren(false);card.setClipToPadding(false);card.setContentDescription(item.optString("Name"));
-        FrameLayout art=new FrameLayout(this);art.setBackground(shape(PANEL,0));art.setClipToOutline(true);shadow(art,4);card.addView(art,new LinearLayout.LayoutParams(-1,dp(108)));
+        FrameLayout art=new FrameLayout(this);art.setBackground(shape(PANEL,0));art.setClipToOutline(true);shadow(art,4);art.setForeground(Images.border(dp(12)));card.addView(art,new LinearLayout.LayoutParams(-1,dp(108)));
         TextView placeholder=text(item.optString("Name"),24,TEXT);placeholder.setGravity(Gravity.CENTER);placeholder.setMaxLines(2);placeholder.setPadding(dp(10),0,dp(10),0);art.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
         if(item.has("ImageTags")){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(9));art.addView(image,new FrameLayout.LayoutParams(-1,-1));Images.visibleThumbnail(api,api.server+artwork(item)+"&tag="+EtknApi.encode(item.optJSONObject("ImageTags").optString("Primary")),image,dp(208),dp(117),success->{if(success)placeholder.setVisibility(View.INVISIBLE);});}
         TextView label=text(item.optString("Name"),12,TEXT);label.setMaxLines(2);label.setPadding(0,dp(4),0,0);card.addView(label,new LinearLayout.LayoutParams(-1,dp(42)));
         addAdaptiveGridItem(cards,card,12,5);fitArtworkHeight(card,art,9f/16f);
-        card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(art,focused?8:4);art.setForeground(focused?focusOutline():null);});
+        card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(art,focused?8:4);art.setForeground(focused?focusOutline():Images.border(dp(12)));});
         card.setOnClickListener(view->{focusId=item.optString("Id");startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",item.optString("Kind")).putExtra("facetValue",item.optString("Value")).putExtra("facetParent",parent));});
         card.setOnLongClickListener(view->{showActions(item);return true;});
         card.setOnGenericMotionListener((view,event)->{if(event.getAction()==MotionEvent.ACTION_BUTTON_PRESS&&event.getActionButton()==MotionEvent.BUTTON_SECONDARY){card.requestFocus();showActions(item);return true;}return false;});

@@ -12,7 +12,7 @@ import java.util.Locale;
 /** Segmented transport bar; Media3 retains seeking and accessibility behavior. */
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 public final class PixelTimeBar extends DefaultTimeBar {
-    static final int PLAYED=0xff1a7f70,BUFFERED=0xff5cc7b0,UNPLAYED=0xff193b36;
+    static final int PLAYED=0xff1a7f70,BUFFERED=0xffb8e6a5,UNPLAYED=0xff193b36;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private long duration,position,buffered,scrub=-1;
     private JSONArray chapters;

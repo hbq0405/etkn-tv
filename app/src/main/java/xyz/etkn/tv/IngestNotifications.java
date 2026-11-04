@@ -70,7 +70,7 @@ final class IngestNotifications {
         if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"我的入库提醒",NotificationManager.IMPORTANCE_DEFAULT));
         String result=outcomeLabel(item.optString("Outcome"));
         String title=item.optString("SeriesName");String message=(title.isEmpty()?"":title+" · ")+item.optString("Name");
-        Activity activity=foreground.get();if(activity!=null&&!activity.isFinishing())activity.runOnUiThread(()->Toast.makeText(activity,result+"："+message,Toast.LENGTH_LONG).show());
+        Activity activity=foreground.get();TvNotice.show(activity,result+"："+message,Toast.LENGTH_LONG);
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
         Intent open=new Intent(context,DetailActivity.class).putExtra("id",item.optString("Id")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int id=item.optString("Id").hashCode();PendingIntent action=PendingIntent.getActivity(context,id,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);

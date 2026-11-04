@@ -18,6 +18,7 @@
 - `gh release list --json` 与 `view` 的字段不同；当前 `list` 不接受 `url`，可用 `tagName,isDraft,isPrerelease,isLatest,publishedAt`。字段错误后先核对实际支持列表，再使用受支持字段或 API 的 `html_url`；先前已成功的推送、发布与通知不得因只读查询失败而重做。
 - Telegram 工作流验收同时检查正确源码提交、成功状态，以及匹配 `TV release notification delivered; message_id=\d+` 的真实回执；日志中的脚本源码回显也包含该提示文字，但不包含实际数字 ID，不能计为重复通知或成功回执。成功通知不重跑。
 - 没有连接 adb 设备时明确记录未实机验收，不把构建通过说成电视操作和真实播放已通过。
+- ADB 覆盖安装后先核对安装回执和已安装版本，再通过清单中导出的 Leanback 入口启动。当前入口为 `xyz.etkn.tv/.SetupActivity`，`HomeActivity` 不导出，直接启动会报 Permission Denial；该错误不代表安装失败，不应重复安装或更改导出权限。已验证正式包通过 `am start -W -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER -n xyz.etkn.tv/.SetupActivity` 启动到用户选择页；仅证明启动，不能代替真实影片验收。
 
 - 编辑含中文的 UTF-8 源码时，Python `read_text`/`write_text` 显式指定 `encoding="utf-8"`；默认 GBK 解码失败前可能已有早先替换落盘，先检查 diff，再只续作未完成部分。
 - Android 本地测试编译路径不提供 `com.sun.net.httpserver`，网络契约测试使用 `java.net.ServerSocket` 的本地模拟服务；6 项测试、Lint 与发行构建已验证通过。

@@ -24,7 +24,6 @@ import java.util.concurrent.Executors;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class PlayerActivity extends TvActivity {
-    private static final int BUFFERED=android.graphics.Color.rgb(90,178,230),BAR_IDLE=android.graphics.Color.rgb(72,82,92);
     private ExoPlayer player;
     private PlaybackTiming playbackTiming;
     private SubtitleTranslation translation;
@@ -60,6 +59,7 @@ public final class PlayerActivity extends TvActivity {
     private KeyEvent confirmPress;
     private boolean confirmLongPressed;
     private TextView skipNotice;
+    private ProgressBar playbackLoading;
     private int skipMode;
     private long skipTarget=-1;
     private long creditsCountdownStartedAt=-1;
@@ -120,21 +120,22 @@ public final class PlayerActivity extends TvActivity {
         actions.setGravity(Gravity.CENTER);HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.setFillViewport(true);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(Math.min(dp(820),getResources().getDisplayMetrics().widthPixels-dp(96)),-2,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);overlay.bottomMargin=dp(70);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
         videoInfo=text("",14,TEXT);videoInfo.setPadding(dp(16),dp(12),dp(16),dp(12));videoInfo.setBackground(selectionBackground());videoInfo.setVisibility(View.GONE);androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(videoInfo,10,14,1,android.util.TypedValue.COMPLEX_UNIT_SP);FrameLayout.LayoutParams mediaLayout=new FrameLayout.LayoutParams(dp(Math.min(400,getResources().getConfiguration().screenWidthDp*2/5)),-1,Gravity.TOP|Gravity.START);mediaLayout.setMargins(dp(28),dp(88),0,dp(180));stage.addView(videoInfo,mediaLayout);
-        skipButton=button("跳过片头",this::skipSegment);skipButton.setBackground(selectionBackground());skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,dp(44),Gravity.BOTTOM|Gravity.END);skipLayout.rightMargin=dp(28);skipLayout.bottomMargin=dp(220);stage.addView(skipButton,skipLayout);
-        status=text("正在读取播放信息…",15,android.graphics.Color.WHITE);status.setPadding(dp(24),dp(12),dp(24),dp(12));status.setBackgroundColor(android.graphics.Color.argb(180,0,0,0));stage.addView(status,new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
-        skipNotice=text("",18,android.graphics.Color.WHITE);skipNotice.setPadding(dp(24),dp(12),dp(24),dp(12));skipNotice.setBackgroundColor(android.graphics.Color.argb(190,0,0,0));skipNotice.setVisibility(View.GONE);FrameLayout.LayoutParams noticeLayout=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);noticeLayout.topMargin=dp(48);stage.addView(skipNotice,noticeLayout);
+        skipButton=button("跳过片头",this::skipSegment);shadow(skipButton,0);TvNotice.style(skipButton,this);skipButton.setOnFocusChangeListener((v,focused)->{v.setScaleX(focused?FOCUS_SCALE:1f);v.setScaleY(focused?FOCUS_SCALE:1f);});skipButton.setVisibility(View.GONE);FrameLayout.LayoutParams skipLayout=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);skipLayout.topMargin=dp(48);stage.addView(skipButton,skipLayout);
+        status=text("",15,android.graphics.Color.WHITE);TvNotice.style(status,this);status.setVisibility(View.GONE);FrameLayout.LayoutParams statusLayout=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);statusLayout.topMargin=dp(48);stage.addView(status,statusLayout);
+        playbackLoading=new ProgressBar(this,null,android.R.attr.progressBarStyleLarge);playbackLoading.setIndeterminate(true);playbackLoading.setContentDescription("正在读取播放信息");playbackLoading.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));stage.addView(playbackLoading,new FrameLayout.LayoutParams(dp(64),dp(64),Gravity.CENTER));
+        skipNotice=status;
         episodePanel=new PlayerEpisodePanel(this,itemId,this::playEpisode,this::loadNextEpisode);
         episodePanel.setVisibility(View.GONE);stage.addView(episodePanel,new FrameLayout.LayoutParams(dp(Math.min(480,getResources().getConfiguration().screenWidthDp*3/5)),-1,Gravity.END));
         setContentView(stage);video.hideController();video.requestFocus();
-        if(queueMode&&!getIntent().getBooleanExtra("resolved",false)){status.setText("正在解析播放队列…");resolveQueueUnit(itemId,true);return;}
+        if(queueMode&&!getIntent().getBooleanExtra("resolved",false)){showLoading();resolveQueueUnit(itemId,true);return;}
         String requestedSource=state==null?getIntent().getStringExtra("sourceId"):state.getString("sourceId",getIntent().getStringExtra("sourceId"));
         playbackTiming.event("info_queued");
         async(()->{playbackTiming.event("info_request");JSONObject result=api.post("/api/tv/Items/"+EtknApi.encode(itemId)+"/PlaybackInfo?UserId="+EtknApi.encode(api.session.userId()),new JSONObject());playbackTiming.event("info_received");return result;},result->{
             playbackTiming.event("info_delivered");
             info=result;playSession=info.optString("PlaySessionId");JSONArray sources=info.optJSONArray("MediaSources");
-            if(sources==null||sources.length()==0){status.setText("暂无可播放版本");return;}
+            if(sources==null||sources.length()==0){message("暂无可播放版本");return;}
             int preferred=PlaybackSelection.sourceIndex(sources,requestedSource);
-            if(requestedSource!=null&&!requestedSource.isEmpty()&&preferred<0){status.setText("所选版本已不可用，请返回重新选择");return;}
+            if(requestedSource!=null&&!requestedSource.isEmpty()&&preferred<0){message("所选版本已不可用，请返回重新选择");return;}
             if(preferred>=0){selected=preferred;versionConfirmed=true;startSource();}
             else if(sources.length()>1&&!getIntent().getBooleanExtra("resume",false))chooseVersion();else{versionConfirmed=true;startSource();}
         });
@@ -166,7 +167,7 @@ public final class PlayerActivity extends TvActivity {
         pauseAvatar=new ImageView(this);pauseAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);pauseAvatar.setContentDescription(api.session.name());Images.rounded(pauseAvatar,dp(24));pauseAvatar.setVisibility(View.GONE);FrameLayout.LayoutParams avatar=new FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.START);avatar.setMargins(dp(28),dp(24),0,0);playbackOverlay.addView(pauseAvatar,avatar);
         pauseClock=new TextClock(this);pauseClock.setFormat12Hour("HH:mm");pauseClock.setFormat24Hour("HH:mm");pauseClock.setTextSize(22);pauseClock.setTextColor(android.graphics.Color.WHITE);pauseClock.setGravity(Gravity.CENTER_VERTICAL);pauseClock.setShadowLayer(dp(2),0,dp(1),android.graphics.Color.BLACK);FrameLayout.LayoutParams clock=new FrameLayout.LayoutParams(-2,dp(48),Gravity.TOP|Gravity.END);clock.setMargins(0,dp(24),dp(28),0);playbackOverlay.addView(pauseClock,clock);
     }
-    @Override void appearanceChanged(){if(waitingBackground!=null)waitingBackground.update();}
+    @Override void appearanceChanged(){if(waitingBackground!=null)waitingBackground.update();if(status!=null)TvNotice.style(status,this);if(skipButton!=null)TvNotice.style(skipButton,this);if(playbackLoading!=null)playbackLoading.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));}
     private void loadPlaybackIdentity(){
         if(playbackIdentityRequested)return;playbackIdentityRequested=true;
         async(()->{try{return api.get("/api/tv/Users/Me");}catch(Exception ignored){return null;}},user->{
@@ -204,7 +205,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void renderEpisodes(){if(episodesLoading)episodePanel.loading();else if(episodesFailed)episodePanel.failed();else{episodePanel.showEpisodes(episodes);episodePanel.updateCurrent(player);}}
     private void showEpisodes(){
-        String series=getIntent().getStringExtra("seriesId");if(series==null||series.isEmpty()){Toast.makeText(this,"当前视频没有分集",Toast.LENGTH_SHORT).show();return;}
+        String series=getIntent().getStringExtra("seriesId");if(series==null||series.isEmpty()){TvNotice.show(this,"当前视频没有分集",Toast.LENGTH_SHORT);return;}
         hideSeekProgress();episodePanel.setVisibility(View.VISIBLE);video.hideController();controls.setVisibility(View.GONE);skipButton.setVisibility(View.GONE);updatePlaybackOverlay();renderEpisodes();
     }
     private void hideEpisodes(){episodePanel.setVisibility(View.GONE);updatePlaybackOverlay();video.requestFocus();}
@@ -225,7 +226,7 @@ public final class PlayerActivity extends TvActivity {
         if(!nextLoaded){pendingAdvance=true;return;}
         if(nextEpisode!=null){playNextEpisode();return;}
         if(!queueMode||queueIndex+1>=queueIds.length){finish();return;}
-        queueIndex++;message("正在准备下一项…");resolveQueueUnit(queueIds[queueIndex],false);
+        queueIndex++;showLoading();resolveQueueUnit(queueIds[queueIndex],false);
     }
     private void resolveQueueUnit(String id,boolean first){
         async(()->{
@@ -247,7 +248,7 @@ public final class PlayerActivity extends TvActivity {
             JSONObject unit=result.optJSONObject("unit");
             if(unit==null){
                 if(queueIndex+1<queueIds.length){queueIndex++;resolveQueueUnit(queueIds[queueIndex],first);return;}
-                if(first)status.setText("队列中没有可播放的媒体项");else finish();
+                if(first)message("队列中没有可播放的媒体项");else finish();
                 return;
             }
             long start=first?("Episode".equals(unit.optString("Type"))?DetailPresentation.position(unit)/10000:position):0;
@@ -258,12 +259,12 @@ public final class PlayerActivity extends TvActivity {
     private void chooseVersion(){
         if(info==null)return;JSONArray sources=info.optJSONArray("MediaSources");if(sources==null||sources.length()==0)return;
         String[] labels=new String[sources.length()];for(int i=0;i<labels.length;i++)labels[i]=PlaybackSelection.sourceLabel(sources.optJSONObject(i),i);
-        PlayerChoiceDialog.create(this,"选择播放版本",labels,selected,(dialog,index)->{stopPlayer();selected=index;versionConfirmed=true;audioIndex=subtitleIndex=PlaybackSelection.AUTO;dialog.dismiss();startSource();}).show();
+        hideLoading();PlayerChoiceDialog.create(this,"选择播放版本",labels,selected,(dialog,index)->{stopPlayer();selected=index;versionConfirmed=true;audioIndex=subtitleIndex=PlaybackSelection.AUTO;dialog.dismiss();startSource();}).show();
     }
     private void startSource(){
         if(!foreground||!versionConfirmed||info==null||player!=null||pendingAdvance)return;
         try{
-            playbackTiming.event("source_start");
+            showLoading();playbackTiming.event("source_start");
             completedByCredits=false;
             source=info.getJSONArray("MediaSources").getJSONObject(selected);
             boolean texture=useTextureVideo();
@@ -272,13 +273,13 @@ public final class PlayerActivity extends TvActivity {
                 parent.removeView(video);video=createVideoView(texture);parent.addView(video,index,layout);
             }
             int locked=new TvPreferences(this,api).seasonAudio(seasonKey);
-            if(locked>=0){audioIndex=PlaybackSelection.audioAt(source,locked);if(audioIndex==PlaybackSelection.AUTO&&missingSeasonAudio!=locked){missingSeasonAudio=locked;Toast.makeText(this,"本集缺少第 "+(locked+1)+" 音轨，使用默认音轨；本季锁定已保留",Toast.LENGTH_LONG).show();}}
+            if(locked>=0){audioIndex=PlaybackSelection.audioAt(source,locked);if(audioIndex==PlaybackSelection.AUTO&&missingSeasonAudio!=locked){missingSeasonAudio=locked;TvNotice.show(this,"本集缺少第 "+(locked+1)+" 音轨，使用默认音轨；本季锁定已保留",Toast.LENGTH_LONG);}}
             String address=PlaybackAddress.resolve(source,api.server,api.token,api.session.userId());
             JSONObject translationPlan=source.optJSONObject("SubtitleTranslation");
             if(translationPlan!=null&&subtitleIndex==PlaybackSelection.AUTO)
                 translation=new SubtitleTranslation(api,itemId,source.optString("Id"),translationPlan,video,()->player,()->subtitleIndex==PlaybackSelection.AUTO);
             try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation,playbackTiming);}
-            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation,playbackTiming);Toast.makeText(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG).show();}
+            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation,playbackTiming);TvNotice.show(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG);}
             playbackTiming.event("player_created");
             video.setPlayer(player);player.setPlaybackSpeed(playbackSpeed);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
@@ -314,14 +315,18 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onRenderedFirstFrame(){playbackTiming.event("first_frame");videoFrameSeen=true;videoReadySince=0;updatePlaybackOverlay();updateVideoInfo();}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
-                @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);status.setVisibility(View.GONE);updateTrackButtons();if(introSkippedAtStart){introSkippedAtStart=false;showSkipNotice("已跳过片头",2200);}}if(state==Player.STATE_ENDED)advanceQueue();}
+                @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);hideLoading();status.setVisibility(View.GONE);updateTrackButtons();if(introSkippedAtStart){introSkippedAtStart=false;showSkipNotice("已跳过片头",2200);}}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
             updateTimelineMarkers();playbackTiming.event("prepare");player.prepare();player.setPlayWhenReady(playWhenReady);timer.post(skipCheck);timer.post(videoCheck);video.hideController();if(episodePanel.isShown())renderEpisodes();else video.requestFocus();updateTrackButtons();
         }catch(Exception error){message(error.getMessage()==null?"无法开始播放":error.getMessage());}
     }
-    private void message(String value){status.setText(value);status.setVisibility(View.VISIBLE);}
-    private void showSkipNotice(String value,long hideAfter){if(skipNotice==null)return;timer.removeCallbacks(hideSkipNotice);skipNotice.setText(value);skipNotice.setVisibility(View.VISIBLE);if(hideAfter>0)timer.postDelayed(hideSkipNotice,hideAfter);}
+    private void showLoading(){if(playbackLoading!=null)playbackLoading.setVisibility(View.VISIBLE);if(status!=null)status.setVisibility(View.GONE);}
+    private void hideLoading(){if(playbackLoading!=null)playbackLoading.setVisibility(View.GONE);}
+    @Override void requestError(String value){message(value);}
+    private void message(String value){hideLoading();showUnifiedNotice(value,0);}
+    void showUnifiedNotice(String value,long duration){if(skipNotice==null)return;timer.removeCallbacks(hideSkipNotice);TvNotice.style(skipNotice,this);skipNotice.setText(value);skipNotice.setVisibility(View.VISIBLE);skipNotice.bringToFront();if(skipButton!=null)skipButton.setVisibility(View.GONE);if(duration>0)timer.postDelayed(hideSkipNotice,duration);}
+    private void showSkipNotice(String value,long hideAfter){showUnifiedNotice(value,hideAfter);}
     private void cancelCreditsCountdown(){timer.removeCallbacks(creditsCountdown);creditsCountdownStartedAt=-1;if(skipNotice!=null&&skipNotice.getText().toString().startsWith("即将跳过片尾"))hideSkipNotice.run();}
     private void updateCreditsCountdown(){
         if(player==null)return;long duration=player.getDuration();SkipSegments.Segment segment=SkipSegments.at(source.optJSONArray("Chapters"),player.getCurrentPosition(),duration);
@@ -332,7 +337,7 @@ public final class PlayerActivity extends TvActivity {
         showSkipNotice("即将跳过片尾 "+((remaining+999)/1000),0);timer.postDelayed(creditsCountdown,Math.min(1000,remaining));
     }
     private void handlePlayerError(PlaybackException error){
-        if(enhancedSubtitles&&TvPlayerFactory.subtitleFailure(error)){stopPlayer();enhancedSubtitles=false;Toast.makeText(this,"特效字幕异常，已切换兼容字幕",Toast.LENGTH_LONG).show();startSource();return;}
+        if(enhancedSubtitles&&TvPlayerFactory.subtitleFailure(error)){stopPlayer();enhancedSubtitles=false;TvNotice.show(this,"特效字幕异常，已切换兼容字幕",Toast.LENGTH_LONG);startSource();return;}
         if(softwareAudio&&TvPlayerFactory.rendererFailure(error,C.TRACK_TYPE_AUDIO)){stopPlayer();softwareAudio=false;message("音频解码失败，正在尝试系统解码…");startSource();return;}
         if(!softwareVideo&&TvPlayerFactory.rendererFailure(error,C.TRACK_TYPE_VIDEO)){recoverVideo();return;}
         message("播放失败："+error.getErrorCodeName()+"。可切换解码模式或播放版本。");report("Stopped");showControls();
@@ -391,7 +396,7 @@ public final class PlayerActivity extends TvActivity {
             }
             creditsSkipCancelled=false;cancelCreditsCountdown();if(player.isPlaying()){skipSegment();return;}
         }
-        if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys&&!episodePanel.isShown()){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
+        if(segment!=null&&skipMode==TvPreferences.SKIP_BUTTON&&!seekKeys&&!episodePanel.isShown()&&skipNotice.getVisibility()!=View.VISIBLE){skipButton.setText(segment.label);skipButton.setVisibility(View.VISIBLE);}else{if(skipButton.isFocused()){if(controls.getVisibility()==View.VISIBLE)audioButton.requestFocus();else video.requestFocus();}skipButton.setVisibility(View.GONE);}
     }
     private void updateTimelineMarkers(){
         long[] points=SkipSegments.boundaries(source==null?null:source.optJSONArray("Chapters"),player==null?0:player.getDuration());boolean[] played=new boolean[points.length];
@@ -452,7 +457,7 @@ public final class PlayerActivity extends TvActivity {
         trackDialog=PlayerChoiceDialog.create(this,subtitles?"字幕":"音轨",labels.toArray(new String[0]),selectedIndex,(dialog,index)->{
             if(player==null)return;int wanted=indices.get(index),resolved=wanted==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,subtitles):wanted;
             JSONObject stream=PlaybackSelection.stream(source,resolved,subtitles);TrackRef ref=stream==null?null:findTrack(stream,type);
-            if(resolved>=0&&(ref==null||!ref.supported())){Toast.makeText(this,ref==null?"该轨道尚未解析，不能确认对应关系":"当前解码模式不支持该轨道",Toast.LENGTH_LONG).show();return;}
+            if(resolved>=0&&(ref==null||!ref.supported())){TvNotice.show(this,ref==null?"该轨道尚未解析，不能确认对应关系":"当前解码模式不支持该轨道",Toast.LENGTH_LONG);return;}
             if(subtitles){subtitleIndex=wanted;subtitlePending=true;}else{audioIndex=wanted;audioPending=true;new TvPreferences(this,api).saveSeasonAudio(seasonKey,PlaybackSelection.audioOrdinal(source,wanted));}
             applyInitialTrack(type);updateTrackButtons();dialog.dismiss();
         });
