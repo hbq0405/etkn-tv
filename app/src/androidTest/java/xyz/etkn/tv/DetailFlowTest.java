@@ -179,28 +179,44 @@ public class DetailFlowTest {
             playback=(PlayerActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),PlayerActivity.class).putExtra("id","movie-single").putExtra("title","主题测试").putExtra("resume",true).putExtra("resolved",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             assertTrue(server.playbackRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
             await(()->((ImageView)field(field(playback,"waitingBackground"),"image")).getDrawable()!=null);
-            onMain(()->assertTrue("起播等待显示服务器背景",((View)field(playback,"waitingBackground")).isShown()));screenshot("server-background-startup.png");
+            onMain(()->{View background=(View)field(playback,"waitingBackground");assertTrue("起播等待显示服务器背景",background.isShown());assertWallpaperUnmasked(background);});screenshot("server-background-startup.png");
             server.playbackGate.countDown();await(()->Boolean.TRUE.equals(field(playback,"videoFrameSeen")));
             onMain(()->{((ExoPlayer)field(playback,"player")).pause();assertFalse("首帧后不再遮挡视频",((View)field(playback,"waitingBackground")).isShown());});settle();
             Object original=field(playback,"player");int cardSize=new TvPreferences(playback,playback.api).imageSize();
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
             onMain(()->{
                 assertEquals(0xff3c087d,PixelTimeBar.playedColor());assertEquals(0xff5cc7b0,PixelTimeBar.bufferedColor());
-                android.graphics.drawable.GradientDrawable capsule=(android.graphics.drawable.GradientDrawable)((View)field(playback,"controls")).getBackground();
-                Bitmap bitmap=Bitmap.createBitmap(320,100,Bitmap.Config.ARGB_8888);capsule.setBounds(0,0,320,100);capsule.draw(new Canvas(bitmap));
-                assertNull(capsule.getColors());assertEquals(Math.round(255*.62f),Color.alpha(capsule.getColor().getDefaultColor()));bitmap.recycle();
+                assertNull("播放控制栏无底色和外框",((View)field(playback,"controls")).getBackground());
+                assertFalse("播放器不改写服务器明暗模式",TvAppearance.dark());assertTrue(playback.appearanceDark());
+                assertEquals(TvAppearance.text(true),((TextView)field(playback,"videoInfo")).getCurrentTextColor());
+                assertEquals(TvAppearance.translucent(TvAppearance.surface(true)),playback.shape(TvActivity.PANEL,0).getColor().getDefaultColor());
+                assertEquals(TvAppearance.background(true),((android.graphics.drawable.ColorDrawable)((View)field(playback,"waitingBackground")).getBackground()).getColor());
+                assertFalse("其他页面继续使用服务器浅色模式",detail.appearanceDark());
                 android.graphics.drawable.LayerDrawable episode=(android.graphics.drawable.LayerDrawable)playback.episodeBackground(5000);episode.setBounds(0,0,200,60);
                 Bitmap cell=Bitmap.createBitmap(200,60,Bitmap.Config.ARGB_8888);episode.draw(new Canvas(cell));android.graphics.drawable.ClipDrawable progress=(android.graphics.drawable.ClipDrawable)episode.getDrawable(1);
                 android.graphics.drawable.GradientDrawable fill=(android.graphics.drawable.GradientDrawable)progress.getDrawable();assertEquals(TvAppearance.primary()&0xffffff,fill.getColor().getDefaultColor()&0xffffff);assertEquals(playback.dp(12),fill.getCornerRadius(),1f);cell.recycle();
                 View shadow=new View(playback);playback.shadow(shadow,8);assertEquals(0,shadow.getElevation(),0);
             });screenshot("server-theme-purple-controls.png");
+            onMain(()->((Button)field(playback,"audioButton")).performClick());settle();
+            onMain(()->{AlertDialog dialog=(AlertDialog)field(playback,"trackDialog");android.graphics.drawable.GradientDrawable background=(android.graphics.drawable.GradientDrawable)dialog.getWindow().getDecorView().getBackground();Bitmap sample=Bitmap.createBitmap(300,200,Bitmap.Config.ARGB_8888);background.setBounds(0,0,300,200);background.draw(new Canvas(sample));assertEquals(TvAppearance.translucent(TvAppearance.surface(true)),background.getColor().getDefaultColor());sample.recycle();TextView row=(TextView)dialog.getListView().getChildAt(1);assertEquals(playback.resolveColor((Integer)row.getTag(R.id.appearance_text)),row.getCurrentTextColor());});
+            screenshot("light-server-dark-player-dialog.png");onMain(()->((AlertDialog)field(playback,"trackDialog")).dismiss());settle();
             server.appearance=new JSONObject(server.appearance.toString()).put("revision","dark").put("mode","dark").put("theme_color","#128a72").put("glass_opacity",1).put("shadow_strength",1).put("background_blur",30);
             await(()->"dark".equals(TvAppearance.current.optString("revision")));settle();
             onMain(()->{assertSame("切主题不重建播放器",original,field(playback,"player"));assertFalse(((View)field(playback,"waitingBackground")).isShown());assertEquals(cardSize,new TvPreferences(playback,playback.api).imageSize());assertEquals(0xff128a72,PixelTimeBar.playedColor());assertEquals(255,Color.alpha(TvAppearance.resolve(TvActivity.PANEL)));View shadow=new View(playback);playback.shadow(shadow,8);assertEquals(playback.dp(8),shadow.getElevation(),0);});
             screenshot("server-theme-dark-controls.png");
+            server.appearance=new JSONObject(server.appearance.toString()).put("revision","light-again").put("mode","light");
+            await(()->"light-again".equals(TvAppearance.current.optString("revision")));settle();
+            onMain(()->{assertTrue(playback.appearanceDark());assertFalse(TvAppearance.dark());assertEquals(TvAppearance.text(true),((TextView)field(playback,"videoInfo")).getCurrentTextColor());assertSame(original,field(playback,"player"));playback.finish();});
+            await(()->!detail.appearanceDark());onMain(()->assertEquals(TvAppearance.text(false),detail.resolveColor(TvActivity.TEXT)));
         }finally{cleanup();}
     }
-    @Test public void capsuleControlsAndLongConfirmShowOnlyActiveMediaParameters()throws Exception{
+    private void assertWallpaperUnmasked(View background){
+        Bitmap rendered=Bitmap.createBitmap(background.getWidth(),background.getHeight(),Bitmap.Config.ARGB_8888),expected=Bitmap.createBitmap(rendered.getWidth(),rendered.getHeight(),Bitmap.Config.ARGB_8888);
+        background.draw(new Canvas(rendered));((ImageView)field(background,"image")).draw(new Canvas(expected));
+        for(int x:new int[]{rendered.getWidth()/4,rendered.getWidth()/2,rendered.getWidth()*3/4})assertEquals("模糊度0应显示原图，不叠加遮罩",expected.getPixel(x,rendered.getHeight()/2),rendered.getPixel(x,rendered.getHeight()/2));
+        rendered.recycle();expected.recycle();
+    }
+    @Test public void transparentControlsAndLongConfirmShowOnlyActiveMediaParameters()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
             onMain(()->assertFalse(((View)field(playback,"videoInfo")).isShown()));holdConfirm();
@@ -211,8 +227,8 @@ public class DetailFlowTest {
             clickTrack(false,2);await(()->((TextView)field(playback,"videoInfo")).getText().toString().contains("音轨 · raw-ac3"));settle();
             onMain(()->{
                 View controls=(View)field(playback,"controls"),decor=playback.getWindow().getDecorView();assertTrue(controls.getLeft()>=playback.dp(48));assertTrue(decor.getWidth()-controls.getRight()>=playback.dp(48));assertEquals(decor.getWidth()/2,controls.getLeft()+controls.getWidth()/2,1);
-                assertTrue(((android.graphics.drawable.GradientDrawable)controls.getBackground()).getCornerRadius()>=controls.getHeight()/2f);assertEquals("控制栏只保留片名和操作栏",2,((ViewGroup)controls).getChildCount());
-                android.graphics.drawable.GradientDrawable capsule=(android.graphics.drawable.GradientDrawable)controls.getBackground();assertNull("胶囊取消渐变",capsule.getColors());assertEquals(TvAppearance.translucent(TvAppearance.surface()),capsule.getColor().getDefaultColor());
+                assertNull("控制栏移除背景和边框",controls.getBackground());assertEquals("控制栏只保留片名和操作栏",2,((ViewGroup)controls).getChildCount());
+                android.graphics.drawable.StateListDrawable states=(android.graphics.drawable.StateListDrawable)((Button)field(playback,"audioButton")).getBackground();android.graphics.drawable.GradientDrawable idle=(android.graphics.drawable.GradientDrawable)states.getStateDrawable(states.getStateCount()-1);assertEquals(Color.TRANSPARENT,idle.getColor().getDefaultColor());
             });screenshot("player-active-media-information.png");
             holdConfirm();onMain(()->{assertFalse(((View)field(playback,"videoInfo")).isShown());assertFalse(((ExoPlayer)field(playback,"player")).getPlayWhenReady());assertFalse(((AlertDialog)field(playback,"trackDialog")).isShowing());});
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MENU);settle();

@@ -2,7 +2,6 @@ package xyz.etkn.tv;
 
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
-import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 
@@ -10,16 +9,15 @@ import android.widget.ImageView;
 final class AppearanceBackground extends FrameLayout {
     private final TvActivity host;
     private final ImageView image,loader;
-    private final View wash;
     private String key="";
     private int ticket;
     AppearanceBackground(TvActivity host){
         super(host);this.host=host;setTag("server-background");setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         image=new ImageView(host);image.setScaleType(ImageView.ScaleType.CENTER_CROP);addView(image,new LayoutParams(-1,-1));
-        loader=new ImageView(host);loader.setVisibility(INVISIBLE);addView(loader,new LayoutParams(0,0));wash=new View(host);addView(wash,new LayoutParams(-1,-1));update();
+        loader=new ImageView(host);loader.setVisibility(INVISIBLE);addView(loader,new LayoutParams(0,0));update();
     }
     void update(){
-        setBackgroundColor(TvAppearance.background());wash.setBackgroundColor(TvAppearance.dark()?0x88111716:0xbbeef3f1);
+        setBackgroundColor(TvAppearance.background(host.appearanceDark()));
         String path=TvAppearance.current.optString("background_url");int blur=TvAppearance.current.optInt("background_blur",10);
         String next=path+":"+blur;if(next.equals(key))return;key=next;int request=++ticket;
         image.setImageDrawable(null);if(path.isEmpty()){loader.setTag(next);return;}

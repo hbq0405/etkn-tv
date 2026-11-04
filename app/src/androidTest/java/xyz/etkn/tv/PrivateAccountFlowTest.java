@@ -3,6 +3,7 @@ package xyz.etkn.tv;
 import android.app.*;
 import android.content.*;
 import android.os.Bundle;
+import android.graphics.Bitmap;
 import android.view.*;
 import android.widget.*;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -194,6 +195,34 @@ public class PrivateAccountFlowTest {
         assertEquals("",session.token());assertFalse(LoginGate.isSatisfied());
         clickText("取消");assertEquals("",session.token());
     }
+    @Test public void accountDialogsAndLoginFollowCachedAndLiveAppearance()throws Exception{
+        server.appearance=new JSONObject().put("revision","login-light").put("mode","light").put("glass_opacity",.76);
+        TvAppearance.save(context,server.origin(),server.appearance);
+        session.saveSession(server.origin(),"admin","admin","token-admin",SessionStore.PERSIST_ACCOUNT);session.save(server.origin(),"normal","normal","token-normal");LoginGate.satisfy();
+        HomeActivity home=start(HomeActivity.class);showAccounts(home);
+        await(()->windowText("切换用户")!=null);onMain(()->assertEquals(TvAppearance.text(),windowText("切换用户").getCurrentTextColor()));
+        clickText("admin");await(this::hasPasswordInput);
+        onMain(()->assertEquals(TvAppearance.text(),windowText("登录 admin").getCurrentTextColor()));
+        server.appearance=new JSONObject(server.appearance.toString()).put("revision","login-dark").put("mode","dark");
+        await(()->"login-dark".equals(TvAppearance.current.optString("revision"))&&windowText("登录 admin").getCurrentTextColor()==TvAppearance.text());
+        onMain(()->{
+            EditText password=(EditText)windowText("登录 admin").getRootView().findFocus();assertTrue(password.hasFocus());
+            Bitmap fill=Bitmap.createBitmap(password.getWidth(),password.getHeight(),Bitmap.Config.ARGB_8888);password.getBackground().draw(new android.graphics.Canvas(fill));
+            int actual=fill.getPixel(fill.getWidth()/2,fill.getHeight()/2),expected=TvAppearance.resolve(TvActivity.SOFT);
+            assertEquals("输入框背景="+password.getBackground().getCurrent().getClass().getSimpleName()+"/"+((android.graphics.drawable.LayerDrawable)password.getBackground().getCurrent()).getDrawable(0).getClass().getSimpleName()+" tint="+password.getBackgroundTintList(),android.graphics.Color.red(expected),android.graphics.Color.red(actual),1);assertEquals(android.graphics.Color.green(expected),android.graphics.Color.green(actual),1);assertEquals(android.graphics.Color.blue(expected),android.graphics.Color.blue(actual),1);fill.recycle();
+            assertEquals(TvAppearance.muted(),password.getCurrentHintTextColor());
+        });
+        File evidence=new File(context.getExternalFilesDir(null),"login-appearance");assertTrue(evidence.isDirectory()||evidence.mkdirs());
+        Bitmap frame=device.getUiAutomation().takeScreenshot();try(FileOutputStream out=new FileOutputStream(new File(evidence,"dark-password-dialog.png"))){frame.compress(Bitmap.CompressFormat.PNG,100,out);}finally{frame.recycle();}
+        clickText("取消");assertEquals("normal",session.userId());assertEquals("token-normal",session.token());
+        showAccounts(home);await(()->windowText("切换用户")!=null);onMain(()->assertEquals(TvAppearance.text(),windowText("切换用户").getCurrentTextColor()));clickText("取消");
+        LoginGate.reset();LoginGate.setMode(context,LoginGate.PICK_USER);SetupActivity picker=start(SetupActivity.class);
+        await(()->findText(picker.getWindow().getDecorView(),"选择登录用户")!=null);onMain(()->assertEquals(TvAppearance.text(),((TextView)findText(picker.getWindow().getDecorView(),"选择登录用户")).getCurrentTextColor()));
+        onMain(picker::finish);device.waitForIdleSync();
+        SetupActivity login=(SetupActivity)device.startActivitySync(new Intent(context,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        await(()->findText(login.getWindow().getDecorView(),"连接并登录")!=null);onMain(()->assertEquals(TvAppearance.text(),((EditText)field(login,"username")).getCurrentTextColor()));
+    }
+    private TextView windowText(String text){for(View root:android.view.inspector.WindowInspector.getGlobalWindowViews()){View found=findText(root,text);if(found instanceof TextView)return (TextView)found;}return null;}
     @Test public void switchingToAdminRequiresPasswordAndWrongPasswordPreservesCurrentUser()throws Exception{
         session.saveSession(server.origin(),"admin","admin","token-admin",SessionStore.PERSIST_ACCOUNT);
         session.save(server.origin(),"normal","normal","token-normal");
@@ -259,6 +288,7 @@ public class PrivateAccountFlowTest {
         assertEquals("",session.token());assertEquals(SessionStore.PERSIST_ACCOUNT,session.persist());assertFalse(session.rememberAdmin(server.origin(),"admin"));
     }
     private static final class Fixture implements AutoCloseable {
+        volatile JSONObject appearance=new JSONObject();
         private final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         private volatile boolean closed;
         volatile int logins;
@@ -280,7 +310,8 @@ public class PrivateAccountFlowTest {
                 for(String header;(header=input.readLine())!=null&&!header.isEmpty();){if(header.toLowerCase(Locale.ROOT).startsWith("x-emby-token:"))token=header.substring(header.indexOf(':')+1).trim();if(header.toLowerCase(Locale.ROOT).startsWith("content-length:"))length=Integer.parseInt(header.substring(header.indexOf(':')+1).trim());}
                 char[] data=new char[length];int count=0;while(count<length){int read=input.read(data,count,length-count);if(read<0)break;count+=read;}
                 JSONObject result=new JSONObject().put("Items",new org.json.JSONArray());int status=200;
-                if(path.equals("/api/health"))result=new JSONObject().put("status","ok");
+                if(path.equals("/api/tv/System/Appearance"))result=appearance;
+                else if(path.equals("/api/health"))result=new JSONObject().put("status","ok");
                 else if(path.equals("/api/tv/System/Info/Public"))result=new JSONObject().put("ProductName","ETKN").put("TvApiVersion",1).put("Id","fixture");
                 else if(path.equals("/api/system/tv-discovery"))result=new JSONObject().put("ProductName","ETKN").put("MediaServerAddress",origin());
                 else if(path.equals("/api/tv/Users/Me")){policyRequests++;if(holdPolicy)policyGate.await(10,java.util.concurrent.TimeUnit.SECONDS);result=user(token.replace("token-",""));}

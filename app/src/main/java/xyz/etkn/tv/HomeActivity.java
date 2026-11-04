@@ -229,10 +229,10 @@ public final class HomeActivity extends TvActivity {
         for(int index=0;index<accounts.size();index++){
             SavedAccounts.Account account=accounts.get(index);labels[index]=account.name+(account.userId.equals(api.session.userId())?"（当前）":"")+(account.needsPassword?"（需密码）":"");
         }
-        new AlertDialog.Builder(this).setTitle("切换用户").setItems(labels,(dialog,index)->{
+        AlertDialog picker=dialogBuilder().setTitle("切换用户").setItems(labels,(dialog,index)->{
             SavedAccounts.Account account=accounts.get(index);if(!account.needsPassword&&account.userId.equals(api.session.userId()))return;
             SetupActivity.selectAccount(this,account,this::recreate);
-        }).setNeutralButton("登录新用户",(dialog,index)->startActivity(new Intent(this,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true))).setNegativeButton("取消",null).show();
+        }).setNeutralButton("登录新用户",(dialog,index)->startActivity(new Intent(this,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true))).setNegativeButton("取消",null).create();picker.show();themeDialog(picker);
     }
     private LinearLayout section(String title){return section(title,content);}
     private LinearLayout section(String title,LinearLayout parent){

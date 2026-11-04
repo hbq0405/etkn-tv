@@ -109,14 +109,14 @@ public final class PlayerActivity extends TvActivity {
         seekProgress=new PixelTimeBar(this);seekProgress.setEnabled(false);seekProgress.setVisibility(View.GONE);
         FrameLayout.LayoutParams seekLayout=new FrameLayout.LayoutParams(-1,dp(64),Gravity.BOTTOM);seekLayout.setMargins(dp(28),0,dp(28),0);stage.addView(seekProgress,seekLayout);
         createPlaybackOverlay(stage);
-        controls=column();controls.setPadding(dp(24),dp(12),dp(24),dp(12));controls.setGravity(Gravity.CENTER_HORIZONTAL);controls.setBackground(new AppearanceCapsule(dp(1000)));
+        controls=column();controls.setPadding(dp(24),dp(12),dp(24),dp(12));controls.setGravity(Gravity.CENTER_HORIZONTAL);
         TextView title=text(getIntent().getStringExtra("title"),18,TEXT);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);controls.addView(title);
         LinearLayout actions=row();versionButton=button("版本",this::chooseVersion);actions.addView(versionButton);
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
         speedButton=button("倍速 · "+speedLabel(),this::chooseSpeed);
         nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);
         actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(speedButton);actions.addView(decoderButton);
-        for(int i=0;i<actions.getChildCount();i++)actions.getChildAt(i).setBackground(selectionBackground());
+        for(int i=0;i<actions.getChildCount();i++)actions.getChildAt(i).setBackground(transparentFocusBackground());
         actions.setGravity(Gravity.CENTER);HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.setFillViewport(true);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(Math.min(dp(820),getResources().getDisplayMetrics().widthPixels-dp(96)),-2,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);overlay.bottomMargin=dp(70);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
         videoInfo=text("",14,TEXT);videoInfo.setPadding(dp(16),dp(12),dp(16),dp(12));videoInfo.setBackground(selectionBackground());videoInfo.setVisibility(View.GONE);androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(videoInfo,10,14,1,android.util.TypedValue.COMPLEX_UNIT_SP);FrameLayout.LayoutParams mediaLayout=new FrameLayout.LayoutParams(dp(Math.min(400,getResources().getConfiguration().screenWidthDp*2/5)),-1,Gravity.TOP|Gravity.START);mediaLayout.setMargins(dp(28),dp(88),0,dp(180));stage.addView(videoInfo,mediaLayout);

@@ -105,7 +105,7 @@ public final class SetupActivity extends TvActivity {
     static void promptPassword(TvActivity host,SavedAccounts.Account account,Runnable onSuccess){
         EditText input=host.input("输入 "+account.name+" 的密码",true);
         input.setLayoutParams(new android.widget.FrameLayout.LayoutParams(-1,host.dp(48)));
-        android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(host).setTitle("登录 "+account.name).setView(input)
+        android.app.AlertDialog dialog=host.dialogBuilder().setTitle("登录 "+account.name).setView(input)
                 .setPositiveButton("登录",null).setNegativeButton("取消",null).create();
         dialog.setOnShowListener(shown->dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(view->{
             String password=input.getText().toString();input.setText("");input.setError(null);
@@ -118,7 +118,7 @@ public final class SetupActivity extends TvActivity {
                 catch(Exception error){host.runOnUiThread(()->{if(!host.isFinishing()&&!host.isDestroyed()){dialog.setCancelable(true);dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setEnabled(true);dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setEnabled(true);input.setError(error instanceof EtknApi.AuthException?"用户名或密码错误":(error.getMessage()==null?"登录失败，请重试":error.getMessage()));}});}
             });
         }));
-        dialog.show();input.requestFocus();
+        dialog.show();host.themeDialog(dialog);input.requestFocus();
     }
     private void scan(){
         int revision=++scanRevision;if(discovery!=null)discovery.cancel();discovered.clear();if(servers==null)return;servers.removeAllViews();status.setText("正在搜索同网段 ETKN 媒体服务器…");

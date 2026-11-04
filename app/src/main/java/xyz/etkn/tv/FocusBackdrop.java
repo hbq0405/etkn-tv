@@ -16,6 +16,7 @@ import org.json.JSONObject;
 final class FocusBackdrop extends FrameLayout {
     private static final long TRANSITION_MS=320;
     private final TvActivity activity;
+    private final FrameLayout artwork;
     private final ImageView backdrop,previousBackdrop,imageLoader,pendingLogo,logo;
     private final TextView title,metadata,overview;
     private final LinearLayout copy,information;
@@ -32,11 +33,16 @@ final class FocusBackdrop extends FrameLayout {
 
     FocusBackdrop(TvActivity activity){
         super(activity);this.activity=activity;setBackgroundColor(Color.TRANSPARENT);setVisibility(GONE);
-        backdrop=new ImageView(activity);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,activity.dp(10));addView(backdrop,new LayoutParams(-1,-1));
-        previousBackdrop=new ImageView(activity);previousBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(previousBackdrop,activity.dp(10));addView(previousBackdrop,new LayoutParams(-1,-1));
+        artwork=new FrameLayout(activity){
+            private final android.graphics.Paint fade=new android.graphics.Paint();
+            @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){super.onSizeChanged(w,h,oldw,oldh);if(h>0){fade.setShader(new android.graphics.LinearGradient(0,0,0,h,new int[]{Color.BLACK,Color.BLACK,Color.TRANSPARENT},new float[]{0,.45f,1},android.graphics.Shader.TileMode.CLAMP));fade.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));}}
+            @Override protected void dispatchDraw(android.graphics.Canvas canvas){int layer=canvas.saveLayer(0,0,getWidth(),getHeight(),null);super.dispatchDraw(canvas);canvas.drawRect(0,0,getWidth(),getHeight(),fade);canvas.restoreToCount(layer);}
+        };addView(artwork,new LayoutParams(-1,-1));
+        backdrop=new ImageView(activity);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);artwork.addView(backdrop,new LayoutParams(-1,-1));
+        previousBackdrop=new ImageView(activity);previousBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);artwork.addView(previousBackdrop,new LayoutParams(-1,-1));
         imageLoader=new ImageView(activity);imageLoader.setVisibility(GONE);addView(imageLoader,new LayoutParams(0,0));
         pendingLogo=new ImageView(activity);pendingLogo.setVisibility(GONE);addView(pendingLogo,new LayoutParams(0,0));
-        addView(activity.backdropShade(),new LayoutParams(-1,-1));
+        artwork.addView(activity.backdropShade(),new LayoutParams(-1,-1));
         copy=activity.column();copy.setPadding(activity.dp(30),0,activity.dp(24),0);
         LayoutParams copyLayout=new LayoutParams(activity.dp(540),-2,Gravity.TOP|Gravity.START);copyLayout.topMargin=activity.dp(54);addView(copy,copyLayout);
         information=activity.column();information.setVisibility(GONE);copy.addView(information);

@@ -10,6 +10,7 @@ import android.graphics.Rect;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
@@ -164,6 +165,35 @@ public class HomeFocusTest {
         }finally{instrumentation.removeMonitor(details);instrumentation.removeMonitor(player);if(playback!=null){PlayerActivity current=playback;instrumentation.runOnMainSync(current::finish);}if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
 
+    @Test public void transparentCardsKeepShadowsAndHeroFadesIntoWallpaper()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.appearance=new JSONObject().put("revision","shadow-on").put("mode","light").put("glass_opacity",0).put("shadow_strength",1).put("background_blur",0).put("background_url","/api/tv/System/Appearance/Background?v=shadow");
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"shadow-fixture","阴影测试","synthetic-test-session");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->cards().size()==90&&"shadow-on".equals(TvAppearance.current.optString("revision")));settle();
+            await(()->((ImageView)((ViewGroup)field(TvActivity.class,"serverBackground")).getChildAt(0)).getDrawable()!=null);
+            evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"shadow-fade");assertTrue(evidence.isDirectory()||evidence.mkdirs());
+            instrumentation.runOnMainSync(()->{
+                assertSharedWallpaperUnmasked();
+                View artwork=((ViewGroup)field(HomeActivity.class,"resumeFirst")).getChildAt(0);android.graphics.Outline outline=new android.graphics.Outline();artwork.getOutlineProvider().getOutline(artwork,outline);
+                assertTrue("透明卡片仍应有独立的不透明阴影轮廓",outline.getAlpha()>.99f);assertTrue(artwork.getElevation()>0);
+                FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");View images=(View)backdropField(hero,"artwork");
+                Bitmap frame=Bitmap.createBitmap(images.getWidth(),images.getHeight(),Bitmap.Config.ARGB_8888);images.draw(new Canvas(frame));
+                int x=frame.getWidth()/2,top=Color.alpha(frame.getPixel(x,frame.getHeight()/3)),middle=Color.alpha(frame.getPixel(x,frame.getHeight()*3/4)),bottom=Color.alpha(frame.getPixel(x,frame.getHeight()-1));
+                assertTrue("轮播上部保留图像",top>200);assertTrue("轮播底部必须渐隐而非硬切",middle>bottom&&middle<top);assertTrue("最下方露出服务器背景",bottom<5);frame.recycle();
+            });saveScreenshot("transparent-cards-shadow-on.png");
+            server.appearance=new JSONObject(server.appearance.toString()).put("revision","shadow-off").put("shadow_strength",0).put("mode","dark");
+            await(()->"shadow-off".equals(TvAppearance.current.optString("revision")));settle();
+            instrumentation.runOnMainSync(()->{assertEquals(0,((ViewGroup)field(HomeActivity.class,"resumeFirst")).getChildAt(0).getElevation(),0);assertSharedWallpaperUnmasked();});saveScreenshot("transparent-cards-shadow-off.png");
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+    private void assertSharedWallpaperUnmasked(){
+        ViewGroup wallpaper=(ViewGroup)field(TvActivity.class,"serverBackground");ImageView image=(ImageView)wallpaper.getChildAt(0),loader=(ImageView)wallpaper.getChildAt(1);
+        assertSame("模糊0直接使用原始背景图",((android.graphics.drawable.BitmapDrawable)loader.getDrawable()).getBitmap(),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());
+        Bitmap rendered=Bitmap.createBitmap(wallpaper.getWidth(),wallpaper.getHeight(),Bitmap.Config.ARGB_8888),expected=Bitmap.createBitmap(wallpaper.getWidth(),wallpaper.getHeight(),Bitmap.Config.ARGB_8888);
+        wallpaper.draw(new Canvas(rendered));image.draw(new Canvas(expected));
+        for(int x:new int[]{rendered.getWidth()/4,rendered.getWidth()/2,rendered.getWidth()*3/4})assertEquals("明暗模式均不得给服务器背景叠加遮罩",expected.getPixel(x,rendered.getHeight()/2),rendered.getPixel(x,rendered.getHeight()/2));rendered.recycle();expected.recycle();
+    }
     @Test public void heroLoadsWhileCardImagesAreBlockedAndResumeSitsAtBottom()throws Exception{
         try(Fixture server=new Fixture()){
             server.holdCardImages=true;
@@ -205,7 +235,7 @@ public class HomeFocusTest {
                 home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
                 await(()->cards().size()==90&&home.getCurrentFocus()==field(HomeActivity.class,"resumeFirst"));settle();
                 FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");
-                android.widget.ImageView image=(android.widget.ImageView)hero.getChildAt(0);
+                android.widget.ImageView image=(android.widget.ImageView)backdropField(hero,"backdrop");
                 await(()->image.getDrawable() instanceof android.graphics.drawable.BitmapDrawable);
                 Bitmap sharp=((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap();
                 double sharpDetail=imageDetail(sharp);
@@ -260,7 +290,7 @@ public class HomeFocusTest {
             new TvPreferences(instrumentation.getTargetContext(),new EtknApi(instrumentation.getTargetContext())).setSmartCarousel(false);
             home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
             await(()->cards().size()==90&&home.getCurrentFocus()==field(HomeActivity.class,"resumeFirst"));
-            FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");android.widget.ImageView image=(android.widget.ImageView)hero.getChildAt(0);
+            FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");android.widget.ImageView image=(android.widget.ImageView)backdropField(hero,"backdrop");
             instrumentation.runOnMainSync(()->library("library-0").requestFocus());
             await(()->backdropField(hero,"blurred")!=null);Bitmap previous=((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap();
             java.util.concurrent.CountDownLatch blocked=new java.util.concurrent.CountDownLatch(6);
@@ -772,6 +802,7 @@ public class HomeFocusTest {
         }finally{if(facets!=null){FacetActivity active=facets;instrumentation.runOnMainSync(active::finish);}closePosterFixture();}
     }
     private static final class Fixture implements AutoCloseable {
+        volatile JSONObject appearance=new JSONObject();
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
         final byte[] image;
         final byte[] updatedImage;
@@ -843,13 +874,14 @@ public class HomeFocusTest {
                 if(path.contains("/Items/Latest?"))latestPaths.add(path);
                 if(path.contains("/Items/Resume?"))lastResumePath=path;
                 if(missingFirstLogo&&path.contains("/Items/item-0/Images/Logo")){client.getOutputStream().write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));return;}
-                boolean picture=path.contains("/Images/")||path.contains("/FolderCover?")||path.contains("/FacetArtwork?");
+                boolean picture=path.contains("/Images/")||path.contains("/FolderCover?")||path.contains("/FacetArtwork?")||path.contains("/Appearance/Background");
                 boolean isLogo=path.contains("/Images/Logo");java.util.regex.Matcher logoId=java.util.regex.Pattern.compile("/Items/item-(\\d+)/").matcher(path);int logoIndex=logoId.find()?Integer.parseInt(logoId.group(1))%logos.length:0;
                 byte[] body=picture?(isLogo?logos[logoIndex]:path.contains("/FacetArtwork?")&&facetCount>2?facetImage:path.contains("tag=poster2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 OutputStream output=client.getOutputStream();output.write(("HTTP/1.1 200 OK\r\nContent-Type: "+(picture?(isLogo?"image/png":"image/jpeg"):"application/json")+"\r\nContent-Length: "+body.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));output.write(body);
             }
         }
         JSONObject response(String path)throws Exception{
+            if(path.equals("/api/tv/System/Appearance"))return appearance;
             String limitText=android.net.Uri.parse(path).getQueryParameter("Limit");int limit=respectLimits&&limitText!=null?Integer.parseInt(limitText):60;
             if(path.contains("/Facets?")){
                 boolean types=path.contains("Kind=Types");JSONArray rows=new JSONArray();

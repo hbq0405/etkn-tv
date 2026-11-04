@@ -10,19 +10,21 @@ final class FocusPulse extends Drawable {
     private final RectF rectangle=new RectF();
     private final Matrix rotation=new Matrix();
     private final int color;
+    private final boolean forceDark;
     private int resolved;
     private final float radius,width;
     private final Runnable frame=this::invalidateSelf;
     private long started;
     private int alpha=255;
-    FocusPulse(float radius,float width,int color){this.radius=radius;this.width=width;this.color=color;paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(width);}
+    FocusPulse(float radius,float width,int color){this(radius,width,color,false);}
+    FocusPulse(float radius,float width,int color,boolean forceDark){this.radius=radius;this.width=width;this.color=color;this.forceDark=forceDark;paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(width);}
     @Override protected void onBoundsChange(Rect bounds){
         rectangle.set(bounds);rectangle.inset(width/2,width/2);
-        resolved=TvAppearance.resolve(color);int light=TvAppearance.mix(resolved,Color.WHITE,.65f);
+        resolved=TvAppearance.resolve(color,forceDark);int light=TvAppearance.mix(resolved,Color.WHITE,.65f);
         paint.setShader(new SweepGradient(rectangle.centerX(),rectangle.centerY(),new int[]{resolved,TvAppearance.mix(resolved,Color.WHITE,.3f),light,TvAppearance.mix(resolved,Color.WHITE,.3f),resolved},null));
     }
     @Override public void draw(Canvas canvas){
-        if(resolved!=TvAppearance.resolve(color))onBoundsChange(getBounds());
+        if(resolved!=TvAppearance.resolve(color,forceDark))onBoundsChange(getBounds());
         long now=SystemClock.uptimeMillis();if(started==0)started=now;
         paint.setAlpha(alpha);rotation.setRotate((now-started)%2400*360f/2400,rectangle.centerX(),rectangle.centerY());
         if(paint.getShader()!=null)paint.getShader().setLocalMatrix(rotation);
