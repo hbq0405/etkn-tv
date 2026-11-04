@@ -26,3 +26,4 @@
 - ADB `192.168.31.188:5555` 执行 install -r 返回Success，安装回读versionCode76/versionName0.1.75，lastUpdateTime为2026-11-04 21:31:12；启动Status ok，前台实际进入HomeActivity，进程存在，近期AndroidRuntime无fatal标记。没有卸载或清除正式账号数据。
 - 服务端配套功能已提交18340807并热更新etkn，验收记录87ec9ca5。服务器外观首次迁入依赖管理员访问网页偏好设置，部署时不猜测或覆盖用户浏览器外观。
 - 真实电视影片播放、实际网页到电视换色的视觉验收尚未执行；模拟器结果不代表真机解码/播放已验收。本轮仅本地提交，不push、不创建Release或发送通知。
+- 验证日志和截图保存在 `outputs/etkn-tv-0.1.75/validation/`。本轮临时目录 `tests/pause-overlay-20261104-201134/` 的删除被执行层策略在进程启动前拒绝，目录已只读确认保留，不更换工具绕过；正式回归测试保留于 androidTest 源码。服务端临时上传和验证探针已清理，热更新备份保留。
