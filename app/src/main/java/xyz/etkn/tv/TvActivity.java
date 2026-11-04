@@ -18,6 +18,7 @@ abstract class TvActivity extends Activity {
     static final float FOCUS_SCALE = 1.08f;
     static final int INK = Color.rgb(11,17,26), PANEL = Color.rgb(25,36,50), ACCENT = Color.rgb(118,213,176), MUTED = Color.rgb(163,179,198);
     static final int OVERLAY = Color.argb(150,0,0,0);
+    static final int TEXT=0xfff4f5f6, SOFT=0xffe1faf1, PROGRESS=0xffedc2ff;
     static final ExecutorService IO = Executors.newFixedThreadPool(6);
     LinearLayout root, content, nav;
     TextView status;
@@ -26,7 +27,38 @@ abstract class TvActivity extends Activity {
     int dp(float value) { return Math.round(getResources().getDisplayMetrics().density*value); }
     private TvPreferences preferences;
     private int appliedImageSize=-1;
-    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); preferences=new TvPreferences(this,api); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
+    @Override public void onCreate(Bundle state) { super.onCreate(state); api = new EtknApi(this); TvAppearance.load(this,api.server);setTheme(TvAppearance.dark()?R.style.AppThemeDark:R.style.AppTheme); preferences=new TvPreferences(this,api); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
+    private AppearanceBackground serverBackground;
+    private boolean appearanceForeground,appearanceLoading;
+    private final java.util.ArrayList<java.lang.ref.WeakReference<TextView>> themedTexts=new java.util.ArrayList<>();
+    private final Runnable appearancePoll=new Runnable(){@Override public void run(){refreshAppearance();noticeTimer.postDelayed(this,3000);}};
+    @Override public void setContentView(View view){
+        if(this instanceof PlayerActivity||this instanceof DetailActivity){super.setContentView(view);return;}
+        FrameLayout stage=new FrameLayout(this);serverBackground=new AppearanceBackground(this);stage.addView(serverBackground,new FrameLayout.LayoutParams(-1,-1));view.setBackgroundColor(Color.TRANSPARENT);stage.addView(view,new FrameLayout.LayoutParams(-1,-1));super.setContentView(stage);
+        updateAppearanceViews();
+    }
+    private void refreshAppearance(){
+        if(!appearanceForeground||appearanceLoading||api.token.isEmpty())return;
+        appearanceLoading=true;
+        IO.execute(()->{org.json.JSONObject value=null;try{value=api.get("/api/tv/System/Appearance");}catch(Exception ignored){}org.json.JSONObject result=value;runOnUiThread(()->{
+            appearanceLoading=false;if(!appearanceForeground||isDestroyed()||!api.server.equals(api.session.server())||!api.token.equals(api.session.token())||result==null)return;
+            if(!result.toString().equals(TvAppearance.current.toString())){TvAppearance.save(this,api.server,result);setTheme(TvAppearance.dark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();appearanceChanged();}
+        });});
+    }
+    void appearanceChanged(){}
+    void themeText(TextView view,int color){view.setTag(R.id.appearance_text,color);view.setTextColor(TvAppearance.resolve(color));themedTexts.add(new java.lang.ref.WeakReference<>(view));}
+    private void updateAppearanceViews(){
+        themedTexts.removeIf(reference->{TextView view=reference.get();if(view==null)return true;Object color=view.getTag(R.id.appearance_text);if(color instanceof Integer)view.setTextColor(TvAppearance.resolve((Integer)color));return false;});
+        if(serverBackground!=null)serverBackground.update();updateAppearanceTree(getWindow().getDecorView());
+    }
+    private void updateAppearanceTree(View view){
+        if(view.getTag(R.id.appearance_shadow)!=null)shadow(view,(Integer)view.getTag(R.id.appearance_shadow));
+        if(view instanceof CompoundButton){android.content.res.ColorStateList tint=new android.content.res.ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{TvAppearance.accent(),TvAppearance.muted()});CompoundButton toggle=(CompoundButton)view;toggle.setButtonTintList(tint);if(toggle instanceof Switch){((Switch)toggle).setThumbTintList(tint);((Switch)toggle).setTrackTintList(tint);}}
+        if(view instanceof EditText)((EditText)view).setHintTextColor(TvAppearance.muted());
+        if(view instanceof ProgressBar){ProgressBar bar=(ProgressBar)view;bar.setProgressTintList(android.content.res.ColorStateList.valueOf(TvAppearance.accent()));bar.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(TvAppearance.accent()));}
+        view.invalidate();if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)updateAppearanceTree(group.getChildAt(i));}
+    }
+    void shadow(View view,int elevation){view.setTag(R.id.appearance_shadow,elevation);view.setElevation(dp(elevation)*TvAppearance.shadow());view.setTranslationZ(0);if(android.os.Build.VERSION.SDK_INT>=28){view.setOutlineAmbientShadowColor(TvAppearance.dark()?Color.BLACK:0xff526c61);view.setOutlineSpotShadowColor(TvAppearance.dark()?Color.BLACK:0xff345a49);}}
     private final android.os.Handler noticeTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable noticePoll=new Runnable(){@Override public void run(){IngestNotifications.check(TvActivity.this);noticeTimer.postDelayed(this,60000);}};
     private final java.util.Map<Long,String> refreshTasks=new java.util.LinkedHashMap<>();
@@ -36,8 +68,8 @@ abstract class TvActivity extends Activity {
     private static int foregroundActivities;
     @Override protected void onStart(){super.onStart();foregroundActivities++;}
     @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
-    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);if(LoginGate.isSatisfied()){int size=preferences.imageSize();boolean changed=appliedImageSize>=0&&appliedImageSize!=size;appliedImageSize=size;if(changed){applyImageSizeNow();imageSizeChanged();}IngestNotifications.resumed(this);noticeTimer.post(noticePoll);refreshForeground=true;noticeTimer.post(refreshPoll);}}
-    @Override protected void onPause(){refreshForeground=false;noticeTimer.removeCallbacks(refreshPoll);noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
+    @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);appearanceForeground=true;updateAppearanceViews();noticeTimer.removeCallbacks(appearancePoll);noticeTimer.post(appearancePoll);if(LoginGate.isSatisfied()){int size=preferences.imageSize();boolean changed=appliedImageSize>=0&&appliedImageSize!=size;appliedImageSize=size;if(changed){applyImageSizeNow();imageSizeChanged();}IngestNotifications.resumed(this);noticeTimer.post(noticePoll);refreshForeground=true;noticeTimer.post(refreshPoll);}}
+    @Override protected void onPause(){appearanceForeground=false;noticeTimer.removeCallbacks(appearancePoll);refreshForeground=false;noticeTimer.removeCallbacks(refreshPoll);noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
     int imageSize(){return preferences.imageSize();}
     float imageScale(){switch(imageSize()){case TvPreferences.IMAGE_EXTREMELY_SMALL:return 0.72f;case TvPreferences.IMAGE_SMALL:return 0.86f;case TvPreferences.IMAGE_LARGE:return 1.14f;case TvPreferences.IMAGE_EXTREMELY_LARGE:return 1.28f;default:return 1f;}}
     int imageDimension(int baseDp){return Math.round(baseDp*imageScale());}
@@ -137,7 +169,7 @@ abstract class TvActivity extends Activity {
     void screen(String title, String subtitle) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(36),dp(20),dp(36),dp(18)); root.setBackgroundColor(INK);
         TextView brand = text("ETKN  /  TV", 12, ACCENT); root.addView(brand);
-        TextView heading = text(title, 29, Color.WHITE); heading.setTypeface(null, Typeface.BOLD); root.addView(heading);
+        TextView heading = text(title, 29, TEXT); heading.setTypeface(null, Typeface.BOLD); root.addView(heading);
         if (!subtitle.isEmpty()) root.addView(text(subtitle, 13, MUTED));
         nav = row(); root.addView(nav); status = text("", 13, MUTED); root.addView(status);
         ScrollView scroll = new FocusScroll.Vertical(this); scroll.setFillViewport(true);
@@ -145,30 +177,30 @@ abstract class TvActivity extends Activity {
     }
     LinearLayout row() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.HORIZONTAL); return view; }
     LinearLayout column() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.VERTICAL); return view; }
-    TextView text(String value, int size, int color) { TextView view = new TextView(this); view.setText(value); view.setTextSize(size); view.setTextColor(color); view.setPadding(0,dp(5),0,dp(5)); return view; }
-    static GradientDrawable shape(int color, int stroke) { GradientDrawable drawable = new GradientDrawable(); drawable.setColor(color); drawable.setCornerRadius(12); if(stroke!=0) drawable.setStroke(3,stroke); return drawable; }
-    private android.graphics.drawable.Drawable focusFill(int color){return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(color,0),new FocusPulse(12,dp(3),ACCENT)});}
-    StateListDrawable focusBackground() { StateListDrawable state = new StateListDrawable(); state.addState(new int[]{android.R.attr.state_focused},focusFill(Color.rgb(39,69,73))); state.addState(new int[]{android.R.attr.state_pressed},shape(Color.rgb(39,69,73),ACCENT)); state.addState(new int[]{},shape(PANEL,0)); return state; }
+    TextView text(String value, int size, int color) { TextView view = new TextView(this); view.setText(value); view.setTextSize(size); themeText(view,color); view.setPadding(0,dp(5),0,dp(5)); return view; }
+    static GradientDrawable shape(int color, int stroke) { return new AppearanceShape(color,stroke); }
+    private android.graphics.drawable.Drawable focusFill(int color){return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(color,0),new FocusPulse(dp(12),dp(3),ACCENT)});}
+    StateListDrawable focusBackground() { StateListDrawable state = new StateListDrawable(); state.addState(new int[]{android.R.attr.state_focused},focusFill(SOFT)); state.addState(new int[]{android.R.attr.state_pressed},shape(SOFT,ACCENT)); state.addState(new int[]{},shape(PANEL,0)); return state; }
     StateListDrawable transparentFocusBackground() { StateListDrawable state=new StateListDrawable();state.addState(new int[]{android.R.attr.state_focused},focusFill(Color.TRANSPARENT));state.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));state.addState(new int[]{},shape(Color.TRANSPARENT,0));return state; }
     StateListDrawable selectionBackground(){
         StateListDrawable background=new StateListDrawable();
-        background.addState(new int[]{android.R.attr.state_focused},new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(OVERLAY,0),focusOutline()}));
-        background.addState(new int[]{},shape(Color.argb(105,0,0,0),0));return background;
+        background.addState(new int[]{android.R.attr.state_focused},new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(PANEL,0),focusOutline()}));
+        background.addState(new int[]{},shape(PANEL,0));return background;
     }
     android.graphics.drawable.Drawable episodeBackground(int progress){
         android.graphics.drawable.StateListDrawable outline=new android.graphics.drawable.StateListDrawable();
-        outline.addState(new int[]{android.R.attr.state_focused},new FocusPulse(12,3,ACCENT));outline.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));outline.addState(new int[]{},shape(Color.TRANSPARENT,0));
-        android.graphics.drawable.ClipDrawable fill=new android.graphics.drawable.ClipDrawable(shape(Color.argb(160,29,91,62),0),android.view.Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);fill.setLevel(progress);
-        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(Color.argb(105,0,0,0),0),fill,outline});
+        outline.addState(new int[]{android.R.attr.state_focused},new FocusPulse(dp(12),dp(3),ACCENT));outline.addState(new int[]{android.R.attr.state_pressed},shape(Color.TRANSPARENT,ACCENT));outline.addState(new int[]{},shape(Color.TRANSPARENT,0));
+        android.graphics.drawable.ClipDrawable fill=new android.graphics.drawable.ClipDrawable(shape(PROGRESS,0),android.view.Gravity.LEFT,android.graphics.drawable.ClipDrawable.HORIZONTAL);fill.setLevel(progress);
+        return new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shape(PANEL,0),fill,outline});
     }
     View backdropShade(){View shade=new View(this);shade.setBackgroundColor(Color.argb(125,24,24,24));return shade;}
     Button button(String title, Runnable click) {
-        Button view = new Button(this); view.setText(title); view.setAllCaps(false); view.setTextColor(Color.WHITE); view.setTextSize(14); view.setBackground(focusBackground()); view.setMinHeight(dp(44)); view.setPadding(dp(18),dp(8),dp(18),dp(8));
+        Button view = new Button(this); view.setStateListAnimator(null);shadow(view,3);view.setText(title); view.setAllCaps(false); themeText(view,TEXT); view.setTextSize(14); view.setBackground(focusBackground()); view.setMinHeight(dp(44)); view.setPadding(dp(18),dp(8),dp(18),dp(8));
         LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(-2,dp(44)); layout.setMargins(0,dp(6),dp(10),dp(8)); view.setLayoutParams(layout); view.setOnClickListener(v -> click.run()); return view;
     }
     void nav(String title, Runnable click) { nav.addView(button(title,click)); }
     EditText input(String hint, boolean password) {
-        EditText view = new EditText(this); view.setSingleLine(true); view.setTextSize(17); view.setTextColor(Color.WHITE); view.setHintTextColor(MUTED); view.setHint(hint); view.setPadding(dp(12),dp(8),dp(12),dp(8));
+        EditText view = new EditText(this); view.setSingleLine(true); view.setTextSize(17); themeText(view,TEXT); view.setHintTextColor(TvAppearance.muted()); view.setHint(hint); view.setPadding(dp(12),dp(8),dp(12),dp(8));
         view.setInputType(password ? android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD : android.text.InputType.TYPE_CLASS_TEXT); view.setBackground(focusBackground());
         if(password){view.setSaveEnabled(false);if(android.os.Build.VERSION.SDK_INT>=26)view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);}
         LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(dp(480),dp(48)); layout.setMargins(0,dp(8),0,dp(8)); view.setLayoutParams(layout); return view;
@@ -190,17 +222,17 @@ abstract class TvActivity extends Activity {
         int cardWidth=compact?192:landscape?264:132,cardHeight=compact?150:landscape?215:248;
         float artRatio=compact||landscape?9f/16f:1.5f;
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
-        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));artwork.setForegroundGravity(android.view.Gravity.FILL);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);artwork.setForegroundGravity(android.view.Gravity.FILL);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         int imageHeight=compact?108:landscape?139:198;card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(Math.round(cardWidth*artRatio)):imageDp(imageHeight)));
-        TextView title=text(resume?EtknApi.resumeTitle(media):EtknApi.title(media),compact?12:14,Color.WHITE);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,adaptive?dp(compact?42:46):imageDp(compact?42:46)));scaleImageText(title,compact?12:14,compact?42:46);
+        TextView title=text(resume?EtknApi.resumeTitle(media):EtknApi.title(media),compact?12:14,TEXT);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,adaptive?dp(compact?42:46):imageDp(compact?42:46)));scaleImageText(title,compact?12:14,compact?42:46);
         if(adaptive){addAdaptiveGridItem(grid,card,gap,5);fitArtworkHeight(card,artwork,artRatio);}
         else{GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=imageDp(cardWidth);layout.height=imageDp(cardHeight);layout.setMargins(imageDp(gap),dp(5),imageDp(gap),dp(5));grid.addView(card,layout);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(imageHeight);artwork.requestLayout();((LinearLayout.LayoutParams)title.getLayoutParams()).height=imageDp(compact?42:46);title.requestLayout();GridLayout.LayoutParams bounds=(GridLayout.LayoutParams)card.getLayoutParams();bounds.width=imageDp(cardWidth);bounds.height=imageDp(cardHeight);bounds.setMargins(imageDp(gap),dp(5),imageDp(gap),dp(5));card.setLayoutParams(bounds);});}
         String image=landscape&&!"CollectionFolder".equals(media.optString("Type"))?api.artwork(media,"Backdrop",640):api.image(media);
         Images.visible(api,image,poster,success->{if(!success&&!image.equals(api.image(media)))Images.load(api,api.image(media),poster);});
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():null);if(hasFocus&&focused!=null)focused.accept(card);});
         org.json.JSONObject data=media.optJSONObject("UserData");
         if(landscape&&data!=null&&data.optLong("PlaybackPositionTicks")>0&&media.optLong("RunTimeTicks")>0){
-            ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setProgress((int)Math.min(1000,1000.0*data.optLong("PlaybackPositionTicks")/media.optLong("RunTimeTicks")));progress.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.argb(180,0,0,0)));FrameLayout.LayoutParams bar=new FrameLayout.LayoutParams(-1,dp(4),android.view.Gravity.BOTTOM);bar.leftMargin=dp(10);bar.rightMargin=dp(10);bar.bottomMargin=dp(6);artwork.addView(progress,bar);
+            ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setProgress((int)Math.min(1000,1000.0*data.optLong("PlaybackPositionTicks")/media.optLong("RunTimeTicks")));progress.setProgressTintList(android.content.res.ColorStateList.valueOf(TvAppearance.accent()));progress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.argb(180,0,0,0)));FrameLayout.LayoutParams bar=new FrameLayout.LayoutParams(-1,dp(4),android.view.Gravity.BOTTOM);bar.leftMargin=dp(10);bar.rightMargin=dp(10);bar.bottomMargin=dp(6);artwork.addView(progress,bar);
         }
         return card;
     }
@@ -209,7 +241,7 @@ abstract class TvActivity extends Activity {
     }
     View posterCard(GridLayout grid,org.json.JSONObject media,Runnable click,String episodeCountMode,boolean landscape){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());card.setClipChildren(false);card.setClipToPadding(false);grid.setClipChildren(false);grid.setClipToPadding(false);
-        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         boolean adaptive=isAdaptiveGrid(grid);int imageHeight=landscape?108:198,cardWidth=landscape?192:132,cardHeight=landscape?108:255,gap=landscape?12:6;float artRatio=landscape?9f/16f:1.5f;
         card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(Math.round(cardWidth*artRatio)):imageDp(imageHeight)));
         android.graphics.drawable.GradientDrawable fade=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{Color.TRANSPARENT,Color.argb(235,0,0,0)});
@@ -245,7 +277,7 @@ abstract class TvActivity extends Activity {
         }
         if(landscape)bannerIdentity(artwork,media,badge);
         if(!landscape){
-            TextView title=text(EtknApi.title(media),14,Color.WHITE);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,imageDp(25)));
+            TextView title=text(EtknApi.title(media),14,TEXT);title.setGravity(android.view.Gravity.CENTER);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(dp(2),dp(3),dp(2),0);card.addView(title,new LinearLayout.LayoutParams(-1,imageDp(25)));
             artworkScaleUpdates.add(()->{float scale=artworkScale(artwork,scaleBaseWidthDp);title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,14*scale);title.setPadding(Math.round(2*scale),Math.round(3*scale),Math.round(2*scale),0);LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)title.getLayoutParams();bounds.height=Math.round(25*scale);title.setLayoutParams(bounds);});
             TextView year=text(media.optString("ProductionYear"),12,MUTED);year.setGravity(android.view.Gravity.CENTER);year.setPadding(0,0,0,0);card.addView(year,new LinearLayout.LayoutParams(-1,imageDp(20)));
             artworkScaleUpdates.add(()->{float scale=artworkScale(artwork,scaleBaseWidthDp);year.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,12*scale);LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)year.getLayoutParams();bounds.height=Math.round(20*scale);year.setLayoutParams(bounds);});
@@ -259,7 +291,7 @@ abstract class TvActivity extends Activity {
             loadBackdrop.run();imageSizeUpdater(poster,loadBackdrop);
         }
         else Images.load(api,api.image(media),poster);
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setElevation(dp(hasFocus?8:4));artwork.setForeground(hasFocus?focusOutline():null);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():null);});
         return card;
     }
     private void bannerIdentity(FrameLayout artwork,org.json.JSONObject media,View badge){

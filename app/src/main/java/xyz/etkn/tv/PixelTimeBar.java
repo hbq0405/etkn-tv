@@ -12,7 +12,7 @@ import java.util.Locale;
 /** Segmented transport bar; Media3 retains seeking and accessibility behavior. */
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 public final class PixelTimeBar extends DefaultTimeBar {
-    static final int PLAYED=0xffffb54c,BUFFERED=0xff9475e8,UNPLAYED=0xff313149;
+    static final int PLAYED=0xff1a7f70,BUFFERED=0xff5cc7b0,UNPLAYED=0xff193b36;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private long duration,position,buffered,scrub=-1;
     private JSONArray chapters;
@@ -30,14 +30,17 @@ public final class PixelTimeBar extends DefaultTimeBar {
     @Override public void setPosition(long value){super.setPosition(value);position=value;invalidate();}
     @Override public void setBufferedPosition(long value){super.setBufferedPosition(value);buffered=value;invalidate();}
     void setChapterMarkers(JSONArray values){chapters=values;invalidate();}
-    static int stateColor(long cell,long position,long buffered){return cell<position?PLAYED:cell<Math.max(position,buffered)?BUFFERED:UNPLAYED;}
+    static int playedColor(){return TvAppearance.primary();}
+    static int bufferedColor(){return BUFFERED;}
+    static int unplayedColor(){return TvAppearance.mix(playedColor(),Color.BLACK,.72f);}
+    static int stateColor(long cell,long position,long buffered){return cell<position?playedColor():cell<Math.max(position,buffered)?bufferedColor():unplayedColor();}
     private String time(long value){long seconds=Math.max(0,value/1000);return seconds>=3600?String.format(Locale.ROOT,"%d:%02d:%02d",seconds/3600,seconds/60%60,seconds%60):String.format(Locale.ROOT,"%d:%02d",seconds/60,seconds%60);}
     @Override public void onDraw(Canvas canvas){
         float left=dp(3),right=getWidth()-dp(3),top=getHeight()-dp(24),bottom=getHeight()-dp(8),inset=dp(3);
         if(right<=left||top<0)return;
         long current=Math.max(0,scrub>=0?scrub:position),length=Math.max(0,duration);
-        paint.setShader(null);paint.setStyle(Paint.Style.FILL);paint.setColor(0xe00e1020);canvas.drawRoundRect(left,top,right,bottom,dp(3),dp(3),paint);
-        paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(1));paint.setColor(0xff8668ce);canvas.drawRoundRect(left,top,right,bottom,dp(3),dp(3),paint);paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);paint.setStyle(Paint.Style.FILL);paint.setColor(0xe00b201c);canvas.drawRoundRect(left,top,right,bottom,dp(3),dp(3),paint);
+        paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(1));paint.setColor(playedColor());canvas.drawRoundRect(left,top,right,bottom,dp(3),dp(3),paint);paint.setStyle(Paint.Style.FILL);
         float width=right-left-2*inset;int count=Math.max(1,(int)(width/dp(8)));float cell=width/count;
         for(int i=0;i<count;i++){
             long value=length<=0?Long.MAX_VALUE:(long)((i+.5)*length/count);
@@ -53,7 +56,7 @@ public final class PixelTimeBar extends DefaultTimeBar {
             JSONObject chapter=chapters.optJSONObject(i);if(chapter==null)continue;String type=chapter.optString("MarkerType");
             if(!type.equals("IntroStart")&&!type.equals("IntroEnd")&&!type.equals("CreditsStart"))continue;
             long ticks=chapter.optLong("StartPositionTicks",-1);if(ticks<0)continue;long value=ticks/10000;if(value>=length)continue;
-            float x=left+inset+width*value/length;paint.setColor(0xffe2d9ff);canvas.drawLine(x,top-dp(5),x,top-dp(1),paint);
+            float x=left+inset+width*value/length;paint.setColor(0xffbcebe0);canvas.drawLine(x,top-dp(5),x,top-dp(1),paint);
             if(type.equals("IntroEnd"))continue;
             String label=type.equals("IntroStart")?"片头":"片尾";
             float textWidth=paint.measureText(label);float textX=Math.max(left,Math.min(x-textWidth/2,right-textWidth));paint.setTextAlign(Paint.Align.LEFT);canvas.drawText(label,textX,top-dp(9),paint);

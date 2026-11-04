@@ -5,16 +5,21 @@ import android.graphics.Bitmap;
 /** Small, bounded CPU blur for API 24+ TVs. The shared source bitmap is never modified. */
 final class BackdropBlur {
     static Bitmap create(Bitmap source){
+        return create(source,30);
+    }
+    static Bitmap create(Bitmap source,int strength){
+        if(strength<=0)return source;
         float scale=Math.min(1f,320f/Math.max(source.getWidth(),source.getHeight()));
         int width=Math.max(1,Math.round(source.getWidth()*scale)),height=Math.max(1,Math.round(source.getHeight()*scale));
         Bitmap sample=Bitmap.createScaledBitmap(source,width,height,true);
         int[] pixels=new int[width*height],scratch=new int[pixels.length];
         sample.getPixels(pixels,0,width,0,0,width,height);if(sample!=source)sample.recycle();
-        for(int pass=0;pass<3;pass++){blur(pixels,scratch,width,height,true);blur(scratch,pixels,width,height,false);}
+        int radius=Math.max(1,Math.round(strength/5f));
+        for(int pass=0;pass<3;pass++){blur(pixels,scratch,width,height,true,radius);blur(scratch,pixels,width,height,false,radius);}
         return Bitmap.createBitmap(pixels,width,height,Bitmap.Config.ARGB_8888);
     }
-    private static void blur(int[] source,int[] target,int width,int height,boolean horizontal){
-        int radius=6,window=radius*2+1,lines=horizontal?height:width,length=horizontal?width:height,step=horizontal?1:width;
+    private static void blur(int[] source,int[] target,int width,int height,boolean horizontal,int radius){
+        int window=radius*2+1,lines=horizontal?height:width,length=horizontal?width:height,step=horizontal?1:width;
         for(int line=0;line<lines;line++){
             int start=horizontal?line*width:line,a=0,r=0,g=0,b=0;
             for(int k=-radius;k<=radius;k++){int pixel=source[start+Math.max(0,Math.min(length-1,k))*step];a+=pixel>>>24;r+=(pixel>>16)&255;g+=(pixel>>8)&255;b+=pixel&255;}

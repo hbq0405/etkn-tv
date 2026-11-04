@@ -23,8 +23,8 @@ final class PlayerEpisodePanel extends LinearLayout {
 
     PlayerEpisodePanel(TvActivity host,String currentId,Consumer<JSONObject> select,Runnable retry){
         super(host);this.host=host;this.currentId=currentId;this.select=select;this.retry=retry;
-        setOrientation(VERTICAL);setPadding(host.dp(24),host.dp(20),host.dp(24),host.dp(20));setBackgroundColor(TvActivity.OVERLAY);setFocusable(true);setFocusableInTouchMode(true);
-        heading=host.text("选集",23,Color.WHITE);addView(heading);
+        setOrientation(VERTICAL);setPadding(host.dp(24),host.dp(20),host.dp(24),host.dp(20));setBackground(host.shape(TvActivity.PANEL,0));setFocusable(true);setFocusableInTouchMode(true);
+        heading=host.text("选集",23,TvActivity.TEXT);addView(heading);
         description=host.text("",14,TvActivity.MUTED);description.setMaxLines(2);addView(description,new LayoutParams(-1,host.dp(56)));
         body=host.column();addView(body,new LayoutParams(-1,0,1));
     }
@@ -50,7 +50,7 @@ final class PlayerEpisodePanel extends LinearLayout {
         GridLayout grid=new GridLayout(host);int available=Math.min(480,host.getResources().getConfiguration().screenWidthDp*3/5)-48,columns=Math.max(3,available/112);grid.setColumnCount(columns);
         ScrollView scroll=new FocusScroll.Vertical(host);scroll.addView(grid);matrix.addView(scroll,new LayoutParams(-1,-1));Button focus=null;
         boolean dates=rows.stream().anyMatch(DetailPresentation::placeholder);
-        for(JSONObject ep:rows){boolean current=currentId.equals(ep.optString("Id"));Button cell=host.button("",()->select.accept(ep));cell.setSingleLine(!dates);cell.setMaxLines(dates?2:1);cell.setPadding(host.dp(6),0,host.dp(6),0);cell.setTextColor(current?TvActivity.ACCENT:Color.WHITE);
+        for(JSONObject ep:rows){boolean current=currentId.equals(ep.optString("Id"));Button cell=host.button("",()->select.accept(ep));cell.setSingleLine(!dates);cell.setMaxLines(dates?2:1);cell.setPadding(host.dp(6),0,host.dp(6),0);host.themeText(cell,current?TvActivity.ACCENT:TvActivity.TEXT);
             JSONObject data=ep.optJSONObject("UserData");boolean watched=data!=null&&data.optBoolean("Played");int progress=progress(watched,DetailPresentation.position(ep),ep.optLong("RunTimeTicks"));
             cell.setText(host.episodeLabel(ep,(watched?" ✓":"")+(current?" ▶":""),dates));cell.setBackground(host.episodeBackground(progress));describe(cell,ep,watched,progress,current);
             cell.setOnFocusChangeListener((view,focused)->{if(focused)description.setText((current?"正在播放 · ":"")+DetailPresentation.episodeNumber(ep)+" · "+EtknApi.title(ep)+(DetailPresentation.placeholder(ep)?"\n播出："+DetailPresentation.airDate(ep):""));});

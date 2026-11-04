@@ -43,19 +43,19 @@ public final class SettingsActivity extends TvActivity {
             LinearLayout identity=row();identity.setPadding(dp(2),dp(4),dp(2),dp(6));
             ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(36));identity.addView(avatar,new LinearLayout.LayoutParams(dp(72),dp(72)));loadAvatar(avatar);
             LinearLayout who=column();who.setPadding(dp(18),dp(8),0,0);
-            TextView name=text(api.session.name(),21,Color.WHITE);name.setTypeface(null,Typeface.BOLD);who.addView(name);
+            TextView name=text(api.session.name(),21,TEXT);name.setTypeface(null,Typeface.BOLD);who.addView(name);
             TextView server=text(api.server,13,MUTED);who.addView(server);
             identity.addView(who,new LinearLayout.LayoutParams(0,-2,1));account.addView(identity);
             LinearLayout playback=section("播放偏好");
-            defaultAudio=settingRow(Color.WHITE);defaultAudio.setOnClickListener(view->editPreference(false));defaultAudio.setText(rowText("默认音轨","正在读取…"));
-            defaultSubtitle=settingRow(Color.WHITE);defaultSubtitle.setOnClickListener(view->editPreference(true));defaultSubtitle.setText(rowText("默认字幕","正在读取…"));
+            defaultAudio=settingRow(TEXT);defaultAudio.setOnClickListener(view->editPreference(false));defaultAudio.setText(rowText("默认音轨","正在读取…"));
+            defaultSubtitle=settingRow(TEXT);defaultSubtitle.setOnClickListener(view->editPreference(true));defaultSubtitle.setText(rowText("默认字幕","正在读取…"));
             defaultAudio.setEnabled(false);defaultSubtitle.setEnabled(false);playback.addView(defaultAudio);playback.addView(defaultSubtitle);
-            skipButton=settingRow(Color.WHITE);skipButton.setOnClickListener(view->chooseSkipMode());playback.addView(skipButton);showSkipMode();
+            skipButton=settingRow(TEXT);skipButton.setOnClickListener(view->chooseSkipMode());playback.addView(skipButton);showSkipMode();
             playback.addView(note("音轨与字幕和个人中心同步：个人配置覆盖全局，未配置时跟随全局；按添加顺序确定优先级。"));
             playback.addView(note("片头片尾仅对有片头片尾标记的影片生效，保存到此电视当前账号。"));
             TvPreferences preferences=new TvPreferences(this,api);
             LinearLayout display=section("显示");
-            imageSizeButton=settingRow(Color.WHITE);imageSizeButton.setOnClickListener(view->chooseImageSize(preferences));display.addView(imageSizeButton);showImageSize(preferences);
+            imageSizeButton=settingRow(TEXT);imageSizeButton.setOnClickListener(view->chooseImageSize(preferences));display.addView(imageSizeButton);showImageSize(preferences);
             display.addView(note("调整首页、媒体库、影视探索中的海报卡片与横幅大小，保存到此电视当前账号。"));
             LinearLayout notices=section("通知");
             notices.addView(switchRow("我的订阅 / 追更入库通知","提醒本账号订阅内容，以及收藏或观看过的剧集更新。后台检查受电视系统调度影响。",IngestNotifications.enabled(this),on->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);}));
@@ -63,11 +63,11 @@ public final class SettingsActivity extends TvActivity {
             home.addView(switchRow("智能推荐轮播","首页背景按你的观影口味自动轮播推荐，不再跟随焦点联动。保存到此电视当前账号。",preferences.smartCarousel(),on->preferences.setSmartCarousel(on)));
         }
         LinearLayout login=section("登录");loginSection=login;
-        loginModeButton=settingRow(Color.WHITE);loginModeButton.setOnClickListener(view->chooseLoginMode());login.addView(loginModeButton);showLoginMode();
+        loginModeButton=settingRow(TEXT);loginModeButton.setOnClickListener(view->chooseLoginMode());login.addView(loginModeButton);showLoginMode();
         login.addView(note("“最后登录用户”启动后直接进入上次用户的首页；“选择登录用户”每次启动或从后台返回时先显示用户选择框，可点选已登录用户或登录新用户。按本设备保存，对全部用户生效。"));
         LinearLayout app=section("应用");
-        Button update=settingRow(Color.WHITE);update.setText(rowText("检查更新","当前版本 "+BuildConfig.VERSION_NAME));update.setOnClickListener(view->checkUpdate());app.addView(update);
-        Button licenses=settingRow(Color.WHITE);licenses.setText(rowText("开源许可","GPL-3.0 及第三方组件"));licenses.setOnClickListener(view->showLicenses());app.addView(licenses);
+        Button update=settingRow(TEXT);update.setText(rowText("检查更新","当前版本 "+BuildConfig.VERSION_NAME));update.setOnClickListener(view->checkUpdate());app.addView(update);
+        Button licenses=settingRow(TEXT);licenses.setText(rowText("开源许可","GPL-3.0 及第三方组件"));licenses.setOnClickListener(view->showLicenses());app.addView(licenses);
         app.addView(note("更新通过 GitHub Releases 获取；安装需要系统确认。"));
         if(!api.token.isEmpty()){
             LinearLayout danger=section(null);
@@ -77,7 +77,7 @@ public final class SettingsActivity extends TvActivity {
     }
     /** 设置分区卡片：圆角面板 + 可选 ACCENT 竖条标题。 */
     private LinearLayout section(String title){
-        LinearLayout panel=column();panel.setBackground(shape(PANEL,0));panel.setPadding(dp(20),dp(14),dp(20),dp(10));
+        LinearLayout panel=column();panel.setBackground(shape(PANEL,0));shadow(panel,8);panel.setPadding(dp(20),dp(14),dp(20),dp(10));
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,-2);layout.setMargins(0,dp(10),0,0);content.addView(panel,layout);
         if(title!=null){
             LinearLayout head=row();head.setPadding(dp(2),dp(4),dp(2),dp(8));
@@ -89,8 +89,8 @@ public final class SettingsActivity extends TvActivity {
     }
     /** 全宽设置行：左侧主标题 + 弱化摘要，右侧箭头，遥控器整行聚焦。 */
     private Button settingRow(int textColor){
-        Button view=new Button(this);view.setAllCaps(false);view.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
-        view.setTextColor(textColor);view.setTextSize(16);view.setBackground(focusBackground());view.setMinHeight(dp(52));
+        Button view=new Button(this);view.setStateListAnimator(null);shadow(view,3);view.setAllCaps(false);view.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+        themeText(view,textColor);view.setTextSize(16);view.setBackground(focusBackground());view.setMinHeight(dp(52));
         view.setSingleLine(true);view.setEllipsize(android.text.TextUtils.TruncateAt.END);
         view.setPadding(dp(18),dp(6),dp(16),dp(6));view.setCompoundDrawablesRelativeWithIntrinsicBounds(null,null,chevron(),null);view.setCompoundDrawablePadding(dp(10));
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,dp(52));layout.setMargins(0,0,0,dp(10));view.setLayoutParams(layout);
@@ -99,7 +99,7 @@ public final class SettingsActivity extends TvActivity {
     /** 行文字：主标题白色 + 摘要弱化缩小。 */
     private CharSequence rowText(String title,String summary){
         SpannableStringBuilder builder=new SpannableStringBuilder();builder.append(title);int split=builder.length();builder.append("   ").append(summary);
-        builder.setSpan(new ForegroundColorSpan(MUTED),split,builder.length(),0);builder.setSpan(new RelativeSizeSpan(0.8f),split,builder.length(),0);
+        builder.setSpan(new android.text.style.CharacterStyle(){@Override public void updateDrawState(android.text.TextPaint paint){paint.setColor(TvAppearance.muted());}},split,builder.length(),0);builder.setSpan(new RelativeSizeSpan(0.8f),split,builder.length(),0);
         return builder;
     }
     /** 整行可聚焦的开关行：左标题副文本、右 Switch，确认键切换。 */
@@ -109,7 +109,7 @@ public final class SettingsActivity extends TvActivity {
         LinearLayout line=row();line.setFocusable(true);line.setClickable(true);line.setBackground(focusBackground());line.setPadding(dp(18),dp(12),dp(20),dp(12));
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,-2);layout.setMargins(0,0,0,dp(10));line.setLayoutParams(layout);
         LinearLayout label=column();
-        TextView head=text(title,16,Color.WHITE);head.setPadding(0,0,0,0);label.addView(head);
+        TextView head=text(title,16,TEXT);head.setPadding(0,0,0,0);label.addView(head);
         TextView detail=text(summary,12,MUTED);detail.setPadding(0,0,0,dp(10));label.addView(detail);
         line.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         LinearLayout.LayoutParams toggleLayout=new LinearLayout.LayoutParams(-2,-2);toggleLayout.gravity=Gravity.CENTER_VERTICAL;
@@ -167,7 +167,7 @@ public final class SettingsActivity extends TvActivity {
     private void showPreferenceEditor(boolean subtitles,List<String> selected){
         LinearLayout body=column();body.setPadding(dp(20),dp(6),dp(20),dp(6));TextView order=text("",14,MUTED);body.addView(order);Button add=button("添加优先项",()->{});body.addView(add);
         LinearLayout entries=column();body.addView(entries);Runnable[] render={null};
-        render[0]=()->{order.setText(selected.isEmpty()?"当前跟随全局配置":"按下面顺序依次匹配");entries.removeAllViews();for(int i=0;i<selected.size();i++){final int index=i;LinearLayout line=row();line.addView(text((i+1)+". "+preferenceName(selected.get(i),subtitles),15,android.graphics.Color.WHITE));if(i>0)line.addView(button("上移",()->{Collections.swap(selected,index,index-1);render[0].run();}));line.addView(button("移除",()->{selected.remove(index);render[0].run();}));entries.addView(line);}};
+        render[0]=()->{order.setText(selected.isEmpty()?"当前跟随全局配置":"按下面顺序依次匹配");entries.removeAllViews();for(int i=0;i<selected.size();i++){final int index=i;LinearLayout line=row();line.addView(text((i+1)+". "+preferenceName(selected.get(i),subtitles),15,TEXT));if(i>0)line.addView(button("上移",()->{Collections.swap(selected,index,index-1);render[0].run();}));line.addView(button("移除",()->{selected.remove(index);render[0].run();}));entries.addView(line);}};
         add.setOnClickListener(view->{String[] keys=subtitles?SUBTITLE_KEYS:AUDIO_KEYS;List<String> available=new ArrayList<>(),labels=new ArrayList<>();for(String value:keys)if(!selected.contains(value)){available.add(value);labels.add(preferenceName(value,subtitles));}if(available.isEmpty())return;new AlertDialog.Builder(this).setTitle("添加优先项").setItems(labels.toArray(new String[0]),(dialog,index)->{selected.add(available.get(index));render[0].run();}).setNegativeButton("取消",null).show();});render[0].run();
         ScrollView scroll=new ScrollView(this);scroll.addView(body);preferenceDialog=new AlertDialog.Builder(this).setTitle(subtitles?"默认字幕优先级":"默认音轨优先级").setView(scroll).setPositiveButton("保存",(dialog,index)->savePreference(subtitles,selected)).setNeutralButton("跟随全局",(dialog,index)->savePreference(subtitles,Collections.emptyList())).setNegativeButton("取消",null).create();preferenceDialog.show();
     }

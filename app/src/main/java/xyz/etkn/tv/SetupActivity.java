@@ -34,7 +34,7 @@ public final class SetupActivity extends TvActivity {
             savedUsers=column();
             List<SavedAccounts.Account> accounts=api.session.accounts();
             if(!accounts.isEmpty()){
-                content.addView(text("已登录用户",16,android.graphics.Color.WHITE));content.addView(savedUsers);
+                content.addView(text("已登录用户",16,TEXT));content.addView(savedUsers);
                 for(SavedAccounts.Account account:accounts)savedUsers.addView(button((account.needsPassword?"登录（需密码）：":"使用：")+account.name,()->loginWithPasswordIfNeeded(account)));
             }
         }
@@ -56,7 +56,7 @@ public final class SetupActivity extends TvActivity {
     private void showPicker(){
         screen("选择登录用户","点选要进入的用户，也可以登录新用户。");
         content.setGravity(android.view.Gravity.CENTER);
-        LinearLayout panel=column();panel.setBackground(shape(PANEL,0));panel.setPadding(dp(30),dp(24),dp(30),dp(20));panel.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        LinearLayout panel=column();panel.setBackground(shape(PANEL,0));shadow(panel,8);panel.setPadding(dp(30),dp(24),dp(30),dp(20));panel.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
         FocusScroll.Row scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));
         LinearLayout users=row();users.setGravity(android.view.Gravity.CENTER_VERTICAL);scroll.addView(users);
         Button newUser=button("登录新用户",()->startActivity(new Intent(this,SetupActivity.class).putExtra(EXTRA_ADD_ACCOUNT,true)));
@@ -79,10 +79,10 @@ public final class SetupActivity extends TvActivity {
     private LinearLayout pickerCard(String label,android.view.View icon,Runnable click){
         LinearLayout card=column();card.setGravity(android.view.Gravity.CENTER_HORIZONTAL);card.setPadding(dp(18),dp(14),dp(18),dp(10));card.setBackground(focusBackground());card.setFocusable(true);card.setClickable(true);
         card.addView(icon,new LinearLayout.LayoutParams(dp(88),dp(88)));
-        TextView name=text(label,15,android.graphics.Color.WHITE);name.setGravity(android.view.Gravity.CENTER);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView name=text(label,15,TEXT);name.setGravity(android.view.Gravity.CENTER);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams nameLayout=new LinearLayout.LayoutParams(dp(120),-2);nameLayout.topMargin=dp(6);card.addView(name,nameLayout);
         card.setOnClickListener(view->click.run());
-        card.setOnFocusChangeListener((view,focused)->{view.setScaleX(focused?FOCUS_SCALE:1f);view.setScaleY(focused?FOCUS_SCALE:1f);view.setTranslationZ(focused?dp(4):0);});
+        shadow(card,4);card.setOnFocusChangeListener((view,focused)->{view.setScaleX(focused?FOCUS_SCALE:1f);view.setScaleY(focused?FOCUS_SCALE:1f);shadow(view,focused?8:4);});
         LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-2,-2);layout.setMargins(dp(6),dp(6),dp(6),dp(6));card.setLayoutParams(layout);
         return card;
     }

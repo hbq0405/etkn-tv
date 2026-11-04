@@ -1,4 +1,6 @@
 <resources>
     <item name="image_size_updater" type="id" />
     <item name="adaptive_grid" type="id" />
+    <item name="appearance_text" type="id" />
+    <item name="appearance_shadow" type="id" />
 </resources>

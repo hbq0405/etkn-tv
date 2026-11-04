@@ -84,7 +84,7 @@ public final class HomeActivity extends TvActivity {
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         homeCache=new HomeCache(this,api);
-        FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);homeBackdrop=new FocusBackdrop(this);stage.addView(homeBackdrop,new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);homeBackdrop=new FocusBackdrop(this);stage.addView(homeBackdrop,new FrameLayout.LayoutParams(-1,Math.round(getResources().getDisplayMetrics().heightPixels*.55f)));
         homeBackdrop.actionView().setOnKeyListener((view,key,event)->{
             if(!carouselActive)return false;
             if(key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT)return false;
@@ -93,9 +93,9 @@ public final class HomeActivity extends TvActivity {
         });
         homeScroll=new FocusScroll.Vertical(this);homeScroll.setFillViewport(true);homeScroll.setClipToPadding(false);
         content=column();homeScroll.addView(content);stage.addView(homeScroll,new FrameLayout.LayoutParams(-1,-1));
-        homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->maybeLoadPosterPage());
+        homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{homeBackdrop.setTranslationY(-y);maybeLoadPosterPage();});
         nav=row();nav.setPadding(dp(28),dp(8),dp(18),dp(8));
-        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackgroundColor(android.graphics.Color.argb(245,11,17,26));menu.addView(nav);menu.setVisibility(View.GONE);
+        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackground(shape(PANEL,0));menu.addView(nav);menu.setVisibility(View.GONE);
         stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(76),Gravity.TOP));
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);stage.addView(status,notice);
@@ -236,7 +236,7 @@ public final class HomeActivity extends TvActivity {
     }
     private LinearLayout section(String title){return section(title,content);}
     private LinearLayout section(String title,LinearLayout parent){
-        LinearLayout area=column();area.setPadding(dp(28),dp(14),dp(22),dp(2));area.addView(text(title,20,android.graphics.Color.WHITE));area.addView(text("正在加载…",13,MUTED));parent.addView(area);return area;
+        LinearLayout area=column();area.setPadding(dp(28),dp(14),dp(22),dp(2));area.addView(text(title,20,TEXT));area.addView(text("正在加载…",13,MUTED));parent.addView(area);return area;
     }
     private void loadShelf(LinearLayout area,String path,int request,boolean landscape,boolean libraries,boolean resumeShelf,String empty){
         homeReloads.put(path,()->loadShelf(area,path,request,landscape,libraries,resumeShelf,empty));
@@ -260,6 +260,7 @@ public final class HomeActivity extends TvActivity {
         if(!"home".equals(mode)||resumeFirst==null||resumeArea==null||resumeArea.getHeight()==0||homeScroll.getHeight()==0)return;
         int height=Math.max(0,homeScroll.getHeight()-resumeArea.getHeight());
         if(heroSpacer.getLayoutParams().height!=height){heroSpacer.getLayoutParams().height=height;heroSpacer.requestLayout();if(resumeCards.contains(getCurrentFocus()))homeScroll.post(()->homeScroll.scrollTo(0,0));}
+        if(homeBackdrop.getLayoutParams().height!=height){homeBackdrop.getLayoutParams().height=height;homeBackdrop.requestLayout();}
     }
     private void restoreHomeFocusPosition(){
         View focused=getCurrentFocus();if(!"home".equals(mode)||!homeCards.contains(focused))return;
@@ -333,7 +334,7 @@ public final class HomeActivity extends TvActivity {
     private void loadPosterPage(boolean reset){
         if(selectedLibrary==null&&activeCollection==null)return;
         if(reset){offset=0;posterGrid=null;loadingMore=false;refreshingPosters=false;pendingPosterRefresh=false;hasMore=true;++revision;content.removeAllViews();content.setPadding(dp(28),dp(20),dp(28),dp(24));homeScroll.scrollTo(0,0);homeBackdrop.clear();
-            LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=column();TextView name=text(activeCollection!=null?activeCollection.optString("Name","合集"):folderMode&&!folderTitle.isEmpty()?folderTitle:selectedLibrary.optString("Name","媒体库"),22,android.graphics.Color.WHITE);name.setTypeface(null,android.graphics.Typeface.BOLD);labels.addView(name);libraryMeta=text("正在读取媒体项…",13,MUTED);labels.addView(libraryMeta);heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+            LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=column();TextView name=text(activeCollection!=null?activeCollection.optString("Name","合集"):folderMode&&!folderTitle.isEmpty()?folderTitle:selectedLibrary.optString("Name","媒体库"),22,TEXT);name.setTypeface(null,android.graphics.Typeface.BOLD);labels.addView(name);libraryMeta=text("正在读取媒体项…",13,MUTED);labels.addView(libraryMeta);heading.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
             LinearLayout actions=row();
             playModeButton=button("播放 ▾",this::choosePlayMode);
             if(!collectionLibrary())actions.addView(playModeButton);
@@ -372,12 +373,12 @@ public final class HomeActivity extends TvActivity {
     }
     private View folderCard(JSONObject item){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(android.graphics.Color.TRANSPARENT);card.setClipChildren(false);card.setClipToPadding(false);card.setContentDescription("文件夹 · "+item.optString("Name"));
-        boolean adaptive=isAdaptiveGrid(posterGrid);FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);artwork.setElevation(dp(4));card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(108):imageDp(108)));
+        boolean adaptive=isAdaptiveGrid(posterGrid);FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);card.addView(artwork,new LinearLayout.LayoutParams(-1,adaptive?dp(108):imageDp(108)));
         if(item.has("ImageTags")){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(9));artwork.addView(image,new FrameLayout.LayoutParams(-1,-1));Images.load(api,api.folderArtwork(selectedLibrary.optString("Id"),item,640),image);}else{TextView icon=text("▰",56,android.graphics.Color.rgb(117,203,218));icon.setGravity(Gravity.CENTER);artwork.addView(icon,new FrameLayout.LayoutParams(-1,-1));}
-        TextView title=text(item.optString("Name"),12,android.graphics.Color.WHITE);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,adaptive?dp(42):imageDp(42)));scaleImageText(title,12,42);
+        TextView title=text(item.optString("Name"),12,TEXT);title.setMaxLines(2);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setPadding(0,dp(4),0,0);card.addView(title,new LinearLayout.LayoutParams(-1,adaptive?dp(42):imageDp(42)));scaleImageText(title,12,42);
         if(adaptive){addAdaptiveGridItem(posterGrid,card,12,5);fitArtworkHeight(card,artwork,9f/16f);}
         else{GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=imageDp(192);bounds.height=imageDp(150);bounds.setMargins(imageDp(12),dp(5),imageDp(12),dp(5));posterGrid.addView(card,bounds);imageSizeUpdater(card,()->{((LinearLayout.LayoutParams)artwork.getLayoutParams()).height=imageDp(108);artwork.requestLayout();((LinearLayout.LayoutParams)title.getLayoutParams()).height=imageDp(42);title.requestLayout();GridLayout.LayoutParams layout=(GridLayout.LayoutParams)card.getLayoutParams();layout.width=imageDp(192);layout.height=imageDp(150);layout.setMargins(imageDp(12),dp(5),imageDp(12),dp(5));card.setLayoutParams(layout);});}
-        card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(focused?dp(8):0);artwork.setElevation(dp(focused?8:4));artwork.setForeground(focused?focusOutline():null);});card.setOnClickListener(view->enterFolder(item));return card;
+        card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?FOCUS_SCALE:1f);card.setScaleY(focused?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,focused?8:4);artwork.setForeground(focused?focusOutline():null);});card.setOnClickListener(view->enterFolder(item));return card;
     }
     private JSONObject posterPosition(){JSONObject state=new JSONObject();View focus=getCurrentFocus();try{state.put("id",folderId).put("title",folderTitle).put("count",offset).put("scroll",homeScroll.getScrollY()).put("focus",focus!=null&&focus.getTag() instanceof JSONObject?((JSONObject)focus.getTag()).optString("Id"):"");}catch(Exception ignored){}return state;}
     private void enterFolder(JSONObject item){folderTrail.push(posterPosition());folderId=item.optString("Id");folderTitle=item.optString("Name");loadPosterPage(true);}

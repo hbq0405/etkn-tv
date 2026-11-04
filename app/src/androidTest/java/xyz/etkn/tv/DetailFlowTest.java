@@ -29,7 +29,7 @@ public class DetailFlowTest {
             server.browseFeatures=true;open(server,"movie-single");await(()->button("系列")!=null&&button("系列").isShown());
             ViewGroup facets=(ViewGroup)field(detail,"facetButtons");assertSame(facets,button("系列").getParent());assertEquals(facets.getChildCount()-1,facets.indexOfChild(button("系列")));assertEquals(facets.indexOfChild(button("标签 · 经典"))+1,facets.indexOfChild(button("系列")));assertNull(button("合成合集"));
             for(String title:new String[]{"题材 · 剧情","标签 · 经典","系列"}){
-                Button target=button(title);assertNotNull(target);if(!title.equals("系列")){onMain(()->assertEquals(105,Color.alpha(((android.graphics.drawable.GradientDrawable)target.getBackground().getCurrent()).getColor().getDefaultColor())));}onMain(target::requestFocus);settle();assertTrue(target.hasFocus());
+                Button target=button(title);assertNotNull(target);if(!title.equals("系列")){onMain(()->assertEquals(TvAppearance.resolve(TvActivity.PANEL),((android.graphics.drawable.GradientDrawable)target.getBackground().getCurrent()).getColor().getDefaultColor()));}onMain(target::requestFocus);settle();assertTrue(target.hasFocus());
                 if(title.startsWith("标签"))screenshot("detail-facet-focus.png");if(title.equals("系列"))screenshot("detail-series-inline.png");
                 Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(HomeActivity.class.getName(),null,false);onMain(target::performClick);browser=(HomeActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(browser);
                 HomeActivity active=browser;await(()->field(active,"posterGrid") instanceof GridLayout&&((GridLayout)field(active,"posterGrid")).getChildCount()>0);
@@ -132,6 +132,115 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
 
+    @Test public void pausedPlaybackShowsIdentityClockAndProgressUntilResumed()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            await(()->((View)field(playback,"playbackOverlay")).isShown());
+            onMain(()->{
+                View overlay=(View)field(playback,"playbackOverlay"),icon=overlay.findViewWithTag("pause-icon"),decor=playback.getWindow().getDecorView();
+                TextView name=(TextView)field(playback,"pauseName"),clock=(TextView)field(playback,"pauseClock");
+                assertEquals("详情测试",name.getText().toString());assertTrue(name.isShown());assertFalse(((View)field(playback,"pauseAvatar")).isShown());
+                assertTrue(clock.getText().toString().matches("\\d{2}:\\d{2}"));
+                assertEquals(decor.getWidth()/2,icon.getLeft()+icon.getWidth()/2,1);assertEquals(decor.getHeight()/2,icon.getTop()+icon.getHeight()/2,1);
+                assertTrue(name.getLeft()<decor.getWidth()/2);assertTrue(clock.getLeft()>decor.getWidth()/2);assertTrue(name.getBottom()<decor.getHeight()/2);assertTrue(clock.getBottom()<decor.getHeight()/2);
+                assertFalse(icon.isFocusable());assertFalse((Boolean)field(playback,"seekKeys"));assertTrue(((View)field(playback,"seekProgress")).isShown());
+                assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());
+            });
+            screenshot("player-paused-username.png");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
+            await(()->((ExoPlayer)field(playback,"player")).getCurrentPosition()>=9000);
+            SystemClock.sleep(5400);settle();
+            onMain(()->{assertFalse((Boolean)field(playback,"seekKeys"));assertTrue(((View)field(playback,"seekProgress")).isShown());assertTrue(((View)field(playback,"playbackOverlay")).isShown());});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
+            onMain(()->{assertTrue(((View)field(playback,"controls")).isShown());assertTrue(((View)field(playback,"playbackOverlay")).isShown());});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();assertFalse(playback.isFinishing());
+            onMain(()->assertTrue(((View)field(playback,"seekProgress")).isShown()));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();
+            onMain(()->{assertTrue(((ExoPlayer)field(playback,"player")).getPlayWhenReady());assertFalse(((View)field(playback,"playbackOverlay")).isShown());assertFalse(((View)field(playback,"seekProgress")).isShown());});
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.setPlaybackSpeed(0.1f);player.seekTo(1000);});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
+            onMain(()->{assertTrue(((View)field(playback,"playbackOverlay")).isShown());assertTrue(((View)field(playback,"pauseName")).isShown());assertTrue(((View)field(playback,"pauseClock")).isShown());assertFalse(((View)field(playback,"pauseIcon")).isShown());});
+            screenshot("player-playing-capsule-controls.png");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
+            onMain(()->assertFalse(((View)field(playback,"playbackOverlay")).isShown()));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();
+            onMain(()->assertTrue(((View)field(playback,"playbackOverlay")).isShown()));
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);await(()->playback.isDestroyed()&&server.stopped.size()==1);
+        }finally{cleanup();}
+    }
+    private void holdConfirm()throws Exception{
+        long pressed=SystemClock.uptimeMillis();instrumentation.sendKeySync(new KeyEvent(pressed,pressed,KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_CENTER,0));SystemClock.sleep(ViewConfiguration.getLongPressTimeout()+250);
+        instrumentation.sendKeySync(new KeyEvent(pressed,SystemClock.uptimeMillis(),KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_CENTER,0));settle();
+    }
+    @Test public void serverAppearanceUpdatesWithoutRecreatingPlaybackAndWaitingOnlyBackdrop()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.appearance=new JSONObject().put("revision","purple").put("mode","light").put("theme_color","#3c087d").put("glass_opacity",.62).put("shadow_strength",0).put("background_blur",0).put("background_url","/api/tv/System/Appearance/Background?v=one");
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);server.holdPlayback=true;
+            playback=(PlayerActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),PlayerActivity.class).putExtra("id","movie-single").putExtra("title","主题测试").putExtra("resume",true).putExtra("resolved",true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            assertTrue(server.playbackRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            await(()->((ImageView)field(field(playback,"waitingBackground"),"image")).getDrawable()!=null);
+            onMain(()->assertTrue("起播等待显示服务器背景",((View)field(playback,"waitingBackground")).isShown()));screenshot("server-background-startup.png");
+            server.playbackGate.countDown();await(()->Boolean.TRUE.equals(field(playback,"videoFrameSeen")));
+            onMain(()->{((ExoPlayer)field(playback,"player")).pause();assertFalse("首帧后不再遮挡视频",((View)field(playback,"waitingBackground")).isShown());});settle();
+            Object original=field(playback,"player");int cardSize=new TvPreferences(playback,playback.api).imageSize();
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
+            onMain(()->{
+                assertEquals(0xff3c087d,PixelTimeBar.playedColor());assertEquals(0xff5cc7b0,PixelTimeBar.bufferedColor());
+                android.graphics.drawable.GradientDrawable capsule=(android.graphics.drawable.GradientDrawable)((View)field(playback,"controls")).getBackground();
+                Bitmap bitmap=Bitmap.createBitmap(320,100,Bitmap.Config.ARGB_8888);capsule.setBounds(0,0,320,100);capsule.draw(new Canvas(bitmap));
+                assertNull(capsule.getColors());assertEquals(Math.round(255*.62f),Color.alpha(capsule.getColor().getDefaultColor()));bitmap.recycle();
+                android.graphics.drawable.LayerDrawable episode=(android.graphics.drawable.LayerDrawable)playback.episodeBackground(5000);episode.setBounds(0,0,200,60);
+                Bitmap cell=Bitmap.createBitmap(200,60,Bitmap.Config.ARGB_8888);episode.draw(new Canvas(cell));android.graphics.drawable.ClipDrawable progress=(android.graphics.drawable.ClipDrawable)episode.getDrawable(1);
+                android.graphics.drawable.GradientDrawable fill=(android.graphics.drawable.GradientDrawable)progress.getDrawable();assertEquals(TvAppearance.primary()&0xffffff,fill.getColor().getDefaultColor()&0xffffff);assertEquals(playback.dp(12),fill.getCornerRadius(),1f);cell.recycle();
+                View shadow=new View(playback);playback.shadow(shadow,8);assertEquals(0,shadow.getElevation(),0);
+            });screenshot("server-theme-purple-controls.png");
+            server.appearance=new JSONObject(server.appearance.toString()).put("revision","dark").put("mode","dark").put("theme_color","#128a72").put("glass_opacity",1).put("shadow_strength",1).put("background_blur",30);
+            await(()->"dark".equals(TvAppearance.current.optString("revision")));settle();
+            onMain(()->{assertSame("切主题不重建播放器",original,field(playback,"player"));assertFalse(((View)field(playback,"waitingBackground")).isShown());assertEquals(cardSize,new TvPreferences(playback,playback.api).imageSize());assertEquals(0xff128a72,PixelTimeBar.playedColor());assertEquals(255,Color.alpha(TvAppearance.resolve(TvActivity.PANEL)));View shadow=new View(playback);playback.shadow(shadow,8);assertEquals(playback.dp(8),shadow.getElevation(),0);});
+            screenshot("server-theme-dark-controls.png");
+        }finally{cleanup();}
+    }
+    @Test public void capsuleControlsAndLongConfirmShowOnlyActiveMediaParameters()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            onMain(()->assertFalse(((View)field(playback,"videoInfo")).isShown()));holdConfirm();
+            onMain(()->{
+                ExoPlayer player=(ExoPlayer)field(playback,"player");TextView info=(TextView)field(playback,"videoInfo");assertFalse("长按不能触发暂停/恢复",player.getPlayWhenReady());assertTrue(info.isShown());
+                String text=info.getText().toString();assertTrue(text.contains("分辨率："));assertTrue(text.contains("解码器："));assertTrue(text.contains("音轨 · raw-aac"));assertTrue(text.contains("字幕 · raw-effect"));assertFalse(text.contains("raw-ac3"));assertTrue(info.getLeft()<playback.getWindow().getDecorView().getWidth()/2);
+            });
+            clickTrack(false,2);await(()->((TextView)field(playback,"videoInfo")).getText().toString().contains("音轨 · raw-ac3"));settle();
+            onMain(()->{
+                View controls=(View)field(playback,"controls"),decor=playback.getWindow().getDecorView();assertTrue(controls.getLeft()>=playback.dp(48));assertTrue(decor.getWidth()-controls.getRight()>=playback.dp(48));assertEquals(decor.getWidth()/2,controls.getLeft()+controls.getWidth()/2,1);
+                assertTrue(((android.graphics.drawable.GradientDrawable)controls.getBackground()).getCornerRadius()>=controls.getHeight()/2f);assertEquals("控制栏只保留片名和操作栏",2,((ViewGroup)controls).getChildCount());
+                android.graphics.drawable.GradientDrawable capsule=(android.graphics.drawable.GradientDrawable)controls.getBackground();assertNull("胶囊取消渐变",capsule.getColors());assertEquals(TvAppearance.translucent(TvAppearance.surface()),capsule.getColor().getDefaultColor());
+            });screenshot("player-active-media-information.png");
+            holdConfirm();onMain(()->{assertFalse(((View)field(playback,"videoInfo")).isShown());assertFalse(((ExoPlayer)field(playback,"player")).getPlayWhenReady());assertFalse(((AlertDialog)field(playback,"trackDialog")).isShowing());});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MENU);settle();
+            onMain(()->{AlertDialog dialog=(AlertDialog)field(playback,"trackDialog");assertTrue("功能键应打开音轨列表",dialog.getListView().getAdapter().getItem(1).toString().contains("音轨"));dialog.dismiss();});settle();
+            onMain(()->((Button)field(playback,"subtitleButton")).performClick());settle();
+            onMain(()->{AlertDialog dialog=(AlertDialog)field(playback,"trackDialog");assertTrue("字幕按钮仍打开字幕列表",dialog.getListView().getAdapter().getItem(1).toString().contains("关闭字幕"));dialog.dismiss();});settle();
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(1000);player.setPlaybackSpeed(0.1f);});
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);settle();holdConfirm();
+            onMain(()->{assertTrue(((ExoPlayer)field(playback,"player")).getPlayWhenReady());assertTrue(((View)field(playback,"videoInfo")).isShown());});holdConfirm();onMain(()->assertFalse(((View)field(playback,"videoInfo")).isShown()));
+        }finally{cleanup();}
+    }
+    @Test public void pausedPlaybackUsesRoundAvatarAndFallsBackWhenImageFails()throws Exception{
+        try{
+            for(boolean broken:new boolean[]{false,true})try(Fixture server=new Fixture()){
+                server.pauseAvatar=true;server.brokenAvatar=broken;open(server,"movie-single");play();
+                await(()->server.imagePaths.stream().anyMatch(path->path.contains("/Users/detail-fixture/Images/Primary")));
+                if(!broken)await(()->((View)field(playback,"pauseAvatar")).isShown());else settle();
+                onMain(()->{
+                    ImageView avatar=(ImageView)field(playback,"pauseAvatar");TextView name=(TextView)field(playback,"pauseName");
+                    assertEquals(!broken,avatar.isShown());assertEquals(broken,name.isShown());assertEquals("详情测试",name.getText().toString());
+                    assertTrue(avatar.getClipToOutline());assertEquals(avatar.getWidth(),avatar.getHeight());
+                    if(!broken){assertNotNull(avatar.getDrawable());android.graphics.Outline outline=new android.graphics.Outline();avatar.getOutlineProvider().getOutline(avatar,outline);assertEquals(avatar.getWidth()/2f,outline.getRadius(),1f);}
+                });
+                screenshot(broken?"player-paused-avatar-fallback.png":"player-paused-avatar.png");cleanup();
+            }
+        }finally{cleanup();}
+    }
+
     @Test public void backHidesSeekBeforeExitingAndReportsCurrentPosition()throws Exception{
         try(Fixture server=new Fixture(true)){
             open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);
@@ -147,7 +256,7 @@ public class DetailFlowTest {
                     position[0]=((ExoPlayer)field(playback,"player")).getCurrentPosition();
                 });
                 instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();
-                if(seeking){assertFalse("快进后返回先收起提示",playback.isFinishing());assertEquals(stoppedBefore,server.stopped.size());assertFalse(((View)field(playback,"seekProgress")).isShown());instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();}
+                if(seeking){assertFalse("快进后返回先收起提示",playback.isFinishing());assertEquals(stoppedBefore,server.stopped.size());assertFalse((Boolean)field(playback,"seekKeys"));assertTrue("暂停仍显示进度条",((View)field(playback,"seekProgress")).isShown());instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);settle();}
                 assertTrue("无浮层时返回退出",playback.isFinishing());
                 await(()->field(playback,"player")==null&&server.stopped.size()==stoppedBefore+1&&detail.hasWindowFocus());
                 JSONObject stopped=server.stopped.get(stoppedBefore);
@@ -621,10 +730,10 @@ public class DetailFlowTest {
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
             onMain(()->{androidx.media3.ui.PlayerView view=(androidx.media3.ui.PlayerView)field(playback,"video");assertFalse("快进时不显示播放器控制栏",view.isControllerFullyVisible());assertEquals(View.GONE,((View)field(playback,"controls")).getVisibility());assertTrue(((View)field(playback,"seekProgress")).isShown());assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()>=10000);});screenshot("seek-progress-only.png");
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT);settle();onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()<3000));
-            await(()->!((View)field(playback,"seekProgress")).isShown());
+            await(()->!Boolean.TRUE.equals(field(playback,"seekKeys")));assertTrue(((View)field(playback,"seekProgress")).isShown());
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD);settle();onMain(()->{assertFalse(((androidx.media3.ui.PlayerView)field(playback,"video")).isControllerFullyVisible());assertTrue(((View)field(playback,"seekProgress")).isShown());});
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_REWIND);settle();onMain(()->assertTrue(((ExoPlayer)field(playback,"player")).getCurrentPosition()<3000));
-            await(()->!((View)field(playback,"seekProgress")).isShown());
+            await(()->!Boolean.TRUE.equals(field(playback,"seekKeys")));assertTrue(((View)field(playback,"seekProgress")).isShown());
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertEquals(field(playback,"audioButton"),playback.getCurrentFocus());onMain(()->{assertFalse(((View)field(playback,"seekProgress")).isShown());assertEquals(View.VISIBLE,((View)field(playback,"controls")).getVisibility());});
             onMain(()->assertTrue("松手后立即打开控制栏仍须执行目标跳转",((ExoPlayer)field(playback,"player")).getCurrentPosition()>=10000));
             onMain(()->((androidx.media3.ui.PlayerView)field(playback,"video")).hideController());
@@ -919,9 +1028,9 @@ public class DetailFlowTest {
     @Test public void detailActionsAreOneIconRowAndFavoriteBecomesSolidRedHeart()throws Exception{
         try(Fixture server=new Fixture()){
             server.admin=true;open(server,"item-1");await(()->((Button)field(detail,"deleteButton")).isShown());
-            onMain(()->{Button play=(Button)field(detail,"playButton");ViewGroup row=(ViewGroup)play.getParent();for(int i=0;i<row.getChildCount();i++){Button action=(Button)row.getChildAt(i);if(!action.isShown())continue;assertEquals("",action.getText().toString());assertNotNull(action.getCompoundDrawables()[0]);assertEquals(play.getTop(),action.getTop());assertEquals(play.getWidth(),action.getWidth());assertEquals(play.getHeight(),action.getHeight());android.graphics.drawable.StateListDrawable fill=(android.graphics.drawable.StateListDrawable)action.getBackground();android.graphics.drawable.GradientDrawable idleFill=(android.graphics.drawable.GradientDrawable)fill.getStateDrawable(fill.getStateCount()-1);assertEquals(Color.argb(105,0,0,0),idleFill.getColor().getDefaultColor());android.graphics.drawable.LayerDrawable focusedFill=(android.graphics.drawable.LayerDrawable)fill.getStateDrawable(0);assertEquals(Color.argb(150,0,0,0),((android.graphics.drawable.GradientDrawable)focusedFill.getDrawable(0)).getColor().getDefaultColor());Rect visible=new Rect();assertTrue(action.getGlobalVisibleRect(visible));assertEquals(action.getWidth(),visible.width());}
+            onMain(()->{Button play=(Button)field(detail,"playButton");ViewGroup row=(ViewGroup)play.getParent();for(int i=0;i<row.getChildCount();i++){Button action=(Button)row.getChildAt(i);if(!action.isShown())continue;assertEquals("",action.getText().toString());assertNotNull(action.getCompoundDrawables()[0]);assertEquals(play.getTop(),action.getTop());assertEquals(play.getWidth(),action.getWidth());assertEquals(play.getHeight(),action.getHeight());android.graphics.drawable.StateListDrawable fill=(android.graphics.drawable.StateListDrawable)action.getBackground();android.graphics.drawable.GradientDrawable idleFill=(android.graphics.drawable.GradientDrawable)fill.getStateDrawable(fill.getStateCount()-1);assertEquals(TvAppearance.resolve(TvActivity.PANEL),idleFill.getColor().getDefaultColor());android.graphics.drawable.LayerDrawable focusedFill=(android.graphics.drawable.LayerDrawable)fill.getStateDrawable(0);assertEquals(TvAppearance.resolve(TvActivity.PANEL),((android.graphics.drawable.GradientDrawable)focusedFill.getDrawable(0)).getColor().getDefaultColor());Rect visible=new Rect();assertTrue(action.getGlobalVisibleRect(visible));assertEquals(action.getWidth(),visible.width());}
                 assertEquals(0,Color.alpha(iconCenter((Button)field(detail,"favoriteButton"))));
-                android.graphics.drawable.StateListDrawable background=(android.graphics.drawable.StateListDrawable)((Button)field(detail,"audioButton")).getBackground();android.graphics.drawable.GradientDrawable idle=(android.graphics.drawable.GradientDrawable)background.getStateDrawable(background.getStateCount()-1);assertTrue(Color.alpha(idle.getColor().getDefaultColor())<255);
+                android.graphics.drawable.StateListDrawable background=(android.graphics.drawable.StateListDrawable)((Button)field(detail,"audioButton")).getBackground();android.graphics.drawable.GradientDrawable idle=(android.graphics.drawable.GradientDrawable)background.getStateDrawable(background.getStateCount()-1);assertEquals(TvAppearance.resolve(TvActivity.PANEL),idle.getColor().getDefaultColor());
                 ((Button)field(detail,"favoriteButton")).performClick();});
             await(()->server.favorite&&"取消收藏".equals(((Button)field(detail,"favoriteButton")).getContentDescription()));
             onMain(()->{int color=iconCenter((Button)field(detail,"favoriteButton"));assertTrue(Color.red(color)>220&&Color.green(color)<100&&Color.alpha(color)==255);});screenshot("detail-icon-actions-red-heart.png");
@@ -1079,7 +1188,9 @@ public class DetailFlowTest {
         volatile java.util.concurrent.CountDownLatch translationRequested,translationGate;
         final List<JSONObject> translationCues=Collections.synchronizedList(new ArrayList<>());
         volatile boolean placeholderDates,admin,favorite,watched,liveArtwork,changed,holdMetadata,slotLabels,versionUpdates;
-        volatile boolean holdIdentity;
+        volatile boolean holdIdentity,pauseAvatar,brokenAvatar,holdPlayback;
+        volatile JSONObject appearance=new JSONObject();
+        final java.util.concurrent.CountDownLatch playbackRequested=new java.util.concurrent.CountDownLatch(1),playbackGate=new java.util.concurrent.CountDownLatch(1);
         volatile int refreshStatusRequests;
         volatile String taskStatus="running";
         volatile boolean discoveryAllowed;
@@ -1126,6 +1237,8 @@ public class DetailFlowTest {
         }
         JSONObject base(String id,String type)throws Exception{return new JSONObject().put("ProviderIds",new JSONObject().put("Tmdb","123")).put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演"))).put("UserData",new JSONObject().put("IsFavorite",favorite).put("Played",watched)).put("BackdropImageTags",new JSONArray().put(changed?"art2":"art1")).put("ImageTags",new JSONObject().put("Logo",changed?"art2":"art1"));}
         JSONObject response(String path)throws Exception{
+            if(path.equals("/api/tv/System/Appearance"))return appearance;
+            if(holdPlayback&&path.contains("/PlaybackInfo")){playbackRequested.countDown();if(!playbackGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic playback gate timed out");}
             if(path.endsWith("/SubtitleTranslation")){JSONArray result=new JSONArray();if(translationReady)synchronized(translationCues){for(JSONObject cue:translationCues)result.put(new JSONObject().put("start",cue.getLong("start")).put("end",cue.getLong("end")).put("source",cue.getString("text")).put("text","合成译文\n"+cue.getString("text")));}return new JSONObject().put("Enabled",true).put("Key","fixture-key").put("Complete",false).put("Cues",result);}
             if(browseFeatures&&path.contains("/Collections?"))return new JSONObject().put("Items",new JSONArray().put(new JSONObject().put("Id","collection-1").put("Name","合成合集").put("Type","BoxSet"))).put("TotalRecordCount",1);
             if(browseFeatures&&(path.contains("/Browse?")||path.contains("/Items?"))){lastBrowsePath=path;return new JSONObject().put("Items",new JSONArray().put(base("movie-browse","Movie"))).put("TotalRecordCount",1);}
@@ -1133,7 +1246,7 @@ public class DetailFlowTest {
             if(path.contains("-resources?")){cloudPaths.add(path);return new JSONObject().put("resources",new JSONArray());}
             if(path.contains("/Refresh?"))return new JSONObject().put("submitted",true).put("RefreshRunId",123);
             if(path.contains("/Refresh/")){refreshStatusRequests++;return new JSONObject().put("RefreshRunId",123).put("status",taskStatus).put("finished",!taskStatus.equals("running"));}
-            if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin));
+            if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin)).put("PrimaryImageTag",pauseAvatar?"pause-avatar":"");
             if(path.contains("/FavoriteItems/")||path.contains("/PlayedItems/"))return new JSONObject().put("IsFavorite",favorite).put("Played",watched);
             if(path.contains("/Episodes")&&!path.contains("Fields=")&&nextGate!=null){nextRequested.countDown();if(!nextGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic next-episode gate timed out");}
             if(path.contains("/Sessions/")){reports++;return new JSONObject();}
@@ -1158,7 +1271,7 @@ public class DetailFlowTest {
                 if(post&&path.endsWith("/SubtitleTranslation")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;JSONArray cues=new JSONObject(new String(data)).getJSONArray("cues");synchronized(translationCues){for(int i=0;i<cues.length();i++){JSONObject cue=cues.getJSONObject(i);if(translationCues.stream().noneMatch(c->c.toString().equals(cue.toString())))translationCues.add(cue);}}}
                 if(path.endsWith("/SubtitleTranslation")&&translationGate!=null){java.util.concurrent.CountDownLatch gate=translationGate;translationRequested.countDown();if(!gate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic translation gate timed out");if(translationGate==gate)translationGate=new java.util.concurrent.CountDownLatch(1);}
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path;
-                boolean picture=path.contains("/Images/")||path.contains("/FacetArtwork?"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single")||path.contains("/FacetArtwork?")&&path.contains("Kind=Networks");if(picture)imagePaths.add(path);
+                boolean picture=path.contains("/Images/")||path.contains("/FacetArtwork?")||path.contains("/Appearance/Background"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single")||path.contains("/FacetArtwork?")&&path.contains("Kind=Networks")||brokenAvatar&&path.contains("/Users/detail-fixture/Images/Primary");if(picture)imagePaths.add(path);
                 byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?(path.contains("tag=art2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 if(holdMetadata&&!post&&!picture&&path.contains("/Users/")&&path.contains("/Items/")){metadataRequested.countDown();metadataGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}
                 if(holdIdentity&&path.contains("/Items/movie-single/Images/")){if(path.contains("/Backdrop")){backgroundRequested.countDown();backdropGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}if(path.contains("/Logo"))logoRequested.countDown();}
@@ -1167,6 +1280,6 @@ public class DetailFlowTest {
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);
             }
         }
-        @Override public void close()throws IOException{closed=true;backdropGate.countDown();updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;playbackGate.countDown();backdropGate.countDown();updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();socket.close();}
     }
 }

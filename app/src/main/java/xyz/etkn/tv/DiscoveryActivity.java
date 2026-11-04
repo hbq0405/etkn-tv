@@ -59,7 +59,7 @@ public final class DiscoveryActivity extends TvActivity {
         content=column();screenScroll.addView(content);
         stage.addView(screenScroll,new FrameLayout.LayoutParams(-1,-1));
         nav=row();nav.setPadding(dp(28),dp(10),dp(18),dp(10));nav.setClipChildren(false);nav.setClipToPadding(false);
-        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setClipChildren(false);menu.setClipToPadding(false);menu.setBackgroundColor(Color.argb(245,11,17,26));menu.addView(nav);menu.setVisibility(View.GONE);
+        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setClipChildren(false);menu.setClipToPadding(false);menu.setBackground(shape(PANEL,0));menu.addView(nav);menu.setVisibility(View.GONE);
         stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(82),Gravity.TOP));
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);
@@ -154,7 +154,7 @@ public final class DiscoveryActivity extends TvActivity {
     }
     private View discoveryCard(GridLayout grid,JSONObject item,Runnable click){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);card.setOnClickListener(v->click.run());
-        FrameLayout artwork=new FrameLayout(this);
+        FrameLayout artwork=new FrameLayout(this);artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);card.setClipChildren(false);grid.setClipChildren(false);grid.setClipToPadding(false);
         ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));
         artwork.addView(poster,new FrameLayout.LayoutParams(-1,-1));
         // 网页版样式：片名与年份压在海报底部渐变区，不再占用卡片下方空间。
@@ -184,7 +184,7 @@ public final class DiscoveryActivity extends TvActivity {
         String image=EtknApi.tmdbImage(item.optString("poster_path"),"w185");
         if(image.isEmpty())poster.setBackgroundColor(PANEL);else Images.visible(api,image,poster,success->{});
         card.setOnFocusChangeListener((view,hasFocus)->{
-            card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);
+            card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);
             artwork.setForeground(hasFocus?focusOutline():null);
             if(hasFocus)browseFocus=card;
         });
@@ -384,7 +384,7 @@ public final class DiscoveryActivity extends TvActivity {
         int number=entry.optInt("season_number");
         LinearLayout row=column();row.setFocusable(true);row.setClickable(true);row.setBackground(focusBackground());row.setPadding(dp(16),dp(8),dp(16),dp(10));
         LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name=text("第 "+number+" 季 · "+entry.optString("name",""),15,Color.WHITE);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView name=text("第 "+number+" 季 · "+entry.optString("name",""),15,TEXT);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         line.addView(name,new LinearLayout.LayoutParams(0,-2,1));
         String ribbon=statusLabel(entry);
         if(ribbon!=null)line.addView(chipView(ribbon,statusColor(entry),Color.WHITE));
@@ -434,10 +434,11 @@ public final class DiscoveryActivity extends TvActivity {
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);
         card.setOnClickListener(v->enterPerson(actor));
         FrameLayout artwork=new FrameLayout(this);
+        artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);card.setClipChildren(false);card.setClipToPadding(false);
         ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(portrait,dp(9));
         artwork.addView(portrait,new FrameLayout.LayoutParams(-1,-1));
         card.addView(artwork,new LinearLayout.LayoutParams(dp(102),dp(150)));
-        TextView name=text(actor.optString("name"),11,Color.WHITE);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);name.setGravity(Gravity.CENTER);name.setPadding(0,dp(3),0,0);
+        TextView name=text(actor.optString("name"),11,TEXT);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);name.setGravity(Gravity.CENTER);name.setPadding(0,dp(3),0,0);
         card.addView(name,new LinearLayout.LayoutParams(dp(102),dp(17)));
         TextView character=text(actor.optString("character"),9,MUTED);character.setMaxLines(1);character.setEllipsize(android.text.TextUtils.TruncateAt.END);character.setGravity(Gravity.CENTER);
         card.addView(character,new LinearLayout.LayoutParams(dp(102),dp(15)));
@@ -445,7 +446,7 @@ public final class DiscoveryActivity extends TvActivity {
         grid.addView(card,layout);
         String image=EtknApi.tmdbImage(actor.optString("profile_path"),"w185");
         if(image.isEmpty())portrait.setBackgroundColor(PANEL);else Images.visible(api,image,portrait,success->{});
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(hasFocus?dp(8):0);artwork.setForeground(hasFocus?focusOutline():null);});
+        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():null);});
     }
     private void enterPerson(JSONObject actor){
         if(actor.optString("id").isEmpty())return;
@@ -471,7 +472,7 @@ public final class DiscoveryActivity extends TvActivity {
         LinearLayout.LayoutParams portraitBounds=new LinearLayout.LayoutParams(dp(132),dp(198));portraitBounds.rightMargin=dp(22);portraitBounds.topMargin=dp(6);
         header.addView(portrait,portraitBounds);
         LinearLayout info=column();
-        TextView name=text(personInfo==null?"":personInfo.optString("name"),26,Color.WHITE);name.setTypeface(null,Typeface.BOLD);name.setMaxLines(2);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView name=text(personInfo==null?"":personInfo.optString("name"),26,TEXT);name.setTypeface(null,Typeface.BOLD);name.setMaxLines(2);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         info.addView(name);
         final String biography=personInfo==null?"":personInfo.optString("biography");
         TextView bio=text(biography.isEmpty()?"暂无人物简介":biography,13,MUTED);bio.setMaxLines(7);bio.setEllipsize(android.text.TextUtils.TruncateAt.END);bio.setFocusable(true);bio.setBackground(transparentFocusBackground());bio.setPadding(dp(14),dp(6),dp(6),dp(6));
@@ -596,7 +597,7 @@ public final class DiscoveryActivity extends TvActivity {
         final JSONObject item=selected;final Integer wantedSeason=season;
         if(item==null)return;
         content.removeAllViews();detailBackdrop=null;detailOverview=null;
-        content.addView(text(EtknApi.title(item)+(wantedSeason==null?"":" · 第 "+wantedSeason+" 季"),24,Color.WHITE));
+        content.addView(text(EtknApi.title(item)+(wantedSeason==null?"":" · 第 "+wantedSeason+" 季"),24,TEXT));
         status.setText("正在搜索共享池、re0 和频道…");
         String tmdb=EtknApi.encode(item.optString("id")),title=EtknApi.encode(EtknApi.title(item)),type=mediaTypeOf(item,kind);
         String[] providers={"shared_pool","re0","channel"};
@@ -638,7 +639,7 @@ public final class DiscoveryActivity extends TvActivity {
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackground(focusBackground());
         card.setPadding(dp(16),dp(10),dp(16),dp(12));
         LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title=text(EtknApi.title(row.source),15,Color.WHITE);title.setTypeface(null,Typeface.BOLD);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView title=text(EtknApi.title(row.source),15,TEXT);title.setTypeface(null,Typeface.BOLD);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         line.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         String version=CloudResources.versionLabel(row);
         if(!version.isEmpty())line.addView(chipView(version,Color.rgb(55,71,90),Color.WHITE));
@@ -699,7 +700,7 @@ public final class DiscoveryActivity extends TvActivity {
     private void openFilters(){
         filterSummaries.clear();filterTiles.clear();
         LinearLayout panel=column();panel.setPadding(dp(22),dp(18),dp(22),dp(14));panel.setBackground(shape(INK,0));
-        TextView heading=text("筛选影视",21,Color.WHITE);heading.setTypeface(null,Typeface.BOLD);panel.addView(heading);
+        TextView heading=text("筛选影视",21,TEXT);heading.setTypeface(null,Typeface.BOLD);panel.addView(heading);
         panel.addView(text("多项条件可一起选择，完成后统一确认",12,MUTED));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setClipToPadding(false);
         LinearLayout tiles=column();tiles.setClipChildren(false);tiles.setClipToPadding(false);
@@ -729,7 +730,7 @@ public final class DiscoveryActivity extends TvActivity {
     }
     private void addFilterTile(LinearLayout line,String key,String title,Runnable action){
         LinearLayout tile=column();tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(14),dp(7),dp(12),dp(7));tile.setBackground(focusBackground());tile.setFocusable(true);tile.setClickable(true);
-        TextView heading=text(title,14,Color.WHITE);heading.setTypeface(null,Typeface.BOLD);heading.setPadding(0,0,0,dp(2));tile.addView(heading);
+        TextView heading=text(title,14,TEXT);heading.setTypeface(null,Typeface.BOLD);heading.setPadding(0,0,0,dp(2));tile.addView(heading);
         TextView summary=text("",11,MUTED);summary.setSingleLine(true);summary.setEllipsize(android.text.TextUtils.TruncateAt.END);summary.setPadding(0,0,0,0);tile.addView(summary);filterSummaries.put(key,summary);filterTiles.put(key,tile);
         tile.setOnClickListener(view->action.run());
         boolean enabled=query.trim().isEmpty()||key.equals("hide");tile.setEnabled(enabled);tile.setAlpha(enabled?1f:.48f);

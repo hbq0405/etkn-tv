@@ -31,7 +31,7 @@ final class FocusBackdrop extends FrameLayout {
     private final android.util.LruCache<String,Bitmap> blurredImages=new android.util.LruCache<>(1024*1024){@Override protected int sizeOf(String key,Bitmap image){return image.getAllocationByteCount();}};
 
     FocusBackdrop(TvActivity activity){
-        super(activity);this.activity=activity;setBackgroundColor(TvActivity.INK);
+        super(activity);this.activity=activity;setBackgroundColor(Color.TRANSPARENT);setVisibility(GONE);
         backdrop=new ImageView(activity);backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(backdrop,activity.dp(10));addView(backdrop,new LayoutParams(-1,-1));
         previousBackdrop=new ImageView(activity);previousBackdrop.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(previousBackdrop,activity.dp(10));addView(previousBackdrop,new LayoutParams(-1,-1));
         imageLoader=new ImageView(activity);imageLoader.setVisibility(GONE);addView(imageLoader,new LayoutParams(0,0));
@@ -49,7 +49,7 @@ final class FocusBackdrop extends FrameLayout {
     }
 
     void show(JSONObject item,boolean library,boolean showDetails){
-        current=item;contentSerial++;pendingContent=true;pendingLogoReady=false;sharp=null;blurred=null;imageKey="";pendingBlur="";
+        setVisibility(VISIBLE);current=item;contentSerial++;pendingContent=true;pendingLogoReady=false;sharp=null;blurred=null;imageKey="";pendingBlur="";
         int serial=contentSerial;
         pendingTitle=library?EtknApi.title(item):EtknApi.resumeTitle(item);
         String type=library?"媒体库":"Episode".equals(item.optString("Type"))||"Series".equals(item.optString("Type"))?"剧集":"电影";
@@ -65,7 +65,7 @@ final class FocusBackdrop extends FrameLayout {
         }
     }
 
-    void clear(){contentSerial++;cancelTransition(true);current=null;pendingContent=false;visibleShowDetails=false;sharp=null;blurred=null;lastBlurred=null;displayed=null;imageKey="";pendingBlur="";imageLoader.setTag("none:"+System.nanoTime());imageLoader.setImageDrawable(null);pendingLogo.setTag("none:"+System.nanoTime());pendingLogo.setImageDrawable(null);backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");action.setVisibility(GONE);copy.setAlpha(1f);copy.setVisibility(GONE);resumeFocused(false);}
+    void clear(){setVisibility(GONE);contentSerial++;cancelTransition(true);current=null;pendingContent=false;visibleShowDetails=false;sharp=null;blurred=null;lastBlurred=null;displayed=null;imageKey="";pendingBlur="";imageLoader.setTag("none:"+System.nanoTime());imageLoader.setImageDrawable(null);pendingLogo.setTag("none:"+System.nanoTime());pendingLogo.setImageDrawable(null);backdrop.setImageDrawable(null);logo.setImageDrawable(null);logo.setTag("none:"+System.nanoTime());logo.setVisibility(GONE);title.setText("");title.setVisibility(GONE);metadata.setText("");overview.setText("");action.setVisibility(GONE);copy.setAlpha(1f);copy.setVisibility(GONE);resumeFocused(false);}
 
     /** Focus controls only the backdrop image and information; the carousel action stays operable. */
     void resumeFocused(boolean focused){boolean changed=resumeFocused!=focused;if(changed)cancelTransition(true);resumeFocused=focused;boolean showInfo=focused&&visibleShowDetails&&(!changed||!pendingContent);information.setVisibility(showInfo?VISIBLE:GONE);action.setVisibility(actionVisible&&showInfo?VISIBLE:GONE);displayImage(false);}
