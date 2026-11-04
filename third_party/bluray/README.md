@@ -8,7 +8,9 @@ The build script fetches and verifies these upstream source releases:
 - libudfread 1.1.2, LGPL-2.1-or-later, SHA-256 `d5946f19b27288ce0911eb11fe583c136767421220ece3bafc96245efd208915`
 - FFmpeg 6.0, LGPL/GPL components selected by the existing ETKN decoder build, SHA-256 `57be87c22d9b49c112b6d24bc67d42508660e6b718b3db89c44e47e289137082`
 
-The application supplies block reads from the original HTTP resource. libbluray selects the main playlist and exposes its MPEG-TS packets to FFmpeg. The server remains a direct-link/redirect transport; no media proxy or transcoding path is added.
+The application supplies block reads from the original HTTP resource. libbluray selects the server's probed playlist when supplied, otherwise its main playlist, and exposes MPEG-TS packets to FFmpeg. Track identity uses the transport PID and codec, including separate TrueHD and AC3 compatibility streams sharing a PID. The server remains a direct-link/redirect transport; no media proxy or transcoding path is added.
+
+`seek_point.c.inc` is appended in a generated translation unit to the pinned libbluray `bluray.c`. It uses the loaded CLPI navigation index without moving the live reader or invoking Java. Media3's SeekMap queries must not call `bd_seek_time`; actual seeks remain on the loader thread. The pinned upstream source is not edited.
 
 Disc Java applications and encrypted discs are rejected. The player supports the selected title, seeking, audio/video tracks and PGS subtitle tracks exposed by the playlist.
 

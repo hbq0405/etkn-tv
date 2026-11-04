@@ -42,10 +42,10 @@ abstract class TvActivity extends Activity {
         updateAppearanceViews();
     }
     private void refreshAppearance(){
-        if(!appearanceForeground||appearanceLoading||api.token.isEmpty())return;
+        if(!appearanceForeground||appearanceLoading||api.token.isEmpty()||TvAppearance.locked(this,api.server))return;
         appearanceLoading=true;
         IO.execute(()->{org.json.JSONObject value=null;try{value=api.get("/api/tv/System/Appearance");}catch(Exception ignored){}org.json.JSONObject result=value;runOnUiThread(()->{
-            appearanceLoading=false;if(!appearanceForeground||isDestroyed()||!api.server.equals(api.session.server())||!api.token.equals(api.session.token())||result==null)return;
+            appearanceLoading=false;if(!appearanceForeground||isDestroyed()||!api.server.equals(api.session.server())||!api.token.equals(api.session.token())||result==null||TvAppearance.locked(this,api.server))return;
             if(!result.toString().equals(TvAppearance.current.toString())){TvAppearance.save(this,api.server,result);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();appearanceChanged();}
         });});
     }
@@ -53,6 +53,7 @@ abstract class TvActivity extends Activity {
     boolean appearanceDark(){return forceDarkAppearance()||TvAppearance.dark();}
     int resolveColor(int color){return TvAppearance.resolve(color,forceDarkAppearance());}
     void appearanceChanged(){}
+    void reloadAppearance(){TvAppearance.load(this,api.server);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();appearanceChanged();refreshAppearance();}
     void themeText(TextView view,int color){view.setTag(R.id.appearance_text,color);view.setTextColor(resolveColor(color));themedTexts.add(new java.lang.ref.WeakReference<>(view));}
     private void updateAppearanceViews(){
         themedTexts.removeIf(reference->{TextView view=reference.get();if(view==null)return true;Object color=view.getTag(R.id.appearance_text);if(color instanceof Integer)view.setTextColor(resolveColor((Integer)color));return false;});

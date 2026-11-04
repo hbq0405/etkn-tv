@@ -302,7 +302,7 @@ public final class PlayerActivity extends TvActivity {
             JSONArray chapters=source.optJSONArray("Chapters");long duration=source.optLong("RunTimeTicks",0)/10000;long startPosition=SkipSegments.initialPosition(chapters,position,duration,skipMode==TvPreferences.SKIP_AUTO&&playWhenReady);
             SkipSegments.Segment startSegment=SkipSegments.at(chapters,Math.max(0,position),duration);introSkippedAtStart=skipMode==TvPreferences.SKIP_AUTO&&playWhenReady&&startPosition>Math.max(0,position)&&startSegment!=null&&"跳过片头".equals(startSegment.label);
             playbackTiming.event("initial_position","position_ms="+startPosition);
-            player.setMediaItem(new MediaItem.Builder().setUri(address).setSubtitleConfigurations(subtitles).build(),startPosition);
+            player.setMediaItem(new MediaItem.Builder().setUri(address).setTag(source).setSubtitleConfigurations(subtitles).build(),startPosition);
             reportedStart=false;
             videoFrameSeen=false;videoReadySince=0;videoDecoder="等待解码器";updatePlaybackOverlay();
             player.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener(){
@@ -349,7 +349,7 @@ public final class PlayerActivity extends TvActivity {
     private void updateVideoInfo(){
         if(player==null||videoInfo==null||videoInfo.getVisibility()!=View.VISIBLE)return;Format format=player.getVideoFormat();
         if(format==null)for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_VIDEO)for(int i=0;i<group.length;i++)if(group.isTrackSelected(i))format=group.getTrackFormat(i);
-        JSONObject videoStream=null,onlyVideo=null;int videoCount=0;JSONArray streams=source==null?null:source.optJSONArray("MediaStreams");if(streams!=null)for(int i=0;i<streams.length();i++){JSONObject stream=streams.optJSONObject(i);if(stream!=null&&"Video".equalsIgnoreCase(stream.optString("Type"))){videoCount++;onlyVideo=stream;if(format!=null&&Integer.toString(stream.optInt("Index",-1)).equals(PlaybackSelection.localTrackId(format.id)))videoStream=stream;}}if(videoStream==null&&videoCount==1)videoStream=onlyVideo;
+        JSONObject videoStream=null,onlyVideo=null;int videoCount=0;JSONArray streams=source==null?null:source.optJSONArray("MediaStreams");if(streams!=null)for(int i=0;i<streams.length();i++){JSONObject stream=streams.optJSONObject(i);if(stream!=null&&"Video".equalsIgnoreCase(stream.optString("Type"))){videoCount++;onlyVideo=stream;if(format!=null&&(DiscTrackIdentity.matches(stream,format.id)||Integer.toString(stream.optInt("Index",-1)).equals(PlaybackSelection.localTrackId(format.id))))videoStream=stream;}}if(videoStream==null&&videoCount==1)videoStream=onlyVideo;
         Format subtitle=null;for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_TEXT)for(int i=0;i<group.length;i++)if(group.isTrackSelected(i))subtitle=group.getTrackFormat(i);
         boolean disabled=player.getTrackSelectionParameters().disabledTrackTypes.contains(C.TRACK_TYPE_TEXT);
         videoInfo.setText("媒体信息\n\n视频\n"+mediaParameters(format,videoStream)+"解码器："+videoDecoder+"\n\n音轨 · "+currentTrackTitle(false)+"\n"+mediaParameters(player.getAudioFormat(),selectedStream(false))+"\n字幕 · "+currentTrackTitle(true)+(disabled?"":"\n"+mediaParameters(subtitle,selectedStream(true))));
@@ -415,13 +415,15 @@ public final class PlayerActivity extends TvActivity {
         boolean supported(){return group.isTrackSupported(index);}
     }
     private TrackRef findTrack(JSONObject stream,int type){
-        if(player==null)return null;List<TrackRef> embedded=new ArrayList<>();String externalId=PlaybackSelection.externalId(stream.optInt("Index"));TrackRef named=null;int namedCount=0;
+        if(player==null)return null;List<TrackRef> embedded=new ArrayList<>();String externalId=PlaybackSelection.externalId(stream.optInt("Index"));TrackRef named=null,identified=null;int namedCount=0,identityCount=0;
         for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==type)for(int i=0;i<group.length;i++){
             Format format=group.getTrackFormat(i);String id=PlaybackSelection.localTrackId(format.id);boolean external=id.startsWith("etkn-subtitle-");
             if(stream.optBoolean("IsExternal")){if(externalId.equals(id))return new TrackRef(group,i);}
-            else if(!external){TrackRef ref=new TrackRef(group,i);embedded.add(ref);if(!stream.optString("Title").isEmpty()&&stream.optString("Title").equals(format.label)){named=ref;namedCount++;}}
+            else if(!external){TrackRef ref=new TrackRef(group,i);embedded.add(ref);if(DiscTrackIdentity.matches(stream,format.id)){identified=ref;identityCount++;}if(!stream.optString("Title").isEmpty()&&stream.optString("Title").equals(format.label)){named=ref;namedCount++;}}
         }
-        if(stream.optBoolean("IsExternal"))return null;if(type==C.TRACK_TYPE_TEXT&&namedCount==1)return named;
+        if(stream.optBoolean("IsExternal"))return null;
+        if(stream.optInt("TransportStreamId",-1)>0)return identityCount==1?identified:null;
+        if(type==C.TRACK_TYPE_TEXT&&namedCount==1)return named;
         List<JSONObject> expected=new ArrayList<>();for(JSONObject value:PlaybackSelection.streams(source,type==C.TRACK_TYPE_TEXT))if(!value.optBoolean("IsExternal"))expected.add(value);
         // Ordinals are valid only when both parsers exposed the same complete list.
         int ordinal=PlaybackSelection.embeddedOrdinal(source,stream.optInt("Index"),type==C.TRACK_TYPE_TEXT);

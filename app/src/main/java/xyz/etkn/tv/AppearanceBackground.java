@@ -19,8 +19,17 @@ final class AppearanceBackground extends FrameLayout {
     void update(){
         setBackgroundColor(TvAppearance.background(host.appearanceDark()));
         String path=TvAppearance.current.optString("background_url");int blur=TvAppearance.current.optInt("background_blur",10);
-        String next=path+":"+blur;if(next.equals(key))return;key=next;int request=++ticket;
+        java.io.File local=TvAppearance.lockedBackground(host,host.api);
+        String next=path+":"+blur+":"+(local==null?"":local.getName());if(next.equals(key))return;key=next;int request=++ticket;
         image.setImageDrawable(null);if(path.isEmpty()){loader.setTag(next);return;}
+        if(local!=null){
+            loader.setTag(next);TvActivity.IO.execute(()->{
+                android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inJustDecodeBounds=true;android.graphics.BitmapFactory.decodeFile(local.getPath(),options);
+                options.inSampleSize=1;while(options.outWidth/options.inSampleSize>3840||options.outHeight/options.inSampleSize>2160)options.inSampleSize*=2;options.inJustDecodeBounds=false;
+                Bitmap source=android.graphics.BitmapFactory.decodeFile(local.getPath(),options);if(source==null)return;Bitmap result=BackdropBlur.create(source,blur);if(result!=source)source.recycle();
+                post(()->{if(request==ticket&&!host.isDestroyed())image.setImageBitmap(result);else result.recycle();});
+            });return;
+        }
         Images.thumbnail(host.api,host.api.server+path,loader,1920,1080,success->{
             if(request!=ticket||!success||!(loader.getDrawable() instanceof BitmapDrawable))return;
             Bitmap source=((BitmapDrawable)loader.getDrawable()).getBitmap();

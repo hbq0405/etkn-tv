@@ -46,6 +46,10 @@ def main():
             with tarfile.open(archive) as content:
                 content.extractall(args.work, filter="data")
     bluray, udf, ffmpeg = [args.work / n for n in ("libbluray-1.3.4", "libudfread-1.1.2", "ffmpeg-6.0")]
+    # Build a separate translation unit; keep the verified upstream source intact.
+    seek_source = args.work / "bluray_seek.c"
+    seek_source.write_text('#include "' + (bluray / "src/libbluray/bluray.c").as_posix() + '"\n'
+                           + (root / "third_party/bluray/seek_point.c.inc").read_text(encoding="utf-8"), encoding="utf-8")
     host = {"Windows": "windows-x86_64", "Linux": "linux-x86_64", "Darwin": "darwin-x86_64"}[platform.system()]
     suffix = ".exe" if platform.system() == "Windows" else ""
     toolbin = args.ndk / "toolchains/llvm/prebuilt" / host / "bin"
@@ -54,6 +58,7 @@ def main():
     # Use upstream's core source list, with the BD-J implementation disabled.
     listing = (bluray / "Makefile.am").read_text(encoding="utf-8").split("# bd-j")[0]
     files = [bluray / n for n in re.findall(r"\bsrc/[\w/]+\.c\b", listing)]
+    files = [seek_source if file == bluray / "src/libbluray/bluray.c" else file for file in files]
     files += [bluray / n for n in ["src/libbluray/disc/udf_fs.c", "src/libbluray/bdj/bdjo_parse.c", "src/file/dir_posix.c", "src/file/dirs_xdg.c", "src/file/dl_posix.c", "src/file/file_posix.c", "src/file/mount.c"]]
     files += [udf / "src" / n for n in ["udfread.c", "ecma167.c", "default_blockinput.c"]]
     files += [root / "third_party/bluray/bdj_disabled.c"]

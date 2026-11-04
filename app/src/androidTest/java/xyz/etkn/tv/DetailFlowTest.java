@@ -53,6 +53,59 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
     private PlayerActivity playback;
+    @Test public void isoTracksUsePidDespiteDifferentCountsAndSurviveRepeatedSeeks()throws Exception{
+        try(Fixture server=new Fixture(false,"disc-tracks.iso")){
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");int count=0;for(Tracks.Group group:player.getCurrentTracks().getGroups())if(group.getType()==C.TRACK_TYPE_AUDIO)count+=group.length;assertTrue("TrueHD兼容轨使本地数量多于服务器",count>3);});
+            for(int choice:new int[]{2,3,1}){
+                clickTrack(false,choice);final int pid=choice==1?4352:choice==2?4353:4354;final String mime=choice==1?MimeTypes.AUDIO_TRUEHD:MimeTypes.AUDIO_AC3;
+                await(()->selected(C.TRACK_TYPE_AUDIO).equals(DiscTrackIdentity.id(pid,mime)));
+                onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(1000);player.play();});
+                await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.getAudioFormat()!=null&&mime.equals(player.getAudioFormat().sampleMimeType)&&player.getAudioDecoderCounters()!=null&&player.getAudioDecoderCounters().renderedOutputBufferCount>0;});
+                onMain(()->((ExoPlayer)field(playback,"player")).pause());
+            }
+            clickTrack(true,2);await(()->selected(C.TRACK_TYPE_TEXT).equals(DiscTrackIdentity.id(4608,MimeTypes.APPLICATION_PGS)));
+            for(long position:new long[]{6000,12000,2000,16000,0}){
+                onMain(()->((ExoPlayer)field(playback,"player")).seekTo(position));
+                await(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");return player.getPlaybackState()==Player.STATE_READY&&Math.abs(player.getCurrentPosition()-position)<600;});
+                onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");assertNull(player.getPlayerError());assertEquals(DiscTrackIdentity.id(4352,MimeTypes.AUDIO_TRUEHD),selected(C.TRACK_TYPE_AUDIO));assertEquals(DiscTrackIdentity.id(4608,MimeTypes.APPLICATION_PGS),selected(C.TRACK_TYPE_TEXT));});
+            }
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(1600);player.play();});
+            await(()->!((ExoPlayer)field(playback,"player")).getCurrentCues().cues.isEmpty());
+            onMain(()->((ExoPlayer)field(playback,"player")).pause());
+            screenshot("iso-pid-track-selection.png");
+        }finally{cleanup();}
+    }
+    @Test public void isoSeekPointQueriesLeaveTheReaderPositionUntouched()throws Exception{
+        android.content.Context context=instrumentation.getTargetContext();File file=new File(context.getCacheDir(),"seek-fixture.iso");
+        try(InputStream input=instrumentation.getContext().getAssets().open("disc-tracks.iso");OutputStream output=new FileOutputStream(file)){byte[] buffer=new byte[8192];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);}
+        try(BlurayInput input=new BlurayInput(new androidx.media3.datasource.DefaultDataSource.Factory(context),android.net.Uri.fromFile(file))){
+            long handle=BlurayNative.open(input,801);
+            try{byte[] expected=new byte[8192],actual=new byte[8192];assertEquals(8192,BlurayNative.read(handle,expected,0,expected.length));assertEquals(0,BlurayNative.seek(handle,0));
+                for(long time:new long[]{15000000,5000000,19900000,0})assertTrue(BlurayNative.seekPoint(handle,time)>=0);
+                assertEquals(8192,BlurayNative.read(handle,actual,0,actual.length));assertArrayEquals("查询跳转索引不能移动读游标",expected,actual);
+            }finally{BlurayNative.close(handle);}
+        }finally{assertTrue(file.delete());}
+    }
+    @Test public void themeLockIsPerAccountAndKeepsWallpaperUntilUnlocked()throws Exception{
+        SettingsActivity settings=null;android.content.Context context=instrumentation.getTargetContext();
+        try(Fixture server=new Fixture()){
+            JSONObject original=new JSONObject().put("mode","light").put("theme_color","#aa237f").put("glass_opacity",.35).put("shadow_strength",.7).put("background_blur",0).put("background_url","/api/tv/System/Appearance/Background?v=old");server.appearance=original;
+            open(server,"movie-single");TvAppearance.save(context,server.origin(),original);
+            settings=(SettingsActivity)instrumentation.startActivitySync(new Intent(context,SettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));SettingsActivity active=settings;
+            View row=(View)field(active,"themeLockRow");assertNotNull(row);onMain(row::performClick);await(()->TvAppearance.locked(context,server.origin())&&!(Boolean)field(active,"themeLockSaving"));
+            TvAppearance.load(context,server.origin());File wallpaper=TvAppearance.lockedBackground(context,active.api);assertNotNull(wallpaper);byte[] saved=java.nio.file.Files.readAllBytes(wallpaper.toPath());
+            server.appearance=new JSONObject().put("mode","dark").put("theme_color","#346bbc").put("background_url","").put("background_blur",20).put("shadow_strength",0).put("glass_opacity",1);
+            SystemClock.sleep(3400);assertEquals("#aa237f",TvAppearance.current.getString("theme_color"));assertEquals(.35,TvAppearance.current.getDouble("glass_opacity"),.001);assertEquals(.7,TvAppearance.current.getDouble("shadow_strength"),.001);assertEquals(0,TvAppearance.current.getInt("background_blur"));assertFalse(TvAppearance.dark());
+            onMain(active::finish);settings=null;
+            new SessionStore(context).save(server.origin(),"other-user","另一个账号","synthetic-other");EtknApi other=new EtknApi(context);assertFalse(TvAppearance.locked(context,other.server));TvAppearance.save(context,other.server,server.appearance);TvAppearance.lock(context,other,"other-user",new JSONObject(server.appearance.toString()));
+            new SessionStore(context).save(server.origin(),"detail-fixture","详情测试","synthetic");TvAppearance.load(context,server.origin());assertEquals("#aa237f",TvAppearance.current.getString("theme_color"));assertArrayEquals(saved,java.nio.file.Files.readAllBytes(TvAppearance.lockedBackground(context,new EtknApi(context)).toPath()));
+            assertFalse(TvAppearance.locked(context,"http://different-server"));
+            settings=(SettingsActivity)instrumentation.startActivitySync(new Intent(context,SettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));SettingsActivity restored=settings;onMain(()->((View)field(restored,"themeLockRow")).performClick());
+            await(()->!TvAppearance.locked(context,server.origin())&&TvAppearance.dark());assertEquals("#346bbc",TvAppearance.current.getString("theme_color"));assertFalse(wallpaper.exists());
+            new SessionStore(context).save(server.origin(),"other-user","另一个账号","synthetic-other");TvAppearance.load(context,server.origin());assertTrue(TvAppearance.locked(context,server.origin()));assertEquals("#346bbc",TvAppearance.current.getString("theme_color"));TvAppearance.unlock(context,new EtknApi(context),"other-user");
+        }finally{if(settings!=null){SettingsActivity active=settings;onMain(active::finish);}cleanup();context.getSharedPreferences("appearance",0).edit().clear().commit();}
+    }
     private void onMain(Runnable action){instrumentation.runOnMainSync(action);}
     private void await(BooleanSupplier condition)throws Exception{long until=SystemClock.uptimeMillis()+15000;while(SystemClock.uptimeMillis()<until){boolean[] value={false};onMain(()->value[0]=condition.getAsBoolean());if(value[0])return;Thread.sleep(100);}fail("Timed out waiting for detail/playback state");}
     private void settle(){instrumentation.waitForIdleSync();SystemClock.sleep(450);instrumentation.waitForIdleSync();}
@@ -1274,11 +1327,11 @@ public class DetailFlowTest {
         final List<JSONObject> stopped=Collections.synchronizedList(new ArrayList<>());
         volatile java.util.concurrent.CountDownLatch nextRequested,nextGate;
         volatile boolean closed,preferSecond,extraTrack,pgsSubtitle,ordinalFixture,missingAudio,noProgress,failNext,hdrVideo,browseFeatures,studioIcons;volatile int audioOffset;volatile String unexpectedPath,lastBrowsePath="";volatile int reports;
-        final boolean codecMedia;
+        final boolean codecMedia,discMedia;
         final JSONObject personal=new JSONObject();
         Fixture()throws Exception{this(false);}
         Fixture(boolean codecs)throws Exception{this(codecs,codecs?"player-codecs.mkv":"detail-tracks.mkv");}
-        Fixture(boolean codecs,String file)throws Exception{codecMedia=codecs;personal.put("audio_lang_priority",JSONObject.NULL).put("subtitle_priority",new JSONArray().put("chs"));
+        Fixture(boolean codecs,String file)throws Exception{codecMedia=codecs;discMedia=file.endsWith(".iso");personal.put("audio_lang_priority",JSONObject.NULL).put("subtitle_priority",new JSONArray().put("chs"));
             Bitmap bitmap=Bitmap.createBitmap(960,540,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);canvas.drawColor(Color.rgb(38,60,84));Paint paint=new Paint();paint.setColor(Color.rgb(95,140,155));canvas.drawCircle(750,180,220,paint);paint.setColor(Color.rgb(205,155,85));canvas.drawRect(620,300,900,500,paint);ByteArrayOutputStream output=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.JPEG,85,output);bitmap.recycle();image=output.toByteArray();
             Bitmap updated=Bitmap.createBitmap(32,32,Bitmap.Config.ARGB_8888);updated.eraseColor(Color.MAGENTA);ByteArrayOutputStream replacement=new ByteArrayOutputStream();updated.compress(Bitmap.CompressFormat.PNG,100,replacement);updated.recycle();updatedImage=replacement.toByteArray();
             File local=new File(instrumentation.getTargetContext().getFilesDir(),"codec-fixtures/"+file);
@@ -1290,6 +1343,7 @@ public class DetailFlowTest {
         String origin(){return "http://127.0.0.1:"+socket.getLocalPort();}
         JSONObject stream(String type,int index,String title)throws Exception{return new JSONObject().put("Type",type).put("Index",index).put("DisplayTitle",title+" · 主标题 (默认)").put("Title",title+" · 副标题").put("Language","chi").put("Codec",type.equals("Audio")?"pcm_s16le":"subrip");}
         JSONArray sources(boolean multi)throws Exception{
+            if(discMedia){JSONArray streams=new JSONArray();for(int i=0;i<3;i++)streams.put(stream("Audio",i*8+1,"原盘音轨"+i).put("Codec",i==0?"truehd":"ac3").put("TransportStreamId",4352+i));streams.put(stream("Subtitle",38,"原盘中文PGS").put("Codec","pgs").put("TransportStreamId",4608));streams.put(stream("Subtitle",45,"原盘缺席轨").put("Codec","pgs").put("TransportStreamId",4802));return new JSONArray().put(new JSONObject().put("Id","source-a").put("Name","合成原盘").put("DirectStreamUrl","/api/tv/media.iso").put("BlurayPlaylist",801).put("MediaStreams",streams).put("DefaultAudioStreamIndex",9).put("DefaultSubtitleStreamIndex",-1));}
             if(codecMedia){JSONArray streams=new JSONArray();if(hdrVideo)streams.put(new JSONObject().put("Type","Video").put("Index",0).put("Codec","hevc").put("VideoRange","HDR10"));String[] codecs={"aac","ac3","eac3","dts","truehd"};for(int i=0;i<codecs.length;i++)streams.put(stream("Audio",i+1,"归一化 "+codecs[i]).put("Title","raw-"+codecs[i]).put("Codec",codecs[i]));streams.put(stream("Subtitle",6,"特效字幕 ASS").put("Title","raw-effect").put("Codec","ass"));
                 if(pgsSubtitle)streams.put(stream("Subtitle",12,"外挂 PGS").put("IsExternal",true).put("Codec","pgs").put("DeliveryUrl","/api/tv/subtitle.vtt"));
                 JSONArray chapters=new JSONArray();String[] types={"IntroStart","IntroEnd","CreditsStart"};long[] ticks={10000000,30000000,100000000};for(int i=0;i<types.length;i++)chapters.put(new JSONObject().put("MarkerType",types[i]).put("StartPositionTicks",ticks[i]));JSONObject source=new JSONObject().put("Id","source-a").put("Name","HEVC 多编码").put("DirectStreamUrl","/api/tv/media.mkv").put("MediaStreams",streams).put("DefaultAudioStreamIndex",1).put("DefaultSubtitleStreamIndex",translateSubtitles?-1:6).put("Chapters",chapters);if(translateSubtitles)source.put("SubtitleTranslation",new JSONObject().put("Key","fixture-key").put("SourceIndex",6).put("SourceOrdinal",0).put("Mode","translate").put("Target","chs"));return new JSONArray().put(source);}
@@ -1340,12 +1394,12 @@ public class DetailFlowTest {
                 if(post&&path.endsWith("/SubtitleTranslation")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;JSONArray cues=new JSONObject(new String(data)).getJSONArray("cues");synchronized(translationCues){for(int i=0;i<cues.length();i++){JSONObject cue=cues.getJSONObject(i);if(translationCues.stream().noneMatch(c->c.toString().equals(cue.toString())))translationCues.add(cue);}}}
                 if(path.endsWith("/SubtitleTranslation")&&translationGate!=null){java.util.concurrent.CountDownLatch gate=translationGate;translationRequested.countDown();if(!gate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic translation gate timed out");if(translationGate==gate)translationGate=new java.util.concurrent.CountDownLatch(1);}
                 if(!path.startsWith("/api/tv/"))unexpectedPath=path;
-                boolean picture=path.contains("/Images/")||path.contains("/FacetArtwork?")||path.contains("/Appearance/Background"),video=path.startsWith("/api/tv/media.mkv"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single")||path.contains("/FacetArtwork?")&&path.contains("Kind=Networks")||brokenAvatar&&path.contains("/Users/detail-fixture/Images/Primary");if(picture)imagePaths.add(path);
+                boolean picture=path.contains("/Images/")||path.contains("/FacetArtwork?")||path.contains("/Appearance/Background"),video=path.startsWith("/api/tv/media.mkv")||path.startsWith("/api/tv/media.iso"),subtitle=path.contains("subtitle.vtt"),missing=path.contains("/Images/Logo")&&!path.contains("movie-single")||path.contains("/FacetArtwork?")&&path.contains("Kind=Networks")||brokenAvatar&&path.contains("/Users/detail-fixture/Images/Primary");if(picture)imagePaths.add(path);
                 byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?(path.contains("tag=art2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 if(holdMetadata&&!post&&!picture&&path.contains("/Users/")&&path.contains("/Items/")){metadataRequested.countDown();metadataGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}
                 if(holdIdentity&&path.contains("/Items/movie-single/Images/")){if(path.contains("/Backdrop")){backgroundRequested.countDown();backdropGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}if(path.contains("/Logo"))logoRequested.countDown();}
-                String code=(playbackInfoFailure&&path.contains("/PlaybackInfo")||failNext&&path.contains("/Episodes")&&!path.contains("Fields="))?"500 Internal Server Error":missing?"404 Not Found":range>0?"206 Partial Content":"200 OK";int start=video?range:0;
-                String headers="HTTP/1.1 "+code+"\r\nContent-Type: "+(video?"video/x-matroska":subtitle?"text/vtt":picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+(body.length-start)+"\r\n"+(range>0?"Content-Range: bytes "+start+"-"+(body.length-1)+"/"+body.length+"\r\n":"")+"Connection: close\r\n\r\n";
+                boolean partial=range>0||discMedia&&video;String code=(playbackInfoFailure&&path.contains("/PlaybackInfo")||failNext&&path.contains("/Episodes")&&!path.contains("Fields="))?"500 Internal Server Error":missing?"404 Not Found":partial?"206 Partial Content":"200 OK";int start=video?range:0;
+                String headers="HTTP/1.1 "+code+"\r\nContent-Type: "+(video?"video/x-matroska":subtitle?"text/vtt":picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+(body.length-start)+"\r\n"+(partial?"Content-Range: bytes "+start+"-"+(body.length-1)+"/"+body.length+"\r\n":"")+"Connection: close\r\n\r\n";
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);
             }
         }

@@ -8,15 +8,15 @@ final class BlurayNative {
     static {System.loadLibrary("etkn_bluray");}
     private BlurayNative(){}
     static final class Track {
-        final int index,type,width,height,sampleRate,channels,pcmEncoding;
+        final int index,pid,type,width,height,sampleRate,channels,pcmEncoding;
         final String mime,language;
         final byte[] initialization;
-        Track(int index,int type,int width,int height,int sampleRate,int channels,int pcmEncoding,String mime,String language,byte[] initialization){
-            this.index=index;this.type=type;this.width=width;this.height=height;this.sampleRate=sampleRate;this.channels=channels;this.pcmEncoding=pcmEncoding;
+        Track(int index,int pid,int type,int width,int height,int sampleRate,int channels,int pcmEncoding,String mime,String language,byte[] initialization){
+            this.index=index;this.pid=pid;this.type=type;this.width=width;this.height=height;this.sampleRate=sampleRate;this.channels=channels;this.pcmEncoding=pcmEncoding;
             this.mime=mime;this.language=language;this.initialization=initialization;
         }
     }
-    static native long open(BlurayInput input)throws IOException;
+    static native long open(BlurayInput input,int playlist)throws IOException;
     static native long size(long handle);
     static native long duration(long handle);
     static native long seekPoint(long handle,long timeUs);

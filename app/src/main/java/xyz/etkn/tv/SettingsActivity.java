@@ -31,6 +31,7 @@ public final class SettingsActivity extends TvActivity {
     private Button defaultAudio,defaultSubtitle,skipButton,loginModeButton,imageSizeButton;
     private boolean preferenceSaving,adminRememberSaving;
     private LinearLayout loginSection,adminRememberRow;
+    private LinearLayout themeLockRow;private boolean themeLockSaving;
     private AlertDialog preferenceDialog;
     private static final String[] AUDIO_KEYS={"chi","yue","original","eng","jpn","kor"};
     private static final String[] AUDIO_LABELS={"国语","粤语","原语言","英语","日语","韩语"};
@@ -57,6 +58,7 @@ public final class SettingsActivity extends TvActivity {
             LinearLayout display=section("显示");
             imageSizeButton=settingRow(TEXT);imageSizeButton.setOnClickListener(view->chooseImageSize(preferences));display.addView(imageSizeButton);showImageSize(preferences);
             display.addView(note("调整首页、媒体库、影视探索中的海报卡片与横幅大小，保存到此电视当前账号。"));
+            themeLockRow=switchRow("锁定主题","保存此电视当前账号的明暗、主题色、背景图、模糊、透明度和阴影；关闭后恢复跟随服务器。",TvAppearance.locked(this,api.server),this::changeThemeLock);display.addView(themeLockRow);
             LinearLayout notices=section("通知");
             notices.addView(switchRow("我的订阅 / 追更入库通知","提醒本账号订阅内容，以及收藏或观看过的剧集更新。后台检查受电视系统调度影响。",IngestNotifications.enabled(this),on->{IngestNotifications.setEnabled(this,on);if(on&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},21);}));
             LinearLayout home=section("首页");
@@ -118,6 +120,13 @@ public final class SettingsActivity extends TvActivity {
         return line;
     }
     private TextView note(String value){TextView view=text(value,12,MUTED);view.setPadding(dp(2),dp(2),dp(2),dp(8));return view;}
+    private void changeThemeLock(boolean enabled){
+        if(themeLockSaving)return;themeLockSaving=true;themeLockRow.setEnabled(false);
+        final String user=api.session.userId();final JSONObject snapshot;try{snapshot=new JSONObject(TvAppearance.current.toString());}catch(JSONException impossible){throw new IllegalStateException(impossible);}
+        async(()->{try{if(enabled)TvAppearance.lock(this,api,user,snapshot);else TvAppearance.unlock(this,api,user);return enabled;}
+            finally{runOnUiThread(()->{if(!isDestroyed()){((Switch)themeLockRow.getChildAt(1)).setChecked(TvAppearance.locked(this,api.server));themeLockRow.setEnabled(true);}themeLockSaving=false;});}},
+            saved->{if(TvAppearance.sameSession(api,user)){reloadAppearance();status.setText(saved?"已锁定当前账号主题":"已恢复跟随服务器主题");}});
+    }
     private Drawable chevron(){
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(dp(12),dp(18),android.graphics.Bitmap.Config.ARGB_8888);
         Canvas canvas=new Canvas(bitmap);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(2));paint.setStrokeCap(Paint.Cap.ROUND);paint.setColor(MUTED);

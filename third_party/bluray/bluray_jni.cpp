@@ -11,6 +11,7 @@ extern "C" {
 #include "libavformat/avformat.h"
 #include "libavcodec/avcodec.h"
 #include "libavutil/channel_layout.h"
+int64_t etkn_bd_seek_point(BLURAY *bd,uint64_t tick);
 }
 
 struct Disc {
@@ -66,7 +67,7 @@ static void close(JNIEnv *env,Disc *d){
 }
 #define JNI(name) extern "C" JNIEXPORT
 #define METHOD(name) Java_xyz_etkn_tv_BlurayNative_##name
-JNI(open) jlong JNICALL METHOD(open)(JNIEnv *env,jclass,jobject reader){
+JNI(open) jlong JNICALL METHOD(open)(JNIEnv *env,jclass,jobject reader,jint playlist){
     bd_set_debug_mask(0);av_log_set_level(AV_LOG_QUIET);
     Disc *d=new Disc();d->env=env;d->reader=env->NewGlobalRef(reader);
     jclass cls=env->GetObjectClass(reader);d->readBlocks=env->GetMethodID(cls,"read","(JI)[B");env->DeleteLocalRef(cls);
@@ -80,10 +81,11 @@ JNI(open) jlong JNICALL METHOD(open)(JNIEnv *env,jclass,jobject reader){
     }
     uint32_t count=bd_get_titles(d->bd,TITLES_RELEVANT,0);
     int main=bd_get_main_title(d->bd);
-    if(!count||main<0||!bd_select_title(d->bd,static_cast<uint32_t>(main))){
+    bool selected=playlist>=0?bd_select_playlist(d->bd,static_cast<uint32_t>(playlist)):count&&main>=0&&bd_select_title(d->bd,static_cast<uint32_t>(main));
+    if(!selected){
         fail(env,"蓝光原盘没有可播放的正片");close(env,d);return 0;
     }
-    d->title=bd_get_title_info(d->bd,static_cast<uint32_t>(main),0);
+    d->title=playlist>=0?bd_get_playlist_info(d->bd,static_cast<uint32_t>(playlist),0):bd_get_title_info(d->bd,static_cast<uint32_t>(main),0);
     if(!d->title||!d->title->clip_count){fail(env,"蓝光正片播放列表不完整");close(env,d);return 0;}
     uint64_t offset=0;
     for(unsigned i=0;i<d->title->clip_count;i++){d->offsets.push_back(offset);offset+=static_cast<uint64_t>(d->title->clips[i].pkt_count)*192;}
@@ -92,8 +94,8 @@ JNI(open) jlong JNICALL METHOD(open)(JNIEnv *env,jclass,jobject reader){
 JNI(size) jlong JNICALL METHOD(size)(JNIEnv *,jclass,jlong handle){return bd_get_title_size(disc(handle)->bd);}
 JNI(duration) jlong JNICALL METHOD(duration)(JNIEnv *,jclass,jlong handle){return av_rescale(disc(handle)->title->duration,1000000,90000);}
 JNI(seekPoint) jlong JNICALL METHOD(seekPoint)(JNIEnv *env,jclass,jlong handle,jlong time){
-    Disc *d=disc(handle);d->env=env;
-    return bd_seek_time(d->bd,std::min<uint64_t>(d->title->duration,av_rescale(std::max<jlong>(0,time),90000,1000000)));
+    Disc *d=disc(handle);
+    return etkn_bd_seek_point(d->bd,std::min<uint64_t>(d->title->duration,av_rescale(std::max<jlong>(0,time),90000,1000000)));
 }
 JNI(seek) jlong JNICALL METHOD(seek)(JNIEnv *env,jclass,jlong handle,jlong position){
     Disc *d=disc(handle);d->env=env;
@@ -140,7 +142,7 @@ JNI(tracks) jobjectArray JNICALL METHOD(tracks)(JNIEnv *env,jclass,jlong handle,
     Disc *d=disc(handle);d->env=env;
     if(!demux(d,input,position)){fail(env,"蓝光正片音视频解析失败");return nullptr;}
     jclass cls=env->FindClass("xyz/etkn/tv/BlurayNative$Track");
-    jmethodID constructor=env->GetMethodID(cls,"<init>","(IIIIIIILjava/lang/String;Ljava/lang/String;[B)V");
+    jmethodID constructor=env->GetMethodID(cls,"<init>","(IIIIIIIILjava/lang/String;Ljava/lang/String;[B)V");
     unsigned count=0;for(unsigned i=0;i<d->format->nb_streams;i++)if(mime(d->format->streams[i]->codecpar->codec_id))count++;
     jobjectArray result=env->NewObjectArray(count,cls,nullptr);unsigned index=0;
     for(unsigned i=0;i<d->format->nb_streams&&!env->ExceptionCheck();i++){
@@ -156,7 +158,7 @@ JNI(tracks) jobjectArray JNICALL METHOD(tracks)(JNIEnv *env,jclass,jlong handle,
         jstring m=env->NewStringUTF(name),lang=env->NewStringUTF(language?language->value:"");
         jbyteArray extra=env->NewByteArray(p->extradata_size);
         if(p->extradata_size)env->SetByteArrayRegion(extra,0,p->extradata_size,reinterpret_cast<jbyte *>(p->extradata));
-        jobject track=env->NewObject(cls,constructor,i,type,p->width,p->height,p->sample_rate,p->ch_layout.nb_channels,encoding,m,lang,extra);
+        jobject track=env->NewObject(cls,constructor,i,stream->id,type,p->width,p->height,p->sample_rate,p->ch_layout.nb_channels,encoding,m,lang,extra);
         env->SetObjectArrayElement(result,index++,track);env->DeleteLocalRef(track);env->DeleteLocalRef(m);env->DeleteLocalRef(lang);env->DeleteLocalRef(extra);
     }
     return result;
