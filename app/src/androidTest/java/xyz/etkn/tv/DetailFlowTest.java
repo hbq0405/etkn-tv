@@ -1305,6 +1305,38 @@ public class DetailFlowTest {
             await(()->overlay.getText().toString().contains("Delayed translation"));
         }finally{cleanup();}
     }
+    @Test public void danmakuLoadingReportsEmptyFailureAndCancelsStaleNotices()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.danmakuFeature=true;server.danmakuAvailable=true;
+            open(server,"movie-single");new TvPreferences(detail,detail.api).saveDanmaku(new JSONObject());new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            onMain(()->((ExoPlayer)field(playback,"player")).play());await(()->((ExoPlayer)field(playback,"player")).isPlaying());
+            onMain(()->((Button)field(playback,"danmakuSettingsButton")).performClick());
+            Button toggle=(Button)field(playback,"danmakuPanelToggle");TextView notice=(TextView)field(playback,"skipNotice");
+            String[] results={"ready","unmatched","empty","unavailable","busy","failure","cancel"};
+            String[] messages={"弹幕已加载","未匹配到该影片的弹幕","当前时段暂无弹幕","弹幕拉取失败，稍后自动重试","弹幕服务繁忙，稍后自动重试"};
+            for(int i=0;i<results.length;i++){
+                String result=results[i];server.danmakuStatus=result.equals("empty")?"ready":result;server.danmakuEmpty=!result.equals("ready");server.danmakuFailure=result.equals("failure");
+                server.danmakuRequested=new java.util.concurrent.CountDownLatch(1);server.danmakuGate=new java.util.concurrent.CountDownLatch(1);
+                onMain(toggle::performClick);assertTrue(server.danmakuRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+                await(()->notice.isShown()&&notice.getText().toString().equals("正在拉取弹幕…"));
+                if(i==0){Thread.sleep(3800);onMain(()->assertTrue("慢请求期间保留加载提示",notice.isShown()));screenshot("danmaku-loading-notice.png");}
+                if(result.equals("cancel")){
+                    onMain(toggle::performClick);onMain(()->assertFalse("关闭立即清除本次加载提示",notice.isShown()));
+                    server.danmakuGate.countDown();Thread.sleep(500);onMain(()->{assertNull(field(playback,"danmaku"));assertFalse("迟到结果不能恢复通知",notice.isShown());});break;
+                }
+                server.danmakuGate.countDown();String message=i<messages.length?messages[i]:messages[3];
+                await(()->notice.isShown()&&notice.getText().toString().equals(message));
+                if(result.equals("unmatched"))screenshot("danmaku-unmatched-notice.png");
+                if(result.equals("empty"))screenshot("danmaku-empty-notice.png");
+                if(result.equals("unavailable")){
+                    DanmakuSession session=(DanmakuSession)field(playback,"danmaku");int before=server.danmakuRequests;
+                    onMain(()->{try{java.lang.reflect.Field retry=DanmakuSession.class.getDeclaredField("retryAt");retry.setAccessible(true);retry.setLong(session,0);session.tick();}catch(Exception error){throw new AssertionError(error);}});
+                    await(()->server.danmakuRequests>before);Thread.sleep(200);onMain(()->assertEquals("自动重试不刷屏",message,notice.getText().toString()));
+                }
+                onMain(toggle::performClick);onMain(()->assertFalse("关闭不残留弹幕通知",notice.isShown()));
+            }
+        }finally{cleanup();}
+    }
     @Test public void danmakuToggleRendersAndReleasesWithoutStaleReportReopening()throws Exception{
         try(Fixture server=new Fixture(true)){
             server.danmakuFeature=true;server.danmakuAvailable=true;
@@ -1401,6 +1433,9 @@ public class DetailFlowTest {
     private final class Fixture implements AutoCloseable{
         volatile boolean danmakuFeature,danmakuAvailable,danmakuEnabled;
         volatile int danmakuRequests;
+        volatile String danmakuStatus="ready";
+        volatile boolean danmakuEmpty,danmakuFailure;
+        volatile java.util.concurrent.CountDownLatch danmakuRequested,danmakuGate;
         volatile java.util.concurrent.CountDownLatch danmakuReportRequested,danmakuReportGate;
         JSONObject danmakuState()throws Exception{return new JSONObject().put("Enabled",danmakuAvailable&&danmakuEnabled).put("Available",danmakuAvailable).put("PreferenceEnabled",danmakuEnabled).put("Style",new JSONObject().put("rows",4).put("font_size",21).put("opacity",100).put("speed",1));}
         volatile boolean translateSubtitles,translationReady;
@@ -1460,7 +1495,7 @@ public class DetailFlowTest {
             if(path.equals("/api/tv/System/Appearance"))return appearance;
             if(path.equals("/api/tv/System/Danmaku"))return new JSONObject().put("Available",danmakuAvailable);
             if(path.equals("/api/tv/Users/Me/Danmaku"))return new JSONObject().put("enabled",danmakuEnabled).put("state",danmakuState());
-            if(path.contains("/Danmaku?")){danmakuRequests++;return new JSONObject().put("enabled",danmakuAvailable&&(danmakuEnabled||path.contains("local=true"))).put("status","ready").put("comments",new JSONArray().put(new JSONObject().put("time",1000).put("text","弹幕渲染测试 😀🫠👍🏽👨‍👩‍👧‍👦🇨🇳").put("color",0xff0000).put("mode",1)));}
+            if(path.contains("/Danmaku?")){danmakuRequests++;if(danmakuGate!=null){danmakuRequested.countDown();danmakuGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}return new JSONObject().put("enabled",danmakuAvailable&&(danmakuEnabled||path.contains("local=true"))).put("status",danmakuStatus).put("comments",danmakuEmpty?new JSONArray():new JSONArray().put(new JSONObject().put("time",1000).put("text","弹幕渲染测试 😀🫠👍🏽👨‍👩‍👧‍👦🇨🇳").put("color",0xff0000).put("mode",1)));}
             if(holdPlayback&&path.contains("/PlaybackInfo")){playbackRequested.countDown();if(!playbackGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic playback gate timed out");}
             if(path.endsWith("/SubtitleTranslation")){JSONArray result=new JSONArray();if(translationReady)synchronized(translationCues){for(JSONObject cue:translationCues)result.put(new JSONObject().put("start",cue.getLong("start")).put("end",cue.getLong("end")).put("source",cue.getString("text")).put("text","合成译文\n"+cue.getString("text")));}return new JSONObject().put("Enabled",true).put("Key","fixture-key").put("Complete",false).put("Cues",result);}
             if(browseFeatures&&path.contains("/Collections?"))return new JSONObject().put("Items",new JSONArray().put(new JSONObject().put("Id","collection-1").put("Name","合成合集").put("Type","BoxSet"))).put("TotalRecordCount",1);
@@ -1499,11 +1534,11 @@ public class DetailFlowTest {
                 byte[] body=video?media:subtitle?(pgsSubtitle?PlaybackCompatibilityTest.supSample():"WEBVTT\n\n00:00:00.000 --> 00:00:20.000\nExternal synthetic subtitle\n".getBytes(StandardCharsets.UTF_8)):picture?(path.contains("tag=art2")?updatedImage:image):response(path).toString().getBytes(StandardCharsets.UTF_8);
                 if(holdMetadata&&!post&&!picture&&path.contains("/Users/")&&path.contains("/Items/")){metadataRequested.countDown();metadataGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}
                 if(holdIdentity&&path.contains("/Items/movie-single/Images/")){if(path.contains("/Backdrop")){backgroundRequested.countDown();backdropGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}if(path.contains("/Logo"))logoRequested.countDown();}
-                boolean partial=range>0||discMedia&&video;String code=(playbackInfoFailure&&path.contains("/PlaybackInfo")||failNext&&path.contains("/Episodes")&&!path.contains("Fields="))?"500 Internal Server Error":missing?"404 Not Found":partial?"206 Partial Content":"200 OK";int start=video?range:0;
+                boolean partial=range>0||discMedia&&video;String code=(danmakuFailure&&path.contains("/Danmaku?")||playbackInfoFailure&&path.contains("/PlaybackInfo")||failNext&&path.contains("/Episodes")&&!path.contains("Fields="))?"500 Internal Server Error":missing?"404 Not Found":partial?"206 Partial Content":"200 OK";int start=video?range:0;
                 String headers="HTTP/1.1 "+code+"\r\nContent-Type: "+(video?"video/x-matroska":subtitle?"text/vtt":picture?"image/jpeg":"application/json")+"\r\nContent-Length: "+(body.length-start)+"\r\n"+(partial?"Content-Range: bytes "+start+"-"+(body.length-1)+"/"+body.length+"\r\n":"")+"Connection: close\r\n\r\n";
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);
             }
         }
-        @Override public void close()throws IOException{closed=true;playbackGate.countDown();backdropGate.countDown();updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();if(danmakuReportGate!=null)danmakuReportGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;playbackGate.countDown();backdropGate.countDown();updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();if(danmakuReportGate!=null)danmakuReportGate.countDown();if(danmakuGate!=null)danmakuGate.countDown();socket.close();}
     }
 }

@@ -42,6 +42,7 @@ public final class PlayerActivity extends TvActivity {
     private Button danmakuPanelToggle;
     private boolean danmakuSaving;
     private int danmakuRevision;
+    private String danmakuNotice="";
     private AlertDialog speedDialog,danmakuDialog;
     private PlayerEpisodePanel episodePanel;
     private List<JSONObject> episodes=new ArrayList<>();
@@ -493,9 +494,14 @@ public final class PlayerActivity extends TvActivity {
         if(info!=null)try{info.put("Danmaku",state);}catch(JSONException ignored){}
         JSONObject personal=new TvPreferences(this,api).danmaku();boolean enabled=state.optBoolean("Available")&&personal.optBoolean("enabled");
         if(danmaku!=null&&(!enabled||!danmaku.active())){danmaku.close();danmaku=null;}
-        if(enabled&&danmaku==null&&player!=null)danmaku=new DanmakuSession(api,itemId,playSession,player,playbackStage,personal);
+        if(enabled&&danmaku==null&&player!=null)danmaku=new DanmakuSession(api,itemId,playSession,player,playbackStage,personal,this::showDanmakuNotice);
         else if(danmaku!=null)danmaku.setStyle(personal);
         if(danmakuPanelToggle!=null)danmakuPanelToggle.setText(!state.optBoolean("Available")?"弹幕 · 服务关闭":personal.optBoolean("enabled")?"弹幕 · 开启":"弹幕 · 关闭");
+    }
+    private void showDanmakuNotice(String value,long duration){
+        if(value.isEmpty()){if(skipNotice!=null&&skipNotice.getText().toString().equals(danmakuNotice))hideSkipNotice.run();}
+        else showUnifiedNotice(value,duration);
+        danmakuNotice=value;
     }
     private void saveDanmaku(JSONObject settings){
         new TvPreferences(this,api).saveDanmaku(settings);danmakuRevision++;applyDanmakuState(info==null?null:info.optJSONObject("Danmaku"));
