@@ -71,6 +71,7 @@ final class BlurayMediaSourceFactory implements MediaSource.Factory {
     private static final class DiscExtractor implements Extractor {
         final Session session;ExtractorOutput output;
         final Map<String,TrackOutput> knownTracks=new LinkedHashMap<>();final Map<Integer,TrackOutput> tracks=new HashMap<>();
+        final Map<Integer,DiscPgsSampleAssembler> pgs=new HashMap<>();
         byte[] buffer=new byte[2*1024*1024];final long[] metadata=new long[3];
         boolean initialized;
         DiscExtractor(Session session){this.session=session;}
@@ -79,7 +80,7 @@ final class BlurayMediaSourceFactory implements MediaSource.Factory {
         @Override public int read(ExtractorInput input,PositionHolder seek)throws IOException{
             if(!initialized){
                 BlurayNative.Track[] descriptions=BlurayNative.tracks(session.open(),input,input.getPosition());
-                boolean first=knownTracks.isEmpty();tracks.clear();
+                boolean first=knownTracks.isEmpty();tracks.clear();pgs.clear();
                 for(BlurayNative.Track track:descriptions){
                     String identity=DiscTrackIdentity.id(track.pid,track.mime);TrackOutput target=knownTracks.get(identity);
                     if(first){
@@ -89,7 +90,7 @@ final class BlurayMediaSourceFactory implements MediaSource.Factory {
                         if(track.initialization.length>0){byte[][] nals=MimeTypes.VIDEO_H264.equals(track.mime)?CodecSpecificDataUtil.splitNalUnits(track.initialization):null;format.setInitializationData(nals==null?Collections.singletonList(track.initialization):Arrays.asList(nals));}
                         target=output.track(knownTracks.size(),track.type);target.format(TvExtractorsFactory.baseLayer(format.build()));knownTracks.put(identity,target);
                     }
-                    if(target!=null)tracks.put(track.index,target);
+                    if(target!=null){tracks.put(track.index,target);if(MimeTypes.APPLICATION_PGS.equals(track.mime))pgs.put(track.index,new DiscPgsSampleAssembler(target));}
                 }
                 if(first){
                     output.endTracks();
@@ -104,10 +105,14 @@ final class BlurayMediaSourceFactory implements MediaSource.Factory {
             int count=BlurayNative.packet(session.handle,input,buffer,metadata);
             if(count<-1){if(-count>16*1024*1024)throw new IOException("原盘视频帧过大");buffer=new byte[-count];return RESULT_CONTINUE;}
             if(count==-1)return RESULT_END_OF_INPUT;
-            if(count>0){TrackOutput track=tracks.get((int)metadata[0]);if(track!=null){track.sampleData(new ParsableByteArray(buffer,count),count);track.sampleMetadata(metadata[1],(int)metadata[2],count,0,null);}}
+            if(count>0){
+                int index=(int)metadata[0];TrackOutput track=tracks.get(index);DiscPgsSampleAssembler subtitles=pgs.get(index);
+                if(subtitles!=null)subtitles.sample(buffer,count,metadata[1],(int)metadata[2]);
+                else if(track!=null){track.sampleData(new ParsableByteArray(buffer,count),count);track.sampleMetadata(metadata[1],(int)metadata[2],count,0,null);}
+            }
             return RESULT_CONTINUE;
         }
-        @Override public void seek(long position,long timeUs){if(initialized){BlurayNative.reset(session.handle);initialized=false;}}
-        @Override public void release(){session.close();}
+        @Override public void seek(long position,long timeUs){pgs.clear();if(initialized){BlurayNative.reset(session.handle);initialized=false;}}
+        @Override public void release(){pgs.clear();session.close();}
     }
 }

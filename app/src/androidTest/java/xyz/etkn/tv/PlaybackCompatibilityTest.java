@@ -71,6 +71,35 @@ public class PlaybackCompatibilityTest {
             output=decode(decoder,reused,7000000);try{assertTrue(output.getCues(7000000).isEmpty());}finally{output.release();}
         }finally{decoder.release();}
     }
+    @Test public void discPgsAnimationPublishesCompleteFramesWithRealBitmapAlpha()throws Exception{
+        List<byte[]> samples=new ArrayList<>();List<Long> times=new ArrayList<>();
+        androidx.media3.extractor.TrackOutput output=new androidx.media3.extractor.TrackOutput(){
+            @Override public void format(Format format){}
+            @Override public int sampleData(DataReader input,int length,boolean end,int part)throws IOException{throw new IOException("Unexpected streaming input");}
+            @Override public void sampleData(androidx.media3.common.util.ParsableByteArray input,int length,int part){byte[] data=new byte[length];input.readBytes(data,0,length);samples.add(data);}
+            @Override public void sampleMetadata(long timeUs,int flags,int size,int offset,CryptoData crypto){times.add(timeUs);}
+        };
+        DiscPgsSampleAssembler assembler=new DiscPgsSampleAssembler(output);
+        SubtitleDecoder decoder=new TvSubtitleDecoderFactory().createDecoder(new Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_PGS).build());
+        try{
+            byte[] initial=sample();assembler.sample(initial,initial.length,1000000,1);
+            SubtitleOutputBuffer buffer=decode(decoder,samples.remove(0),times.remove(0));
+            android.graphics.Bitmap original;
+            try{assertEquals(2,buffer.getCues(1000000).size());original=buffer.getCues(1000000).get(0).bitmap;assertEquals(255,Color.alpha(original.getPixel(0,0)));}finally{buffer.release();}
+            for(int frame=0;frame<24;frame++){
+                long pts=2000000L+frame*40000L;int alpha=32+frame*9;
+                byte[] composition=composition(0,2),palette=section(0x14,bytes(0,frame,1,235,128,128,alpha,2,81,240,90,alpha)),end=section(0x80,bytes());
+                assembler.sample(composition,composition.length,pts,1);assembler.sample(palette,palette.length,pts-1000,0);
+                assertTrue("动画中间包不能输出空字幕",samples.isEmpty());
+                assembler.sample(end,end.length,pts-1000,0);assertEquals(1,samples.size());assertEquals(pts,(long)times.get(0));
+                buffer=decode(decoder,samples.remove(0),times.remove(0));
+                try{List<Cue> cues=buffer.getCues(pts);assertEquals(2,cues.size());for(Cue cue:cues)assertEquals(alpha,Color.alpha(cue.bitmap.getPixel(0,0)));}finally{buffer.release();}
+            }
+            assertEquals("新调色板不能改变已发布位图",255,Color.alpha(original.getPixel(0,0)));
+            byte[] clear=join(composition(0,0),section(0x80,bytes()));assembler.sample(clear,clear.length,4000000,1);
+            buffer=decode(decoder,samples.remove(0),times.remove(0));try{assertTrue(buffer.getCues(4000000).isEmpty());}finally{buffer.release();}
+        }finally{decoder.release();}
+    }
     @Test public void multipleObjectsArePreservedWhereStockPgsOnlyReturnsOne()throws Exception{
         Format format=new Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_PGS).build();
         assertEquals("确认旧解析器只保留一个对象",1,parse(new DefaultSubtitleParserFactory().create(format),sample()).size());
