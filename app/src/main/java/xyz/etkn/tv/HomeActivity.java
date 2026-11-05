@@ -18,7 +18,8 @@ public final class HomeActivity extends TvActivity {
     private String parent="",query="",mode="home";
     private int offset,revision;
     private int listingLimit;
-    private org.json.JSONObject selectedLibrary;
+    private org.json.JSONObject selectedLibrary,selectedGroup;
+    private String groupOrigin="home";
     private GridLayout posterGrid;
     private TextView libraryMeta,posterStatus;
     private boolean loadingMore,hasMore;
@@ -145,7 +146,7 @@ public final class HomeActivity extends TvActivity {
     }
     @Override protected void onPause(){foreground=false;homeTimer.removeCallbacksAndMessages(null);if(homeUpdates!=null){homeUpdates.close();homeUpdates=null;}super.onPause();}
     @Override void appearanceChanged(){if(menu!=null)menu.setBackgroundColor(TvAppearance.surface(appearanceDark()));}
-    @Override void imageSizeChanged(){if("home".equals(mode))loadHome();else if("search".equals(mode)||"resume".equals(mode)){offset=0;listingLimit=0;loadItems();}else if("items".equals(mode))refreshPosters();}
+    @Override void imageSizeChanged(){if("home".equals(mode))loadHome();else if("search".equals(mode)||"resume".equals(mode)){offset=0;listingLimit=0;loadItems();}else if("items".equals(mode))refreshPosters();else if("group".equals(mode))refreshLibraryGroup();}
     private int homeShelfLimit(int cardWidthDp){return shelfCapacity(cardWidthDp,12,74)+1;}
     private int posterPageSize(){
         boolean landscape=folderMode||viewMode.equals("landscape");
@@ -154,7 +155,7 @@ public final class HomeActivity extends TvActivity {
     }
     @Override void mediaDeleted(){if("items".equals(mode))refreshPosters();else if("home".equals(mode))refreshHome();else loadItems();}
     @Override void metadataRefreshed(){super.metadataRefreshed();refreshCurrent();}
-    private void refreshCurrent(){if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
+    private void refreshCurrent(){if("group".equals(mode)){refreshLibraryGroup();return;}if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
     private void refreshHome(){if(!"home".equals(mode))return;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
     private void homeRequest(String path,int request,java.util.function.Consumer<JSONObject> done){
         if(request!=revision||pendingShelves.contains(path))return;
@@ -176,7 +177,7 @@ public final class HomeActivity extends TvActivity {
         nav("首页",this::loadHome);nav("媒体库",this::loadLibraries);nav("收藏",this::openFavorites);nav("搜索",this::search);if(canDiscover)nav("影视探索",()->open(DiscoveryActivity.class));nav("设置",()->open(SettingsActivity.class));
     }
     private void loadHome(){
-        mode="home";selectedLibrary=null;posterGrid=null;loadingMore=false;int request=++revision;homeReloads.clear();renderedShelves.clear();pendingShelves.clear();content.removeAllViews();content.setPadding(0,0,0,dp(24));homeScroll.scrollTo(0,0);status.setText("");
+        mode="home";selectedGroup=null;selectedLibrary=null;posterGrid=null;loadingMore=false;int request=++revision;homeReloads.clear();renderedShelves.clear();pendingShelves.clear();content.removeAllViews();content.setPadding(0,0,0,dp(24));homeScroll.scrollTo(0,0);status.setText("");
         homeBackdrop.clear();resumeFirst=null;libraryFirst=null;resumeReady=false;libraryReady=false;initialFocusChosen=false;homeCards.clear();libraryCards.clear();
         resumeCards.clear();actionItems.clear();latestLibraries="";
         stopCarousel();carouselEnabled=new TvPreferences(this,api).smartCarousel();
@@ -316,8 +317,23 @@ public final class HomeActivity extends TvActivity {
         View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null)target=resumeFirst!=null?resumeFirst:libraryFirst;if(target!=null)target.requestFocus();else content.requestFocus(View.FOCUS_DOWN);
     }
     private void search(){EditText field=input("搜索片库",false);new AlertDialog.Builder(this).setTitle("搜索片库").setView(field).setPositiveButton("搜索",(dialog,which)->{query=field.getText().toString();parent="";selectedLibrary=null;offset=0;listingLimit=0;mode="search";loadItems();}).setNegativeButton("取消",null).show();}
-    private void openLibrary(JSONObject item){libraryOrigin=mode;selectedLibrary=item;activeCollection=null;folderMode=false;folderId="";folderTitle="";folderTrail.clear();restorePosterId="";restorePosterCount=0;parent=item.optString("Id");TvPreferences prefs=new TvPreferences(this,api);String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);folderMode=physicalLibrary()&&prefs.libraryFolders(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadItems();}
-    private void loadLibraries(){mode="library";selectedLibrary=null;posterGrid=null;hasMore=false;loadingMore=false;stopCarousel();homeBackdrop.clear();libraryCards.clear();homeScroll.scrollTo(0,0);int request=++revision;status.setText("正在读取媒体库…");async(()->api.get(api.userPath()+"/Views"),result->{if(request!=revision)return;content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));List<JSONObject> items=EtknApi.rows(result);status.setText(items.isEmpty()?"暂无可访问媒体库":"选择媒体库");GridLayout grid=grid(content,192,12,56);for(JSONObject item:items){View card=mediaCard(grid,item,()->openLibrary(item));libraryCards.put(item.optString("Id"),card);}View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null&&grid.getChildCount()>0)target=grid.getChildAt(0);if(target!=null)target.requestFocus();});}
+    private void openLibrary(JSONObject item){if("group".equals(item.optString("SourceType"))){groupOrigin=mode;selectedGroup=item;loadLibraryGroup();return;}libraryOrigin=mode;selectedLibrary=item;activeCollection=null;folderMode=false;folderId="";folderTitle="";folderTrail.clear();restorePosterId="";restorePosterCount=0;parent=item.optString("Id");TvPreferences prefs=new TvPreferences(this,api);String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);folderMode=physicalLibrary()&&prefs.libraryFolders(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadItems();}
+    private void loadLibraries(){mode="library";selectedGroup=null;selectedLibrary=null;posterGrid=null;hasMore=false;loadingMore=false;stopCarousel();homeBackdrop.clear();libraryCards.clear();homeScroll.scrollTo(0,0);int request=++revision;status.setText("正在读取媒体库…");async(()->api.get(api.userPath()+"/Views"),result->{if(request!=revision)return;content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));List<JSONObject> items=EtknApi.rows(result);status.setText(items.isEmpty()?"暂无可访问媒体库":"选择媒体库");GridLayout grid=grid(content,192,12,56);for(JSONObject item:items){View card=mediaCard(grid,item,()->openLibrary(item));libraryCards.put(item.optString("Id"),card);}View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null&&grid.getChildCount()>0)target=grid.getChildAt(0);if(target!=null)target.requestFocus();});}
+    private void refreshLibraryGroup(){
+        View focused=getCurrentFocus();for(java.util.Map.Entry<String,View> entry:libraryCards.entrySet())if(entry.getValue()==focused){pendingLibraryFocus=entry.getKey();break;}loadLibraryGroup();
+    }
+    private void loadLibraryGroup(){
+        if(selectedGroup==null)return;
+        mode="group";selectedLibrary=null;posterGrid=null;hasMore=false;loadingMore=false;stopCarousel();homeBackdrop.clear();libraryCards.clear();homeScroll.scrollTo(0,0);int request=++revision;
+        content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));content.addView(text(selectedGroup.optString("Name","媒体库分组"),22,TEXT));status.setText("正在读取子媒体库…");
+        String path=api.userPath()+"/Items?ParentId="+EtknApi.encode(selectedGroup.optString("Id"));
+        async(()->api.get(path),result->{
+            if(request!=revision)return;
+            List<JSONObject> items=EtknApi.rows(result);status.setText(items.isEmpty()?"暂无可访问媒体库":"共 "+items.size()+" 个媒体库");GridLayout grid=grid(content,192,12,56);
+            for(JSONObject item:items){View card=mediaCard(grid,item,()->openLibrary(item));card.setTag(item.optString("Id"));libraryCards.put(item.optString("Id"),card);bindActions(card,item);}
+            View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null&&grid.getChildCount()>0)target=grid.getChildAt(0);if(target!=null)target.requestFocus();
+        });
+    }
     private void loadItems(){
         stopCarousel();
         if("items".equals(mode)){loadPosterPage(true);return;}
@@ -419,6 +435,7 @@ public final class HomeActivity extends TvActivity {
         if(mediaActionBusy||openingItemMenu||itemMenu!=null&&itemMenu.isShowing())return;
         JSONObject item=actionItems.get(card);if(item==null&&card.getTag() instanceof JSONObject)item=(JSONObject)card.getTag();if(item==null)return;
         JSONObject selected=item;boolean library=item.optString("Id").startsWith("library-"),resume=resumeCards.contains(card)||"resume".equals(mode),latest="home".equals(mode)&&!library&&!resume;
+        if("group".equals(item.optString("SourceType")))return;
         if("Folder".equals(item.optString("Type"))){showFolderMenu(item);return;}
         if("collection".equals(item.optString("SourceType")))return;
         int request=revision;openingItemMenu=true;
@@ -553,7 +570,8 @@ public final class HomeActivity extends TvActivity {
         if("items".equals(mode)&&"detail".equals(libraryOrigin)){finish();return;}
         if("items".equals(mode)&&activeCollection!=null&&selectedLibrary!=null){parent=selectedLibrary.optString("Id");openCollections();return;}
         if("collections".equals(mode)&&selectedLibrary!=null){TvPreferences prefs=new TvPreferences(this,api);parent=selectedLibrary.optString("Id");String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadPosterPage(true);return;}
-        if("items".equals(mode)&&selectedLibrary!=null){pendingLibraryFocus=selectedLibrary.optString("Id");if("library".equals(libraryOrigin))loadLibraries();else loadHome();return;}
+        if("items".equals(mode)&&selectedLibrary!=null){pendingLibraryFocus=selectedLibrary.optString("Id");if("group".equals(libraryOrigin)&&selectedGroup!=null)loadLibraryGroup();else if("library".equals(libraryOrigin))loadLibraries();else loadHome();return;}
+        if("group".equals(mode)&&selectedGroup!=null){pendingLibraryFocus=selectedGroup.optString("Id");if("library".equals(groupOrigin))loadLibraries();else loadHome();return;}
         if(!mode.equals("home")){loadHome();return;}
         super.onBackPressed();
     }

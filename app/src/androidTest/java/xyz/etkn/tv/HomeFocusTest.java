@@ -805,6 +805,26 @@ public class HomeFocusTest {
             await(()->((android.widget.Button)objectField(active,"batchArtwork")).isEnabled());instrumentation.runOnMainSync(()->((android.widget.Button)objectField(active,"batchArtwork")).performClick());await(()->server.mutations.size()==1);key(KeyEvent.KEYCODE_BACK);await(active::isDestroyed);facets=null;server.facetGate.countDown();settle();assertEquals(1,server.mutations.size());
         }finally{if(facets!=null){FacetActivity active=facets;instrumentation.runOnMainSync(active::finish);}closePosterFixture();}
     }
+    @Test public void nativeLibraryGroupsNavigateBackToChildAndRootFocus()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.nativeGroups=true;server.browseFeatures=true;openMenuHomeFixture(server);
+            for(String origin:new String[]{"home","library"}){
+                if(origin.equals("library")){call("loadLibraries",new Class<?>[]{});await(()->library("library-group-7")!=null);}
+                View group=library("library-group-7");assertNotNull(group);instrumentation.runOnMainSync(group::requestFocus);key(KeyEvent.KEYCODE_MENU);assertTrue(itemMenu()==null||!itemMenu().isShowing());key(KeyEvent.KEYCODE_DPAD_CENTER);
+                await(()->"group".equals(field(HomeActivity.class,"mode"))&&library("library-1")!=null&&library("library-2")!=null);
+                assertEquals("library-1",home.getCurrentFocus().getTag());key(KeyEvent.KEYCODE_DPAD_RIGHT);assertSame(library("library-2"),home.getCurrentFocus());
+                call("refreshCurrent",new Class<?>[]{});await(()->library("library-2")!=null&&library("library-2")==home.getCurrentFocus());
+                key(KeyEvent.KEYCODE_DPAD_CENTER);await(()->posterGrid()!=null&&posterGrid().getChildCount()>0);assertEquals("library-2",field(HomeActivity.class,"parent"));assertFalse((Boolean)field(HomeActivity.class,"folderMode"));
+                key(KeyEvent.KEYCODE_BACK);await(()->"group".equals(field(HomeActivity.class,"mode"))&&library("library-2")==home.getCurrentFocus());
+                instrumentation.runOnMainSync(()->library("library-1").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()>0);
+                call("toggleFolders",new Class<?>[]{});await(()->posterGrid()!=null&&posterGrid().getChildCount()>0&&"Folder".equals(((JSONObject)posterGrid().getChildAt(0).getTag()).optString("Type")));assertTrue((Boolean)field(HomeActivity.class,"folderMode"));
+                call("toggleFolders",new Class<?>[]{});await(()->posterGrid()!=null&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"loadingMore")));
+                key(KeyEvent.KEYCODE_BACK);await(()->"group".equals(field(HomeActivity.class,"mode"))&&library("library-1")==home.getCurrentFocus());saveScreenshot("native-group-"+origin+".png");
+                key(KeyEvent.KEYCODE_BACK);await(()->origin.equals(field(HomeActivity.class,"mode"))&&library("library-group-7")==home.getCurrentFocus());
+            }
+            assertNull(server.unexpectedPath);
+        }finally{closePosterFixture();}
+    }
     private static final class Fixture implements AutoCloseable {
         volatile JSONObject appearance=new JSONObject();
         final ServerSocket socket=new ServerSocket(0,32,InetAddress.getByName("127.0.0.1"));
@@ -814,6 +834,7 @@ public class HomeFocusTest {
         volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt,failFirstFacet,holdFacet,respectLimits;
         volatile String lastResumePath="";
         volatile boolean missingFirstLogo,styledBannerTitles;
+        volatile boolean nativeGroups;
         final java.util.concurrent.CountDownLatch facetGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.List<String> latestPaths=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         final java.util.List<String> imagePaths=new java.util.concurrent.CopyOnWriteArrayList<>();
@@ -889,6 +910,9 @@ public class HomeFocusTest {
         JSONObject response(String path)throws Exception{
             if(path.equals("/api/tv/System/Appearance"))return appearance;
             String limitText=android.net.Uri.parse(path).getQueryParameter("Limit");int limit=respectLimits&&limitText!=null?Integer.parseInt(limitText):60;
+            if(nativeGroups&&path.contains("/Items?ParentId=library-group-7")){
+                JSONArray rows=new JSONArray();for(int i=1;i<=2;i++)rows.put(new JSONObject().put("Id","library-"+i).put("Name",i==1?"分组电影":"分组榜单").put("Type","CollectionFolder").put("CollectionType","movies").put("SourceType",i==1?"path":"filter").put("ParentId","library-group-7"));return new JSONObject().put("Items",rows).put("TotalRecordCount",2);
+            }
             if(path.contains("/Facets?")){
                 boolean types=path.contains("Kind=Types");JSONArray rows=new JSONArray();
                 for(int i=0;i<facetCount;i++){JSONObject row=new JSONObject().put("Id","facet-"+i).put("Name",types?(i==0?"科幻":"经典"):"中文公司"+i).put("Kind",types?(i==0?"Genres":"Tags"):"Companies").put("Value",types?(i==0?"科幻":"经典"):"中文公司"+i);if(facetArt)row.put("ImageTags",new JSONObject().put("Primary","facet-art"));rows.put(row);}
@@ -896,8 +920,8 @@ public class HomeFocusTest {
             }
             if(browseFeatures&&path.contains("/Folders?")){
                 android.net.Uri uri=android.net.Uri.parse(path);String token=uri.getQueryParameter("FolderId"),startText=uri.getQueryParameter("StartIndex");int start=startText==null?0:Integer.parseInt(startText);boolean root=token==null||token.isEmpty();JSONArray rows=new JSONArray();
-                for(int i=start;i<Math.min(start+limit,root?70:folderMediaCount);i++){JSONObject row=new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root).put("ImageTags",new JSONObject().put("Primary",root?"folder-cover":"poster"));rows.put(row);}
-                return new JSONObject().put("Items",rows).put("TotalRecordCount",root?70:folderMediaCount);
+                for(int i=start;i<Math.min(start+limit,root?(nativeGroups?2:70):folderMediaCount);i++){JSONObject row=new JSONObject().put("Id",root?"tv-folder-category"+i:"item-"+i).put("Name",root?"分类目录 "+i:"目录影片 "+i).put("Type",root?"Folder":"Movie").put("IsFolder",root).put("ImageTags",new JSONObject().put("Primary",root?"folder-cover":"poster"));rows.put(row);}
+                return new JSONObject().put("Items",rows).put("TotalRecordCount",root?(nativeGroups?2:70):folderMediaCount);
             }
             if(browseFeatures&&path.contains("ParentId=library-5")){
                 String value=android.net.Uri.parse(path).getQueryParameter("StartIndex");int start=value==null?0:Integer.parseInt(value);JSONArray rows=new JSONArray();for(int i=start;i<Math.min(start+limit,70);i++)rows.put(new JSONObject().put("Id","collection-"+i).put("Name","电影合集 "+i).put("Type","BoxSet"));return new JSONObject().put("Items",rows).put("TotalRecordCount",70);
@@ -908,14 +932,15 @@ public class HomeFocusTest {
             if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){
                 limit=Math.min(limit,listingPageCap);
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
-                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name",styledBannerTitles?new String[]{"长安三万里","The Grand Budapest Hotel","这个杀手不太冷：导演剪辑特别版","宇宙探索编辑部"}[i%4]:"海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
+                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,nativeGroups?3:120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name",styledBannerTitles?new String[]{"长安三万里","The Grand Budapest Hotel","这个杀手不太冷：导演剪辑特别版","宇宙探索编辑部"}[i%4]:"海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
                 for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
                 if(deleted&&start==0)page.remove(0);
-                return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:120).put("EpisodeCountMode","unplayed");
+                return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:nativeGroups?3:120).put("EpisodeCountMode","unplayed");
             }
             boolean libraries=path.endsWith("/Views");JSONArray items=new JSONArray();
             for(int i=0;i<(libraries?6:Math.min(12,limit));i++)items.put(new JSONObject().put("Id",(libraries?"library-":"item-")+i).put("Name",(libraries?"媒体库 ":changed?"更新后的影片 ":"测试影片 ")+(i+1)).put("Type",libraries?"CollectionFolder":"Movie").put("Overview","背景简介").put("ProductionYear",2026).put("CollectionType",libraries?"mixed":"").put("SourceType",libraries?"path":"").put("RunTimeTicks",1000).put("UserData",new JSONObject().put("PlaybackPositionTicks",300)));
             if(browseFeatures&&libraries){items.getJSONObject(0).put("CollectionType","movies");items.getJSONObject(1).put("SourceType","filter").put("CollectionType","tvshows");items.getJSONObject(5).put("SourceType","collection").put("CollectionType","boxsets").put("Name","合集");}
+            if(nativeGroups&&libraries){JSONArray grouped=new JSONArray().put(items.getJSONObject(0)).put(new JSONObject().put("Id","library-group-7").put("Name","电影分组").put("Type","CollectionFolder").put("CollectionType","mixed").put("SourceType","group").put("ChildCount",2).put("UserData",new JSONObject()));for(int i=3;i<items.length();i++)grouped.put(items.get(i));items=grouped;}
             if(hiddenResume&&path.contains("/Items/Resume?"))items.remove(0);
             for(int i=0;i<items.length();i++)items.getJSONObject(i).getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);
             return new JSONObject().put("Items",items);
