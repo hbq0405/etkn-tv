@@ -15,6 +15,12 @@
 - 89项 Java 单测、正式发行构建和 Lint 通过；使用既有正式证书，SHA256为 e02d42443875c3631be48199e0df419b0570fcc421be7ff2b620f4c643e67bd7。
 - APK与电视原0.1.80的20个JNI逐个比较，字节全部一致。
 - 正式APK已ADB覆盖安装192.168.31.188，回读0.1.81/code82，经导出的SetupActivity进入HomeActivity，近期AndroidRuntime错误为空。没有人工输入密码或恢复影片；慢电视的视频闪白现象仍待用户实机确认。
-- APK SHA256：8502dd4eddbf09c8b0a970c35658608d0f68633d5c3a2b34cc013e781325d40b；发行包位于 outputs/etkn-tv-0.1.81/。
+- APK SHA256：8502dd4eddbf09c8b0a970c35658608d0f68633d5c3a2b34cc013e781325d40b。
 
 服务器TV分类图片缺失另由ETKvNext修复清理引用保护；本客户端更新不会恢复服务器上已经缺失的图片。
+
+## 正式发布
+
+源码提交aa539fa与标签v0.1.81已推送到origin；2026-11-05 12:12:53（Asia/Shanghai）正式发布为GitHub latest。四个资产为正式APK、update.json、SHA256SUMS.txt、中文发行说明，草稿元数据及公开匿名下载的大小和SHA256全部一致。正式APK大小52960734字节。
+
+发布通知工作流41966403462在对应源码aa539fa运行成功，日志唯一实际送达回执message_id=63737；未重新发送通知或移动已发布标签。真实电视回读0.1.81/code82。
