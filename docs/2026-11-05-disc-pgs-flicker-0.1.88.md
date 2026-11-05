@@ -25,3 +25,10 @@
 - 两个独立测试包已从本轮模拟器卸载，模拟器已退出；本轮 tests/pgs_flicker_20261105 已核对绝对路径、归属及无重解析点后清理。保留正式回归源码及修复包证据。
 - 初次交付时功能本地提交 01bc17f，未推送或创建 Release；本轮未热更新服务器。用户明确要求通过 ADB 更新 192.168.31.188 后，于 2026-11-05 20:55:21（Asia/Shanghai）以 install -r 覆盖电视正式应用，保留应用及账号数据。安装回执 Success，回读 versionName=0.1.88 / versionCode=89，正式入口 SetupActivity 启动 Status=ok，当前进程启动检查无 AndroidRuntime 错误。
 - 安装前已从电视提取旧版 0.1.87 到 outputs/etkn-tv-0.1.88/rollback-tv-0.1.87.apk；旧包与修复包经 apksigner 验证，均为同一正式发行证书。安装核对记录位于 verification/tv-install-verification.json。用户自行重测已确认的 ISO/PGS 片段后反馈“可以了，推送发版”，本次实片问题验收通过并明确授权 ETKN-TV 推送与发布。ASS、普通 MKV 或其他原因不在本修复的已验证结论范围。
+## 正式发布补充
+
+用户在指定电视实测后确认“可以了，推送发版”。2026-11-05 21:03:12（Asia/Shanghai），ETKN-TV v0.1.88 正式发布为 latest： https://github.com/hbq0405/etkn-tv/releases/tag/v0.1.88 。发行标签固定指向 fa5970d90518f420ca8ef25ea15d0b9af659b0f2，main 与标签已推送；本次发行也包含此前本地 0.1.87 的媒体库分组导航功能，服务端分组功能需要已有对应支持，本轮没有推送或热更新后端。
+
+沿用 20:55:21 已安装并由用户确认正常的同一 APK，没有重新生成。草稿校验正文、四资产大小和 SHA-256、更新清单及远端源码身份通过；发布后匿名下载 etkn-tv-0.1.88.apk、RELEASE_NOTES.md、SHA256SUMS.txt、update.json 全部与本地逐字节摘要一致，公开 latest/download/update.json 同样一致。验证分别保存在 verification/draft-verification.json、release-verification.json。
+
+Telegram 工作流 42032342993 在本次发行提交上 completed/success；日志唯一真实投递回执 message_id=63867，未重跑通知，见 verification/notification-verification.json。原包回滚备份与正式验证证据保留。本文档发布记录单独提交，不移动已发布标签，不替换发行资产。
