@@ -16,6 +16,11 @@ final class TvPreferences {
         prefs=context.getSharedPreferences("tv_preferences",Context.MODE_PRIVATE);
         scope=new JSONArray().put(api.server).put(api.session.userId()).toString()+"/";
     }
+    org.json.JSONObject danmaku(){
+        try{return new org.json.JSONObject(prefs.getString(scope+"danmaku","{\"enabled\":false,\"rows\":8,\"font_size\":21,\"opacity\":85,\"speed\":1}"));}
+        catch(org.json.JSONException invalid){return new org.json.JSONObject();}
+    }
+    void saveDanmaku(org.json.JSONObject settings){prefs.edit().putString(scope+"danmaku",settings.toString()).apply();}
     int skipMode(){int value=prefs.getInt(scope+"skip",SKIP_BUTTON);return value>=0&&value<SKIP_LABELS.length?value:SKIP_BUTTON;}
     void setSkipMode(int value){prefs.edit().putInt(scope+"skip",value).apply();}
     int seasonAudio(String season){return season==null||season.isEmpty()?-1:prefs.getInt(scope+"season-audio/"+season,-1);}

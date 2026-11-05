@@ -1308,7 +1308,7 @@ public class DetailFlowTest {
     @Test public void danmakuToggleRendersAndReleasesWithoutStaleReportReopening()throws Exception{
         try(Fixture server=new Fixture(true)){
             server.danmakuFeature=true;server.danmakuAvailable=true;
-            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            open(server,"movie-single");new TvPreferences(detail,detail.api).saveDanmaku(new JSONObject());new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
             onMain(()->assertNull("关闭账号不创建弹幕会话",field(playback,"danmaku")));
             assertEquals(0,server.danmakuRequests);
             onMain(()->((ExoPlayer)field(playback,"player")).play());
@@ -1324,23 +1324,66 @@ public class DetailFlowTest {
             onMain(()->{Bitmap pixels=Bitmap.createBitmap(overlay.getWidth(),overlay.getHeight(),Bitmap.Config.ARGB_8888);overlay.draw(new Canvas(pixels));int red=0;
                 for(int y=0;y<Math.min(pixels.getHeight(),160);y++)for(int x=0;x<pixels.getWidth();x++){int c=pixels.getPixel(x,y);if(Color.alpha(c)>100&&Color.red(c)>160&&Color.green(c)<100&&Color.blue(c)<100)red++;}
                 pixels.recycle();assertTrue("弹幕必须绘出可见文字",red>20);assertTrue(toggle.hasFocus());});
+            assertFalse("服务端旧个人开关关闭仍可显示",server.danmakuEnabled);
+            int requestsBeforeStyle=server.danmakuRequests;
+            onMain(()->((Button)field(playback,"danmakuSettingsButton")).performClick());settle();screenshot("danmaku-settings-panel.png");
+            onMain(()->{
+                AlertDialog dialog=(AlertDialog)field(playback,"danmakuDialog");View panel=dialog.getWindow().getDecorView();
+                for(View view:descendants(panel))if(view instanceof android.widget.SeekBar){android.widget.SeekBar slider=(android.widget.SeekBar)view;slider.requestFocus();slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT,new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_RIGHT));slider.onKeyUp(KeyEvent.KEYCODE_DPAD_RIGHT,new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_RIGHT));}
+                for(View view:descendants(panel))if("弹幕跟随主题色".equals(view.getContentDescription()))view.performClick();
+                JSONObject saved=new TvPreferences(playback,playback.api).danmaku();assertEquals(9,saved.optInt("rows"));assertEquals(22,saved.optInt("font_size"));assertEquals(90,saved.optInt("opacity"));assertEquals(1.25,saved.optDouble("speed"),.001);assertTrue(saved.optBoolean("theme_color"));
+                assertSame("调节不能重建会话",first,field(playback,"danmaku"));assertEquals(9,field(overlay,"rows"));
+                try{TvAppearance.current=new JSONObject().put("theme_color","#2cba87");}catch(Exception e){throw new AssertionError(e);}playback.appearanceChanged();
+                Bitmap pixels=Bitmap.createBitmap(overlay.getWidth(),overlay.getHeight(),Bitmap.Config.ARGB_8888);overlay.draw(new Canvas(pixels));int matching=0;for(int y=0;y<pixels.getHeight();y++)for(int x=0;x<pixels.getWidth();x++){int c=pixels.getPixel(x,y);if(Color.alpha(c)>100&&Math.abs(Color.red(c)-44)<5&&Math.abs(Color.green(c)-186)<5&&Math.abs(Color.blue(c)-135)<5)matching++;}pixels.recycle();assertTrue("弹幕文字跟随当前主题色",matching>20);
+                android.text.TextPaint font=(android.text.TextPaint)field(overlay,"paint");for(String text:new String[]{"中文","😀","🫠","👍🏽","👨‍👩‍👧‍👦","🇨🇳"})assertTrue("字体缺失: "+text,font.hasGlyph(text.equals("中文")?"中":text));
+                dialog.dismiss();
+            });
+            assertEquals("样式调节不发起新请求",requestsBeforeStyle,server.danmakuRequests);
+            onMain(()->{try{JSONObject style=new TvPreferences(playback,playback.api).danmaku();style.put("theme_color",false);new TvPreferences(playback,playback.api).saveDanmaku(style);first.setStyle(style);}catch(Exception e){throw new AssertionError(e);}});
+            java.util.List<Long> frames=new java.util.concurrent.CopyOnWriteArrayList<>();android.view.ViewTreeObserver.OnDrawListener drawing=()->frames.add(SystemClock.uptimeMillis());onMain(()->{overlay.getViewTreeObserver().addOnDrawListener(drawing);((ExoPlayer)field(playback,"player")).play();});await(()->((ExoPlayer)field(playback,"player")).isPlaying());Thread.sleep(300);frames.clear();Thread.sleep(1500);onMain(()->{android.util.Log.i("DanmakuFrames","frames="+frames.size()+" durationMs=1500 playing="+((ExoPlayer)field(playback,"player")).isPlaying()+" cues="+((DanmakuTimeline)field(overlay,"timeline")).cues.size()+" intervals="+frames.toString());((ExoPlayer)field(playback,"player")).pause();overlay.getViewTreeObserver().removeOnDrawListener(drawing);});assertTrue("实际绘制必须持续推进: "+frames.size(),frames.size()>10);
             screenshot("danmaku-controls-paused.png");
             server.danmakuReportGate=new java.util.concurrent.CountDownLatch(1);server.danmakuReportRequested=new java.util.concurrent.CountDownLatch(1);
             onMain(()->{try{java.lang.reflect.Method method=PlayerActivity.class.getDeclaredMethod("report",String.class);method.setAccessible(true);method.invoke(playback,"Progress");}catch(Exception e){throw new AssertionError(e);}});
             assertTrue(server.danmakuReportRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
-            onMain(toggle::performClick);await(()->!server.danmakuEnabled&&field(playback,"danmaku")==null);
+            onMain(toggle::performClick);await(()->!new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")==null);
             server.danmakuReportGate.countDown();Thread.sleep(400);
             onMain(()->{assertNull("迟到状态不能重新启用",field(playback,"danmaku"));assertNull(overlay.getParent());assertTrue(((java.util.concurrent.ExecutorService)field(first,"network")).isShutdown());});
-            onMain(toggle::performClick);await(()->server.danmakuEnabled&&field(playback,"danmaku")!=null);
+            onMain(toggle::performClick);await(()->new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")!=null);
             server.danmakuAvailable=false;
             onMain(()->{try{java.lang.reflect.Method method=PlayerActivity.class.getDeclaredMethod("report",String.class);method.setAccessible(true);method.invoke(playback,"Progress");}catch(Exception e){throw new AssertionError(e);}});
             await(()->field(playback,"danmaku")==null&&toggle.getText().toString().contains("服务关闭"));
             int requests=server.danmakuRequests;Thread.sleep(1200);assertEquals("总开关关闭后不再获取",requests,server.danmakuRequests);
             server.danmakuAvailable=true;server.danmakuEnabled=false;
-            onMain(toggle::performClick);await(()->server.danmakuEnabled&&field(playback,"danmaku")!=null);
+            onMain(toggle::performClick);assertFalse(new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled"));
+            onMain(toggle::performClick);await(()->new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")!=null);
             DanmakuSession last=(DanmakuSession)field(playback,"danmaku");closePlayer();
             assertFalse(last.active());assertTrue(((java.util.concurrent.ExecutorService)field(last,"network")).isShutdown());
         }finally{cleanup();}
+    }
+    @Test public void danmakuFramesMatchVsyncAndEmojiPixelsRender()throws Exception{
+        final DanmakuOverlay[] view={null};java.util.concurrent.atomic.AtomicBoolean playing=new java.util.concurrent.atomic.AtomicBoolean(true);
+        try(Fixture server=new Fixture()){
+            open(server,"movie-single");long origin=SystemClock.uptimeMillis();
+            Player clock=(Player)java.lang.reflect.Proxy.newProxyInstance(Player.class.getClassLoader(),new Class[]{Player.class},(proxy,method,args)->{
+                if(method.getName().equals("isPlaying"))return playing.get();if(method.getName().equals("getCurrentPosition"))return SystemClock.uptimeMillis()-origin+3000;throw new UnsupportedOperationException(method.getName());
+            });
+            java.util.concurrent.atomic.AtomicInteger vsync=new java.util.concurrent.atomic.AtomicInteger(),draws=new java.util.concurrent.atomic.AtomicInteger();
+            android.view.Choreographer.FrameCallback callback=new android.view.Choreographer.FrameCallback(){@Override public void doFrame(long time){vsync.incrementAndGet();if(playing.get())android.view.Choreographer.getInstance().postFrameCallback(this);}};
+            onMain(()->{try{
+                DanmakuOverlay overlay=new DanmakuOverlay(detail,clock,new JSONObject().put("rows",8).put("opacity",100));view[0]=overlay;
+                JSONArray rows=new JSONArray();for(int i=0;i<80;i++)rows.put(new JSONObject().put("time",i*150).put("text","中文弹幕 😀🫠👍🏽👨‍👩‍👧‍👦🇨🇳"));overlay.setTimeline(new DanmakuTimeline(rows));
+                ((ViewGroup)detail.getWindow().getDecorView()).addView(overlay,new ViewGroup.LayoutParams(-1,-1));overlay.getViewTreeObserver().addOnDrawListener(draws::incrementAndGet);android.view.Choreographer.getInstance().postFrameCallback(callback);
+            }catch(Exception e){throw new AssertionError(e);}});
+            Thread.sleep(500);vsync.set(0);draws.set(0);Thread.sleep(2000);screenshot("danmaku-distribution.png");
+            onMain(()->{assertTrue(vsync.get()>20);assertTrue("每次可绘制刷新都应绘制弹幕: "+draws.get()+"/"+vsync.get(),draws.get()>=vsync.get()*.85);android.util.Log.i("DanmakuFrames","isolated draws="+draws.get()+" vsync="+vsync.get()+" durationMs=2000");
+                android.text.TextPaint font=(android.text.TextPaint)field(view[0],"paint");for(String text:new String[]{"中","😀","🫠","👍🏽","👨‍👩‍👧‍👦","🇨🇳"})assertTrue("字体缺失: "+text,font.hasGlyph(text));
+                android.graphics.Bitmap pixels=Bitmap.createBitmap(800,120,Bitmap.Config.ARGB_8888);font.setTextSize(64);font.setColor(Color.WHITE);font.setAlpha(255);font.clearShadowLayer();Canvas canvas=new Canvas(pixels);canvas.drawText("中文😀🫠👍🏽",10,85,font);int chinese=0,colored=0;
+                for(int y=0;y<120;y++)for(int x=0;x<800;x++){int c=pixels.getPixel(x,y);if(Color.alpha(c)>120){if(x<120)chinese++;if(Math.max(Color.red(c),Math.max(Color.green(c),Color.blue(c)))-Math.min(Color.red(c),Math.min(Color.green(c),Color.blue(c)))>70)colored++;}}
+                assertTrue("中文回退必须有字形",chinese>80);assertTrue("emoji必须有彩色像素",colored>100);
+                try{File directory=new File(detail.getExternalFilesDir(null),"detail-regression");directory.mkdirs();try(FileOutputStream out=new FileOutputStream(new File(directory,"danmaku-emoji.png"))){pixels.compress(Bitmap.CompressFormat.PNG,100,out);}}catch(Exception e){throw new AssertionError(e);}pixels.recycle();
+                playing.set(false);android.view.Choreographer.getInstance().removeFrameCallback(callback);view[0].close();((ViewGroup)view[0].getParent()).removeView(view[0]);assertEquals(0,((android.util.LruCache<?,?>)field(view[0],"glyphs")).size());
+            });
+        }finally{playing.set(false);if(view[0]!=null)onMain(()->{view[0].close();if(view[0].getParent()!=null)((ViewGroup)view[0].getParent()).removeView(view[0]);});cleanup();}
     }
     private final class Fixture implements AutoCloseable{
         volatile boolean danmakuFeature,danmakuAvailable,danmakuEnabled;
@@ -1402,8 +1445,9 @@ public class DetailFlowTest {
         JSONObject base(String id,String type)throws Exception{return new JSONObject().put("ProviderIds",new JSONObject().put("Tmdb","123")).put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演"))).put("UserData",new JSONObject().put("IsFavorite",favorite).put("Played",watched)).put("BackdropImageTags",new JSONArray().put(changed?"art2":"art1")).put("ImageTags",new JSONObject().put("Logo",changed?"art2":"art1"));}
         JSONObject response(String path)throws Exception{
             if(path.equals("/api/tv/System/Appearance"))return appearance;
+            if(path.equals("/api/tv/System/Danmaku"))return new JSONObject().put("Available",danmakuAvailable);
             if(path.equals("/api/tv/Users/Me/Danmaku"))return new JSONObject().put("enabled",danmakuEnabled).put("state",danmakuState());
-            if(path.contains("/Danmaku?")){danmakuRequests++;return new JSONObject().put("enabled",danmakuAvailable&&danmakuEnabled).put("status","ready").put("comments",new JSONArray().put(new JSONObject().put("time",1000).put("text","弹幕渲染测试").put("color",0xff0000).put("mode",1)));}
+            if(path.contains("/Danmaku?")){danmakuRequests++;return new JSONObject().put("enabled",danmakuAvailable&&(danmakuEnabled||path.contains("local=true"))).put("status","ready").put("comments",new JSONArray().put(new JSONObject().put("time",1000).put("text","弹幕渲染测试 😀🫠👍🏽👨‍👩‍👧‍👦🇨🇳").put("color",0xff0000).put("mode",1)));}
             if(holdPlayback&&path.contains("/PlaybackInfo")){playbackRequested.countDown();if(!playbackGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic playback gate timed out");}
             if(path.endsWith("/SubtitleTranslation")){JSONArray result=new JSONArray();if(translationReady)synchronized(translationCues){for(JSONObject cue:translationCues)result.put(new JSONObject().put("start",cue.getLong("start")).put("end",cue.getLong("end")).put("source",cue.getString("text")).put("text","合成译文\n"+cue.getString("text")));}return new JSONObject().put("Enabled",true).put("Key","fixture-key").put("Complete",false).put("Cues",result);}
             if(browseFeatures&&path.contains("/Collections?"))return new JSONObject().put("Items",new JSONArray().put(new JSONObject().put("Id","collection-1").put("Name","合成合集").put("Type","BoxSet"))).put("TotalRecordCount",1);

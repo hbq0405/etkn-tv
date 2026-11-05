@@ -38,10 +38,11 @@ public final class PlayerActivity extends TvActivity {
     private TextClock pauseClock;
     private boolean playbackIdentityRequested;
     private LinearLayout controls;
-    private Button versionButton,audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton,danmakuButton;
+    private Button versionButton,audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton,danmakuButton,danmakuSettingsButton;
+    private Button danmakuPanelToggle;
     private boolean danmakuSaving;
     private int danmakuRevision;
-    private AlertDialog speedDialog;
+    private AlertDialog speedDialog,danmakuDialog;
     private PlayerEpisodePanel episodePanel;
     private List<JSONObject> episodes=new ArrayList<>();
     private boolean episodesLoading,episodesFailed;
@@ -118,9 +119,9 @@ public final class PlayerActivity extends TvActivity {
         LinearLayout actions=row();versionButton=button("版本",this::chooseVersion);actions.addView(versionButton);
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
         speedButton=button("倍速 · "+speedLabel(),this::chooseSpeed);
-        danmakuButton=button("弹幕 · 关闭",this::toggleDanmaku);
+        danmakuButton=button("弹幕 · 关闭",this::toggleDanmaku);danmakuSettingsButton=button("弹幕设置",this::showDanmakuSettings);
         nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);
-        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(speedButton);actions.addView(danmakuButton);actions.addView(decoderButton);
+        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(speedButton);actions.addView(danmakuButton);actions.addView(danmakuSettingsButton);actions.addView(decoderButton);
         for(int i=0;i<actions.getChildCount();i++)actions.getChildAt(i).setBackground(transparentFocusBackground());
         actions.setGravity(Gravity.CENTER);HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.setFillViewport(true);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(Math.min(dp(820),getResources().getDisplayMetrics().widthPixels-dp(96)),-2,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);overlay.bottomMargin=dp(70);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
@@ -172,7 +173,7 @@ public final class PlayerActivity extends TvActivity {
         pauseAvatar=new ImageView(this);pauseAvatar.setScaleType(ImageView.ScaleType.CENTER_CROP);pauseAvatar.setContentDescription(api.session.name());Images.rounded(pauseAvatar,dp(24));pauseAvatar.setVisibility(View.GONE);FrameLayout.LayoutParams avatar=new FrameLayout.LayoutParams(dp(48),dp(48),Gravity.TOP|Gravity.START);avatar.setMargins(dp(28),dp(24),0,0);playbackOverlay.addView(pauseAvatar,avatar);
         pauseClock=new TextClock(this);pauseClock.setFormat12Hour("HH:mm");pauseClock.setFormat24Hour("HH:mm");pauseClock.setTextSize(22);pauseClock.setTextColor(android.graphics.Color.WHITE);pauseClock.setGravity(Gravity.CENTER_VERTICAL);pauseClock.setShadowLayer(dp(2),0,dp(1),android.graphics.Color.BLACK);FrameLayout.LayoutParams clock=new FrameLayout.LayoutParams(-2,dp(48),Gravity.TOP|Gravity.END);clock.setMargins(0,dp(24),dp(28),0);playbackOverlay.addView(pauseClock,clock);
     }
-    @Override void appearanceChanged(){if(waitingBackground!=null)waitingBackground.update();if(status!=null)TvNotice.style(status,this);if(skipButton!=null)TvNotice.style(skipButton,this);if(playbackLoading!=null)playbackLoading.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));}
+    @Override void appearanceChanged(){if(waitingBackground!=null)waitingBackground.update();if(status!=null)TvNotice.style(status,this);if(skipButton!=null)TvNotice.style(skipButton,this);if(playbackLoading!=null)playbackLoading.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));if(danmaku!=null)danmaku.tick();if(danmakuDialog!=null&&danmakuDialog.isShowing())themeDialog(danmakuDialog);}
     private void loadPlaybackIdentity(){
         if(playbackIdentityRequested)return;playbackIdentityRequested=true;
         async(()->{try{return api.get("/api/tv/Users/Me");}catch(Exception ignored){return null;}},user->{
@@ -329,7 +330,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void showLoading(){if(playbackLoading!=null)playbackLoading.setVisibility(View.VISIBLE);if(status!=null)status.setVisibility(View.GONE);}
     private void hideLoading(){if(playbackLoading!=null)playbackLoading.setVisibility(View.GONE);}
-    @Override void requestError(String value){message(value);}
+    @Override void requestError(String value){danmakuSaving=false;message(value);}
     private void message(String value){hideLoading();showUnifiedNotice(value,0);}
     void showUnifiedNotice(String value,long duration){if(skipNotice==null)return;timer.removeCallbacks(hideSkipNotice);TvNotice.style(skipNotice,this);skipNotice.setText(value);skipNotice.setVisibility(View.VISIBLE);skipNotice.bringToFront();if(skipButton!=null)skipButton.setVisibility(View.GONE);if(duration>0)timer.postDelayed(hideSkipNotice,duration);}
     private void showSkipNotice(String value,long hideAfter){showUnifiedNotice(value,hideAfter);}
@@ -487,30 +488,57 @@ public final class PlayerActivity extends TvActivity {
     private void hideSeekProgress(){seekKeys=false;pendingSeekPosition=-1;timer.removeCallbacks(seekCommit);timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);updatePlaybackOverlay();}
     private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);updatePlaybackOverlay();focusNextWhenLoaded=!hasNext();(hasNext()?nextButton:audioButton).requestFocus();}
     private void applyDanmakuState(JSONObject state){
-        if(state==null){if(danmaku!=null){danmaku.close();danmaku=null;}danmakuButton.setVisibility(View.GONE);return;}
-        danmakuButton.setVisibility(View.VISIBLE);
-        JSONObject previous=info==null?null:info.optJSONObject("Danmaku");
-        boolean changed=previous==null||!String.valueOf(previous.optJSONObject("Style")).equals(String.valueOf(state.optJSONObject("Style")));
-        if(danmaku!=null&&(!state.optBoolean("Enabled")||changed||!danmaku.active())){danmaku.close();danmaku=null;}
+        if(state==null){if(danmaku!=null){danmaku.close();danmaku=null;}danmakuButton.setVisibility(View.GONE);danmakuSettingsButton.setVisibility(View.GONE);return;}
+        danmakuButton.setVisibility(View.VISIBLE);danmakuSettingsButton.setVisibility(View.VISIBLE);
         if(info!=null)try{info.put("Danmaku",state);}catch(JSONException ignored){}
-        if(state.optBoolean("Enabled")&&danmaku==null&&player!=null)danmaku=new DanmakuSession(api,itemId,playSession,player,playbackStage,state.optJSONObject("Style"));
-        danmakuButton.setText(!state.optBoolean("Available")?"弹幕 · 服务关闭":state.optBoolean("PreferenceEnabled")?"弹幕 · 开启":"弹幕 · 关闭");
+        JSONObject personal=new TvPreferences(this,api).danmaku();boolean enabled=state.optBoolean("Available")&&personal.optBoolean("enabled");
+        if(danmaku!=null&&(!enabled||!danmaku.active())){danmaku.close();danmaku=null;}
+        if(enabled&&danmaku==null&&player!=null)danmaku=new DanmakuSession(api,itemId,playSession,player,playbackStage,personal);
+        else if(danmaku!=null)danmaku.setStyle(personal);
+        danmakuButton.setText(!state.optBoolean("Available")?"弹幕 · 服务关闭":personal.optBoolean("enabled")?"弹幕 · 开启":"弹幕 · 关闭");if(danmakuPanelToggle!=null)danmakuPanelToggle.setText(danmakuButton.getText());
+    }
+    private void saveDanmaku(JSONObject settings){
+        new TvPreferences(this,api).saveDanmaku(settings);danmakuRevision++;applyDanmakuState(info==null?null:info.optJSONObject("Danmaku"));
     }
     private void toggleDanmaku(){
         if(danmakuSaving||info==null||player==null)return;
+        JSONObject current=info.optJSONObject("Danmaku"),personal=new TvPreferences(this,api).danmaku();
+        boolean enabled=!personal.optBoolean("enabled");
+        try{personal.put("enabled",enabled);saveDanmaku(personal);}catch(JSONException ignored){return;}
+        if(!enabled||current!=null&&current.optBoolean("Available"))return;
         danmakuSaving=true;int revision=++danmakuRevision;String expected=playSession;ExoPlayer expectedPlayer=player;
-        async(()->{try{
-                JSONObject latest=api.get("/api/tv/Users/Me/Danmaku");JSONObject state=latest.optJSONObject("state");
-                if(state==null||!state.optBoolean("Available"))return latest;
-                return api.post("/api/tv/Users/Me/Danmaku",new JSONObject().put("enabled",!latest.optBoolean("enabled")));
-            }catch(EtknApi.AuthException error){throw error;}
-            catch(Exception error){return new JSONObject().put("failed",true);}
-            finally{runOnUiThread(()->danmakuSaving=false);}},result->{
-                if(revision!=danmakuRevision||!expected.equals(playSession)||player!=expectedPlayer||!foreground)return;
-                if(result.optBoolean("failed")){showSkipNotice("弹幕开关保存失败，请重试",2500);return;}
-                JSONObject state=result.optJSONObject("state");applyDanmakuState(state);
-                if(state==null||!state.optBoolean("Available"))showSkipNotice("请在服务端增强功能中启用弹幕服务",2500);
-            });
+        async(()->api.get("/api/tv/System/Danmaku"),state->{
+            danmakuSaving=false;if(revision!=danmakuRevision||!expected.equals(playSession)||player!=expectedPlayer||!foreground)return;
+            applyDanmakuState(state);if(!state.optBoolean("Available"))showSkipNotice("请在服务端增强功能中启用弹幕服务",2500);
+        });
+    }
+    private void showDanmakuSettings(){
+        if(player==null||danmakuDialog!=null&&danmakuDialog.isShowing())return;video.setControllerShowTimeoutMs(0);
+        LinearLayout panel=column();panel.setPadding(dp(22),dp(18),dp(22),dp(18));panel.addView(text("弹幕设置",22,TEXT));
+        Button enabled=button(danmakuButton.getText().toString(),this::toggleDanmaku);danmakuPanelToggle=enabled;panel.addView(enabled);
+        Button color=button("",()->{});color.setContentDescription("弹幕跟随主题色");
+        Runnable colorLabel=()->color.setText("跟随主题色 · "+(new TvPreferences(this,api).danmaku().optBoolean("theme_color")?"开启":"关闭"));colorLabel.run();
+        color.setOnClickListener(view->{JSONObject settings=new TvPreferences(this,api).danmaku();try{settings.put("theme_color",!settings.optBoolean("theme_color"));saveDanmaku(settings);colorLabel.run();}catch(JSONException ignored){}});panel.addView(color);
+        danmakuSlider(panel,"行数","rows",1,16,1,8,"");
+        danmakuSlider(panel,"字号","font_size",12,40,1,21,"");
+        danmakuSlider(panel,"不透明度","opacity",10,100,5,85,"%");
+        danmakuSlider(panel,"移动速度","speed",.5,2,.25,1,"×");
+        Button done=button("完成",()->danmakuDialog.dismiss());panel.addView(done);
+        enabled.setOnClickListener(view->{toggleDanmaku();enabled.setText(danmakuButton.getText());});
+        danmakuDialog=dialogBuilder().setView(panel).create();
+        danmakuDialog.setOnShowListener(value->{android.view.Window window=danmakuDialog.getWindow();if(window!=null){window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);window.setBackgroundDrawable(shape(PANEL,ACCENT));window.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);window.setLayout(dp(Math.min(350,getResources().getConfiguration().screenWidthDp-48)),-2);}themeDialog(danmakuDialog);enabled.requestFocus();});
+        danmakuDialog.setOnDismissListener(value->{danmakuDialog=null;danmakuPanelToggle=null;if(foreground&&player!=null){video.setControllerShowTimeoutMs(5000);showControls();danmakuSettingsButton.requestFocus();}});danmakuDialog.show();
+    }
+    private void danmakuSlider(LinearLayout panel,String name,String key,double min,double max,double step,double fallback,String suffix){
+        JSONObject settings=new TvPreferences(this,api).danmaku();double value=Math.max(min,Math.min(max,settings.optDouble(key,fallback)));
+        TextView label=text(name+" · "+new java.math.BigDecimal(Double.toString(value)).stripTrailingZeros().toPlainString()+suffix,15,TEXT);panel.addView(label);
+        SeekBar slider=new SeekBar(this);slider.setContentDescription(name);slider.setMax((int)Math.round((max-min)/step));slider.setProgress((int)Math.round((value-min)/step));slider.setKeyProgressIncrement(1);
+        slider.setProgressTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));slider.setThumbTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));slider.setBackground(selectionBackground());panel.addView(slider,new LinearLayout.LayoutParams(-1,dp(42)));
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar view,int progress,boolean fromUser){if(!fromUser)return;double next=min+progress*step;JSONObject updated=new TvPreferences(PlayerActivity.this,api).danmaku();try{updated.put(key,next);saveDanmaku(updated);}catch(JSONException ignored){}label.setText(name+" · "+new java.math.BigDecimal(Double.toString(next)).stripTrailingZeros().toPlainString()+suffix);}
+            @Override public void onStartTrackingTouch(SeekBar view){}
+            @Override public void onStopTrackingTouch(SeekBar view){}
+        });
     }
     private String speedLabel(){return String.format(Locale.ROOT,"%s×",new java.math.BigDecimal(Float.toString(playbackSpeed)).stripTrailingZeros().toPlainString());}
     private void chooseSpeed(){
@@ -531,13 +559,13 @@ public final class PlayerActivity extends TvActivity {
             if(event.equals("Stopped")&&completedByCredits)payload.put("PlayedToCompletion",true);
             int revision=danmakuRevision;ExoPlayer expectedPlayer=player;String expectedSession=playSession;
             JSONObject currentState=info==null?null:info.optJSONObject("Danmaku");
-            if(!event.equals("Stopped")&&!danmakuSaving&&currentState!=null&&currentState.optBoolean("Available"))payload.put("DanmakuActive",true);
+            if(!event.equals("Stopped")&&!danmakuSaving&&currentState!=null&&currentState.optBoolean("Available")&&new TvPreferences(this,api).danmaku().optBoolean("enabled"))payload.put("DanmakuActive",true);
             reports.execute(()->{try{JSONObject result=api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);JSONObject state=result.optJSONObject("Danmaku");
                 if(state!=null)runOnUiThread(()->{if(revision==danmakuRevision&&expectedSession.equals(playSession)&&player==expectedPlayer&&player!=null&&foreground&&!danmakuSaving)applyDanmakuState(state);});
             }catch(Exception ignored){}});
         }catch(Exception ignored){}
     }
-    private void stopPlayer(){cancelConfirm();danmakuRevision++;if(danmaku!=null){danmaku.close();danmaku=null;}if(translation!=null){translation.close();translation=null;}cancelCreditsCountdown();creditsSkipCancelled=false;hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}updatePlaybackOverlay();}
+    private void stopPlayer(){cancelConfirm();if(danmakuDialog!=null)danmakuDialog.dismiss();danmakuSaving=false;danmakuRevision++;if(danmaku!=null){danmaku.close();danmaku=null;}if(translation!=null){translation.close();translation=null;}cancelCreditsCountdown();creditsSkipCancelled=false;hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}updatePlaybackOverlay();}
     @Override protected void onStart(){super.onStart();if(!LoginGate.isSatisfied()&&api.session.persist()!=SessionStore.PERSIST_FULL)return;foreground=true;if(info!=null&&player==null)startSource();}
     private void cancelConfirm(){timer.removeCallbacks(confirmLongPress);confirmPress=null;confirmLongPressed=false;}
     @Override protected void onPause(){cancelConfirm();cancelCreditsCountdown();hideSeekProgress();super.onPause();}
