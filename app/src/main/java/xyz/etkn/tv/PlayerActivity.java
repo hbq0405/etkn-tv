@@ -38,7 +38,7 @@ public final class PlayerActivity extends TvActivity {
     private TextClock pauseClock;
     private boolean playbackIdentityRequested;
     private LinearLayout controls;
-    private Button versionButton,audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton,danmakuButton,danmakuSettingsButton;
+    private Button versionButton,audioButton,subtitleButton,decoderButton,skipButton,nextButton,speedButton,danmakuSettingsButton;
     private Button danmakuPanelToggle;
     private boolean danmakuSaving;
     private int danmakuRevision;
@@ -119,9 +119,9 @@ public final class PlayerActivity extends TvActivity {
         LinearLayout actions=row();versionButton=button("版本",this::chooseVersion);actions.addView(versionButton);
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
         speedButton=button("倍速 · "+speedLabel(),this::chooseSpeed);
-        danmakuButton=button("弹幕 · 关闭",this::toggleDanmaku);danmakuSettingsButton=button("弹幕设置",this::showDanmakuSettings);
+        danmakuSettingsButton=button("弹幕设置",this::showDanmakuSettings);
         nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);
-        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(speedButton);actions.addView(danmakuButton);actions.addView(danmakuSettingsButton);actions.addView(decoderButton);
+        actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(speedButton);actions.addView(danmakuSettingsButton);actions.addView(decoderButton);
         for(int i=0;i<actions.getChildCount();i++)actions.getChildAt(i).setBackground(transparentFocusBackground());
         actions.setGravity(Gravity.CENTER);HorizontalScrollView actionScroll=new FocusScroll.Row(this);actionScroll.setHorizontalScrollBarEnabled(false);actionScroll.setFillViewport(true);actionScroll.addView(actions);controls.addView(actionScroll);
         FrameLayout.LayoutParams overlay=new FrameLayout.LayoutParams(Math.min(dp(820),getResources().getDisplayMetrics().widthPixels-dp(96)),-2,Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);overlay.bottomMargin=dp(70);stage.addView(controls,overlay);controls.setVisibility(View.GONE);
@@ -488,14 +488,14 @@ public final class PlayerActivity extends TvActivity {
     private void hideSeekProgress(){seekKeys=false;pendingSeekPosition=-1;timer.removeCallbacks(seekCommit);timer.removeCallbacks(seekProgressUpdate);timer.removeCallbacks(seekProgressHide);updatePlaybackOverlay();}
     private void showControls(){hideSeekProgress();video.showController();controls.setVisibility(View.VISIBLE);updatePlaybackOverlay();focusNextWhenLoaded=!hasNext();(hasNext()?nextButton:audioButton).requestFocus();}
     private void applyDanmakuState(JSONObject state){
-        if(state==null){if(danmaku!=null){danmaku.close();danmaku=null;}danmakuButton.setVisibility(View.GONE);danmakuSettingsButton.setVisibility(View.GONE);return;}
-        danmakuButton.setVisibility(View.VISIBLE);danmakuSettingsButton.setVisibility(View.VISIBLE);
+        if(state==null){if(danmaku!=null){danmaku.close();danmaku=null;}danmakuSettingsButton.setVisibility(View.GONE);return;}
+        danmakuSettingsButton.setVisibility(View.VISIBLE);
         if(info!=null)try{info.put("Danmaku",state);}catch(JSONException ignored){}
         JSONObject personal=new TvPreferences(this,api).danmaku();boolean enabled=state.optBoolean("Available")&&personal.optBoolean("enabled");
         if(danmaku!=null&&(!enabled||!danmaku.active())){danmaku.close();danmaku=null;}
         if(enabled&&danmaku==null&&player!=null)danmaku=new DanmakuSession(api,itemId,playSession,player,playbackStage,personal);
         else if(danmaku!=null)danmaku.setStyle(personal);
-        danmakuButton.setText(!state.optBoolean("Available")?"弹幕 · 服务关闭":personal.optBoolean("enabled")?"弹幕 · 开启":"弹幕 · 关闭");if(danmakuPanelToggle!=null)danmakuPanelToggle.setText(danmakuButton.getText());
+        if(danmakuPanelToggle!=null)danmakuPanelToggle.setText(!state.optBoolean("Available")?"弹幕 · 服务关闭":personal.optBoolean("enabled")?"弹幕 · 开启":"弹幕 · 关闭");
     }
     private void saveDanmaku(JSONObject settings){
         new TvPreferences(this,api).saveDanmaku(settings);danmakuRevision++;applyDanmakuState(info==null?null:info.optJSONObject("Danmaku"));
@@ -515,16 +515,15 @@ public final class PlayerActivity extends TvActivity {
     private void showDanmakuSettings(){
         if(player==null||danmakuDialog!=null&&danmakuDialog.isShowing())return;video.setControllerShowTimeoutMs(0);
         LinearLayout panel=column();panel.setPadding(dp(22),dp(18),dp(22),dp(18));panel.addView(text("弹幕设置",22,TEXT));
-        Button enabled=button(danmakuButton.getText().toString(),this::toggleDanmaku);danmakuPanelToggle=enabled;panel.addView(enabled);
+        Button enabled=button("",this::toggleDanmaku);danmakuPanelToggle=enabled;panel.addView(enabled);applyDanmakuState(info==null?null:info.optJSONObject("Danmaku"));
         Button color=button("",()->{});color.setContentDescription("弹幕跟随主题色");
         Runnable colorLabel=()->color.setText("跟随主题色 · "+(new TvPreferences(this,api).danmaku().optBoolean("theme_color")?"开启":"关闭"));colorLabel.run();
         color.setOnClickListener(view->{JSONObject settings=new TvPreferences(this,api).danmaku();try{settings.put("theme_color",!settings.optBoolean("theme_color"));saveDanmaku(settings);colorLabel.run();}catch(JSONException ignored){}});panel.addView(color);
         danmakuSlider(panel,"行数","rows",1,16,1,8,"");
+        danmakuSlider(panel,"密度","density",10,100,10,100,"%");
         danmakuSlider(panel,"字号","font_size",12,40,1,21,"");
         danmakuSlider(panel,"不透明度","opacity",10,100,5,85,"%");
         danmakuSlider(panel,"移动速度","speed",.5,2,.25,1,"×");
-        Button done=button("完成",()->danmakuDialog.dismiss());panel.addView(done);
-        enabled.setOnClickListener(view->{toggleDanmaku();enabled.setText(danmakuButton.getText());});
         danmakuDialog=dialogBuilder().setView(panel).create();
         danmakuDialog.setOnShowListener(value->{android.view.Window window=danmakuDialog.getWindow();if(window!=null){window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);window.setBackgroundDrawable(shape(PANEL,ACCENT));window.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);window.setLayout(dp(Math.min(350,getResources().getConfiguration().screenWidthDp-48)),-2);}themeDialog(danmakuDialog);enabled.requestFocus();});
         danmakuDialog.setOnDismissListener(value->{danmakuDialog=null;danmakuPanelToggle=null;if(foreground&&player!=null){video.setControllerShowTimeoutMs(5000);showControls();danmakuSettingsButton.requestFocus();}});danmakuDialog.show();

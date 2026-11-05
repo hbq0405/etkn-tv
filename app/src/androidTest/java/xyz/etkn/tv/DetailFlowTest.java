@@ -1312,9 +1312,10 @@ public class DetailFlowTest {
             onMain(()->assertNull("关闭账号不创建弹幕会话",field(playback,"danmaku")));
             assertEquals(0,server.danmakuRequests);
             onMain(()->((ExoPlayer)field(playback,"player")).play());
-            Button toggle=(Button)field(playback,"danmakuButton");
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);await(()->toggle.isShown());
-            onMain(()->{toggle.requestFocus();toggle.performClick();});
+            Button settings=(Button)field(playback,"danmakuSettingsButton");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);await(()->settings.isShown());
+            onMain(()->{assertEquals(1,descendants((View)field(playback,"controls")).stream().filter(v->v instanceof Button&&((Button)v).getText().toString().startsWith("弹幕")).count());settings.requestFocus();settings.performClick();});
+            Button toggle=(Button)field(playback,"danmakuPanelToggle");onMain(toggle::performClick);
             await(()->field(playback,"danmaku")!=null&&server.danmakuRequests>0);
             DanmakuSession first=(DanmakuSession)field(playback,"danmaku");
             DanmakuOverlay overlay=(DanmakuOverlay)field(first,"overlay");
@@ -1326,36 +1327,48 @@ public class DetailFlowTest {
                 pixels.recycle();assertTrue("弹幕必须绘出可见文字",red>20);assertTrue(toggle.hasFocus());});
             assertFalse("服务端旧个人开关关闭仍可显示",server.danmakuEnabled);
             int requestsBeforeStyle=server.danmakuRequests;
-            onMain(()->((Button)field(playback,"danmakuSettingsButton")).performClick());settle();screenshot("danmaku-settings-panel.png");
+            settle();screenshot("danmaku-settings-panel.png");
             onMain(()->{
                 AlertDialog dialog=(AlertDialog)field(playback,"danmakuDialog");View panel=dialog.getWindow().getDecorView();
-                for(View view:descendants(panel))if(view instanceof android.widget.SeekBar){android.widget.SeekBar slider=(android.widget.SeekBar)view;slider.requestFocus();slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT,new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_RIGHT));slider.onKeyUp(KeyEvent.KEYCODE_DPAD_RIGHT,new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_RIGHT));}
+                assertNull("实时设置面板不需要完成按钮",findButton(panel,"完成"));
+                for(View view:descendants(panel))if(view instanceof android.widget.SeekBar&&!"密度".equals(view.getContentDescription())){android.widget.SeekBar slider=(android.widget.SeekBar)view;slider.requestFocus();slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT,new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_RIGHT));slider.onKeyUp(KeyEvent.KEYCODE_DPAD_RIGHT,new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_RIGHT));}
                 for(View view:descendants(panel))if("弹幕跟随主题色".equals(view.getContentDescription()))view.performClick();
                 JSONObject saved=new TvPreferences(playback,playback.api).danmaku();assertEquals(9,saved.optInt("rows"));assertEquals(22,saved.optInt("font_size"));assertEquals(90,saved.optInt("opacity"));assertEquals(1.25,saved.optDouble("speed"),.001);assertTrue(saved.optBoolean("theme_color"));
                 assertSame("调节不能重建会话",first,field(playback,"danmaku"));assertEquals(9,field(overlay,"rows"));
                 try{TvAppearance.current=new JSONObject().put("theme_color","#2cba87");}catch(Exception e){throw new AssertionError(e);}playback.appearanceChanged();
                 Bitmap pixels=Bitmap.createBitmap(overlay.getWidth(),overlay.getHeight(),Bitmap.Config.ARGB_8888);overlay.draw(new Canvas(pixels));int matching=0;for(int y=0;y<pixels.getHeight();y++)for(int x=0;x<pixels.getWidth();x++){int c=pixels.getPixel(x,y);if(Color.alpha(c)>100&&Math.abs(Color.red(c)-44)<5&&Math.abs(Color.green(c)-186)<5&&Math.abs(Color.blue(c)-135)<5)matching++;}pixels.recycle();assertTrue("弹幕文字跟随当前主题色",matching>20);
                 android.text.TextPaint font=(android.text.TextPaint)field(overlay,"paint");for(String text:new String[]{"中文","😀","🫠","👍🏽","👨‍👩‍👧‍👦","🇨🇳"})assertTrue("字体缺失: "+text,font.hasGlyph(text.equals("中文")?"中":text));
-                dialog.dismiss();
+                try{
+                    DanmakuTimeline original=(DanmakuTimeline)field(overlay,"timeline");JSONArray sample=new JSONArray();for(int i=0;i<300;i++)sample.put(new JSONObject().put("time",i*1000).put("text","密度测试 "+i));overlay.setTimeline(new DanmakuTimeline(sample));
+                    Bitmap samplePixels=Bitmap.createBitmap(overlay.getWidth(),overlay.getHeight(),Bitmap.Config.ARGB_8888);overlay.draw(new Canvas(samplePixels));int full=((List<?>)field(overlay,"placed")).size();
+                    android.widget.SeekBar density=(android.widget.SeekBar)descendants(panel).stream().filter(v->"密度".equals(v.getContentDescription())).findFirst().get();assertEquals(9,density.getProgress());density.requestFocus();
+                    for(int i=0;i<5;i++){density.onKeyDown(KeyEvent.KEYCODE_DPAD_LEFT,new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DPAD_LEFT));density.onKeyUp(KeyEvent.KEYCODE_DPAD_LEFT,new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DPAD_LEFT));}
+                    assertEquals(50,new TvPreferences(playback,playback.api).danmaku().optInt("density"));assertEquals(50,field(overlay,"density"));overlay.draw(new Canvas(samplePixels));int reduced=((List<?>)field(overlay,"placed")).size();assertTrue("密度即时降低实际排入的弹幕: "+full+" -> "+reduced,reduced<full*.7&&reduced>full*.3);samplePixels.recycle();overlay.setTimeline(original);
+                    assertSame(first,field(playback,"danmaku"));
+                    android.widget.SeekBar speed=(android.widget.SeekBar)descendants(panel).stream().filter(v->"移动速度".equals(v.getContentDescription())).findFirst().get();speed.requestFocus();Rect bounds=new Rect();assertTrue(speed.getGlobalVisibleRect(bounds));assertEquals("最后一项必须完整可见",speed.getHeight(),bounds.height());
+                }catch(Exception error){throw new AssertionError(error);}
             });
+            settle();screenshot("danmaku-settings-panel.png");instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);await(()->field(playback,"danmakuDialog")==null);onMain(()->{assertFalse(playback.isFinishing());assertTrue(settings.hasFocus());});
+            settle();screenshot("danmaku-single-settings-button.png");onMain(settings::performClick);onMain(()->{View panel=((AlertDialog)field(playback,"danmakuDialog")).getWindow().getDecorView();android.widget.SeekBar density=(android.widget.SeekBar)descendants(panel).stream().filter(v->"密度".equals(v.getContentDescription())).findFirst().get();assertEquals("重新打开保留密度",4,density.getProgress());});instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);await(()->field(playback,"danmakuDialog")==null);
             assertEquals("样式调节不发起新请求",requestsBeforeStyle,server.danmakuRequests);
             onMain(()->{try{JSONObject style=new TvPreferences(playback,playback.api).danmaku();style.put("theme_color",false);new TvPreferences(playback,playback.api).saveDanmaku(style);first.setStyle(style);}catch(Exception e){throw new AssertionError(e);}});
             java.util.List<Long> frames=new java.util.concurrent.CopyOnWriteArrayList<>();android.view.ViewTreeObserver.OnDrawListener drawing=()->frames.add(SystemClock.uptimeMillis());onMain(()->{overlay.getViewTreeObserver().addOnDrawListener(drawing);((ExoPlayer)field(playback,"player")).play();});await(()->((ExoPlayer)field(playback,"player")).isPlaying());Thread.sleep(300);frames.clear();Thread.sleep(1500);onMain(()->{android.util.Log.i("DanmakuFrames","frames="+frames.size()+" durationMs=1500 playing="+((ExoPlayer)field(playback,"player")).isPlaying()+" cues="+((DanmakuTimeline)field(overlay,"timeline")).cues.size()+" intervals="+frames.toString());((ExoPlayer)field(playback,"player")).pause();overlay.getViewTreeObserver().removeOnDrawListener(drawing);});assertTrue("实际绘制必须持续推进: "+frames.size(),frames.size()>10);
             screenshot("danmaku-controls-paused.png");
+            onMain(settings::performClick);
             server.danmakuReportGate=new java.util.concurrent.CountDownLatch(1);server.danmakuReportRequested=new java.util.concurrent.CountDownLatch(1);
             onMain(()->{try{java.lang.reflect.Method method=PlayerActivity.class.getDeclaredMethod("report",String.class);method.setAccessible(true);method.invoke(playback,"Progress");}catch(Exception e){throw new AssertionError(e);}});
             assertTrue(server.danmakuReportRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
-            onMain(toggle::performClick);await(()->!new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")==null);
+            onMain(()->((Button)field(playback,"danmakuPanelToggle")).performClick());await(()->!new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")==null);
             server.danmakuReportGate.countDown();Thread.sleep(400);
             onMain(()->{assertNull("迟到状态不能重新启用",field(playback,"danmaku"));assertNull(overlay.getParent());assertTrue(((java.util.concurrent.ExecutorService)field(first,"network")).isShutdown());});
-            onMain(toggle::performClick);await(()->new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")!=null);
+            onMain(()->((Button)field(playback,"danmakuPanelToggle")).performClick());await(()->new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")!=null);
             server.danmakuAvailable=false;
             onMain(()->{try{java.lang.reflect.Method method=PlayerActivity.class.getDeclaredMethod("report",String.class);method.setAccessible(true);method.invoke(playback,"Progress");}catch(Exception e){throw new AssertionError(e);}});
-            await(()->field(playback,"danmaku")==null&&toggle.getText().toString().contains("服务关闭"));
+            await(()->field(playback,"danmaku")==null&&((Button)field(playback,"danmakuPanelToggle")).getText().toString().contains("服务关闭"));
             int requests=server.danmakuRequests;Thread.sleep(1200);assertEquals("总开关关闭后不再获取",requests,server.danmakuRequests);
             server.danmakuAvailable=true;server.danmakuEnabled=false;
-            onMain(toggle::performClick);assertFalse(new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled"));
-            onMain(toggle::performClick);await(()->new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")!=null);
+            onMain(()->((Button)field(playback,"danmakuPanelToggle")).performClick());assertFalse(new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled"));
+            onMain(()->((Button)field(playback,"danmakuPanelToggle")).performClick());await(()->new TvPreferences(playback,playback.api).danmaku().optBoolean("enabled")&&field(playback,"danmaku")!=null);
             DanmakuSession last=(DanmakuSession)field(playback,"danmaku");closePlayer();
             assertFalse(last.active());assertTrue(((java.util.concurrent.ExecutorService)field(last,"network")).isShutdown());
         }finally{cleanup();}

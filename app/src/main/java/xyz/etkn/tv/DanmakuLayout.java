@@ -14,10 +14,13 @@ final class DanmakuLayout {
             return cue.mode==4||cue.mode==5?(screen-width)/2:cue.mode==6?-width+(screen+width)*fraction:screen-(screen+width)*fraction;
         }
     }
-    static List<Entry> place(DanmakuTimeline timeline,int lanes,int screen,long life,float gap,ToDoubleFunction<String> measure){
+    static List<Entry> place(DanmakuTimeline timeline,int lanes,int screen,long life,float gap,int density,ToDoubleFunction<String> measure){
         List<Entry> result=new ArrayList<>();Entry[] previous=new Entry[lanes];long last=-1000;int next=0;
         long spacing=Math.max(60,Math.min(220,900/lanes));
         for(DanmakuTimeline.Cue cue:timeline.cues){
+            // Cue identity keeps sampling stable when adjacent pages are merged or evicted.
+            int hash=java.util.Objects.hash(cue.time,cue.text,cue.mode,cue.color);hash^=hash>>>16;hash*=0x45d9f3b;hash^=hash>>>16;
+            if(Math.floorMod(hash,100)>=density)continue;
             float width=(float)measure.applyAsDouble(cue.text);long desired=Math.max(cue.time,last+spacing),best=Long.MAX_VALUE;int chosen=0;
             for(int offset=0;offset<lanes;offset++){
                 int lane=(next+offset)%lanes;Entry old=previous[lane];long start=desired;

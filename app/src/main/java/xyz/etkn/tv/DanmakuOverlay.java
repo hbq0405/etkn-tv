@@ -19,7 +19,7 @@ final class DanmakuOverlay extends View {
     };
     private DanmakuTimeline timeline=new DanmakuTimeline(null);
     private List<DanmakuLayout.Entry> placed=new ArrayList<>();
-    private int rows,alpha;private long life;private boolean themeColor;
+    private int rows,alpha,density;private long life;private boolean themeColor;
     private float lineHeight,top;
     private boolean closed,layoutDirty=true,framePending;
     private String styleKey="";
@@ -30,7 +30,7 @@ final class DanmakuOverlay extends View {
     }
     void setStyle(JSONObject style){
         if(style==null)style=new JSONObject();String key=style.toString();if(key.equals(styleKey))return;styleKey=key;
-        rows=Math.max(1,Math.min(16,style.optInt("rows",8)));themeColor=style.optBoolean("theme_color",false);
+        rows=Math.max(1,Math.min(16,style.optInt("rows",8)));density=Math.max(10,Math.min(100,style.optInt("density",100)));themeColor=style.optBoolean("theme_color",false);
         int font=Math.max(12,Math.min(40,style.optInt("font_size",21)));
         alpha=Math.round(Math.max(10,Math.min(100,style.optInt("opacity",85)))*2.55f);
         life=Math.round(8000/Math.max(.5,Math.min(2,style.optDouble("speed",1))));
@@ -44,7 +44,7 @@ final class DanmakuOverlay extends View {
     @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){layoutDirty=true;}
     private void layoutCues(){
         int lanes=Math.max(1,Math.min(rows,1+(int)((getHeight()*.8f-top)/lineHeight)));
-        placed=DanmakuLayout.place(timeline,lanes,getWidth(),life,16*getResources().getDisplayMetrics().density,text->paint.measureText(text));
+        placed=DanmakuLayout.place(timeline,lanes,getWidth(),life,16*getResources().getDisplayMetrics().density,density,text->paint.measureText(text));
         layoutDirty=false;
     }
     @Override protected void onDraw(Canvas canvas){
