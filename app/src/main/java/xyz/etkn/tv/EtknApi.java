@@ -33,9 +33,14 @@ final class EtknApi {
         return value;
     }
     JSONObject get(String path) throws Exception { return request(server, token, "GET", path, null); }
+    JSONObject get(String path, android.os.CancellationSignal cancellation) throws Exception { return request(server, token, "GET", path, null, cancellation); }
     JSONObject post(String path, JSONObject body) throws Exception { return request(server, token, "POST", path, body); }
     JSONObject delete(String path) throws Exception { return request(server, token, "DELETE", path, null); }
     JSONObject request(String origin, String access, String method, String path, JSONObject body) throws Exception {
+        return request(origin,access,method,path,body,null);
+    }
+    private JSONObject request(String origin, String access, String method, String path, JSONObject body, android.os.CancellationSignal cancellation) throws Exception {
+        if(cancellation!=null)cancellation.throwIfCanceled();
         HttpURLConnection conn = (HttpURLConnection) new URL(origin + path).openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setConnectTimeout(7000); conn.setReadTimeout("POST".equals(method)&&(path.contains("/FolderCover?")||path.contains("/FacetArtwork?"))?180000:35000); conn.setRequestMethod(method);
@@ -43,7 +48,9 @@ final class EtknApi {
         conn.setRequestProperty("User-Agent", USER_AGENT);
         conn.setRequestProperty("X-Emby-Authorization", "MediaBrowser Client=\"ETKN TV\", Device=\"" + Build.MODEL.replace("\"", "") + "\", DeviceId=\"" + session.deviceId() + "\", Version=\"" + BuildConfig.VERSION_NAME + "\"");
         if (!access.isEmpty()) { conn.setRequestProperty("X-Emby-Token", access); conn.setRequestProperty("Cookie", "etkn_session=" + access); }
+        if(cancellation!=null)cancellation.setOnCancelListener(conn::disconnect);
         try {
+            if(cancellation!=null)cancellation.throwIfCanceled();
             if (body != null) {
                 conn.setDoOutput(true); conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                 try (java.io.OutputStream stream = conn.getOutputStream()) { stream.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
@@ -61,7 +68,7 @@ final class EtknApi {
                 throw new Exception(json.optString("detail", "请求失败（HTTP " + status + "）"));
             }
             return json;
-        } finally { conn.disconnect(); }
+        } finally { if(cancellation!=null)cancellation.setOnCancelListener(null);conn.disconnect(); }
     }
     static String readText(InputStream stream) throws Exception {
         try (stream; ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {

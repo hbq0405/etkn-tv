@@ -1305,7 +1305,48 @@ public class DetailFlowTest {
             await(()->overlay.getText().toString().contains("Delayed translation"));
         }finally{cleanup();}
     }
+    @Test public void danmakuToggleRendersAndReleasesWithoutStaleReportReopening()throws Exception{
+        try(Fixture server=new Fixture(true)){
+            server.danmakuFeature=true;server.danmakuAvailable=true;
+            open(server,"movie-single");new TvPreferences(detail,detail.api).setSkipMode(TvPreferences.SKIP_OFF);play();
+            onMain(()->assertNull("关闭账号不创建弹幕会话",field(playback,"danmaku")));
+            assertEquals(0,server.danmakuRequests);
+            onMain(()->((ExoPlayer)field(playback,"player")).play());
+            Button toggle=(Button)field(playback,"danmakuButton");
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);await(()->toggle.isShown());
+            onMain(()->{toggle.requestFocus();toggle.performClick();});
+            await(()->field(playback,"danmaku")!=null&&server.danmakuRequests>0);
+            DanmakuSession first=(DanmakuSession)field(playback,"danmaku");
+            DanmakuOverlay overlay=(DanmakuOverlay)field(first,"overlay");
+            await(()->((DanmakuTimeline)field(overlay,"timeline")).cues.size()>0);
+            onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.pause();player.seekTo(2000);});
+            await(()->Math.abs(((ExoPlayer)field(playback,"player")).getCurrentPosition()-2000)<100);
+            onMain(()->{Bitmap pixels=Bitmap.createBitmap(overlay.getWidth(),overlay.getHeight(),Bitmap.Config.ARGB_8888);overlay.draw(new Canvas(pixels));int red=0;
+                for(int y=0;y<Math.min(pixels.getHeight(),160);y++)for(int x=0;x<pixels.getWidth();x++){int c=pixels.getPixel(x,y);if(Color.alpha(c)>100&&Color.red(c)>160&&Color.green(c)<100&&Color.blue(c)<100)red++;}
+                pixels.recycle();assertTrue("弹幕必须绘出可见文字",red>20);assertTrue(toggle.hasFocus());});
+            screenshot("danmaku-controls-paused.png");
+            server.danmakuReportGate=new java.util.concurrent.CountDownLatch(1);server.danmakuReportRequested=new java.util.concurrent.CountDownLatch(1);
+            onMain(()->{try{java.lang.reflect.Method method=PlayerActivity.class.getDeclaredMethod("report",String.class);method.setAccessible(true);method.invoke(playback,"Progress");}catch(Exception e){throw new AssertionError(e);}});
+            assertTrue(server.danmakuReportRequested.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            onMain(toggle::performClick);await(()->!server.danmakuEnabled&&field(playback,"danmaku")==null);
+            server.danmakuReportGate.countDown();Thread.sleep(400);
+            onMain(()->{assertNull("迟到状态不能重新启用",field(playback,"danmaku"));assertNull(overlay.getParent());assertTrue(((java.util.concurrent.ExecutorService)field(first,"network")).isShutdown());});
+            onMain(toggle::performClick);await(()->server.danmakuEnabled&&field(playback,"danmaku")!=null);
+            server.danmakuAvailable=false;
+            onMain(()->{try{java.lang.reflect.Method method=PlayerActivity.class.getDeclaredMethod("report",String.class);method.setAccessible(true);method.invoke(playback,"Progress");}catch(Exception e){throw new AssertionError(e);}});
+            await(()->field(playback,"danmaku")==null&&toggle.getText().toString().contains("服务关闭"));
+            int requests=server.danmakuRequests;Thread.sleep(1200);assertEquals("总开关关闭后不再获取",requests,server.danmakuRequests);
+            server.danmakuAvailable=true;server.danmakuEnabled=false;
+            onMain(toggle::performClick);await(()->server.danmakuEnabled&&field(playback,"danmaku")!=null);
+            DanmakuSession last=(DanmakuSession)field(playback,"danmaku");closePlayer();
+            assertFalse(last.active());assertTrue(((java.util.concurrent.ExecutorService)field(last,"network")).isShutdown());
+        }finally{cleanup();}
+    }
     private final class Fixture implements AutoCloseable{
+        volatile boolean danmakuFeature,danmakuAvailable,danmakuEnabled;
+        volatile int danmakuRequests;
+        volatile java.util.concurrent.CountDownLatch danmakuReportRequested,danmakuReportGate;
+        JSONObject danmakuState()throws Exception{return new JSONObject().put("Enabled",danmakuAvailable&&danmakuEnabled).put("Available",danmakuAvailable).put("PreferenceEnabled",danmakuEnabled).put("Style",new JSONObject().put("rows",4).put("font_size",21).put("opacity",100).put("speed",1));}
         volatile boolean translateSubtitles,translationReady;
         volatile java.util.concurrent.CountDownLatch translationRequested,translationGate;
         final List<JSONObject> translationCues=Collections.synchronizedList(new ArrayList<>());
@@ -1361,6 +1402,8 @@ public class DetailFlowTest {
         JSONObject base(String id,String type)throws Exception{return new JSONObject().put("ProviderIds",new JSONObject().put("Tmdb","123")).put("Id",id).put("Type",type).put("Name",type.equals("Movie")?"合成电影":"合成剧集").put("Overview","这是用于详情页验收的合成简介。遥控器可选择播放版本、音轨、字幕，也可浏览演员与分集预览。").put("ProductionYear",2026).put("TMDbRating",7.6).put("DoubanRating",8.7).put("OfficialRating","PG-13").put("RunTimeTicks",95L*600000000).put("Genres",new JSONArray().put("剧情").put("悬疑")).put("Tags",new JSONArray().put("悬疑").put("经典")).put("People",new JSONArray().put(new JSONObject().put("Id","person-1").put("Name","合成演员").put("Type","Actor").put("Role","主演"))).put("UserData",new JSONObject().put("IsFavorite",favorite).put("Played",watched)).put("BackdropImageTags",new JSONArray().put(changed?"art2":"art1")).put("ImageTags",new JSONObject().put("Logo",changed?"art2":"art1"));}
         JSONObject response(String path)throws Exception{
             if(path.equals("/api/tv/System/Appearance"))return appearance;
+            if(path.equals("/api/tv/Users/Me/Danmaku"))return new JSONObject().put("enabled",danmakuEnabled).put("state",danmakuState());
+            if(path.contains("/Danmaku?")){danmakuRequests++;return new JSONObject().put("enabled",danmakuAvailable&&danmakuEnabled).put("status","ready").put("comments",new JSONArray().put(new JSONObject().put("time",1000).put("text","弹幕渲染测试").put("color",0xff0000).put("mode",1)));}
             if(holdPlayback&&path.contains("/PlaybackInfo")){playbackRequested.countDown();if(!playbackGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic playback gate timed out");}
             if(path.endsWith("/SubtitleTranslation")){JSONArray result=new JSONArray();if(translationReady)synchronized(translationCues){for(JSONObject cue:translationCues)result.put(new JSONObject().put("start",cue.getLong("start")).put("end",cue.getLong("end")).put("source",cue.getString("text")).put("text","合成译文\n"+cue.getString("text")));}return new JSONObject().put("Enabled",true).put("Key","fixture-key").put("Complete",false).put("Cues",result);}
             if(browseFeatures&&path.contains("/Collections?"))return new JSONObject().put("Items",new JSONArray().put(new JSONObject().put("Id","collection-1").put("Name","合成合集").put("Type","BoxSet"))).put("TotalRecordCount",1);
@@ -1372,12 +1415,12 @@ public class DetailFlowTest {
             if(path.contains("/Users/Me"))return new JSONObject().put("Policy",new JSONObject().put("IsAdministrator",admin)).put("PrimaryImageTag",pauseAvatar?"pause-avatar":"");
             if(path.contains("/FavoriteItems/")||path.contains("/PlayedItems/"))return new JSONObject().put("IsFavorite",favorite).put("Played",watched);
             if(path.contains("/Episodes")&&!path.contains("Fields=")&&nextGate!=null){nextRequested.countDown();if(!nextGate.await(15,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("Synthetic next-episode gate timed out");}
-            if(path.contains("/Sessions/")){reports++;return new JSONObject();}
+            if(path.contains("/Sessions/")){reports++;JSONObject result=new JSONObject();if(danmakuFeature)result.put("Danmaku",danmakuState());if(path.endsWith("/Progress")&&danmakuReportGate!=null){danmakuReportRequested.countDown();danmakuReportGate.await(15,java.util.concurrent.TimeUnit.SECONDS);}return result;}
             if(path.contains("/PlaybackPreferences"))return new JSONObject().put("preferences",new JSONObject(personal.toString())).put("global_preferences",new JSONObject().put("audio_lang_priority",new JSONArray().put("chi").put("original").put("eng")).put("subtitle_priority",new JSONArray().put("effect").put("chs")));
             if(path.contains("/Similar"))return new JSONObject().put("Items",new JSONArray().put(base("movie-similar","Movie"))).put("TotalRecordCount",1);
             if(path.contains("/Persons/person-1/Items"))return new JSONObject().put("Items",new JSONArray().put(base("movie-person","Movie"))).put("TotalRecordCount",1);
             if(path.contains("/Persons/person-1"))return new JSONObject().put("Id","person-1").put("Name","合成演员").put("Overview","合成人物简介");
-            if(path.contains("/PlaybackInfo")){JSONArray original=sources(!path.contains("movie-single")),reversed=new JSONArray();for(int i=original.length()-1;i>=0;i--)reversed.put(original.get(i));return new JSONObject().put("MediaSources",reversed).put("PlaySessionId","synthetic-play");}
+            if(path.contains("/PlaybackInfo")){JSONArray original=sources(!path.contains("movie-single")),reversed=new JSONArray();for(int i=original.length()-1;i>=0;i--)reversed.put(original.get(i));JSONObject result=new JSONObject().put("MediaSources",reversed).put("PlaySessionId","synthetic-play");if(danmakuFeature)result.put("Danmaku",danmakuState());return result;}
             if(path.contains("/Seasons")){JSONArray seasons=new JSONArray().put(new JSONObject().put("Id","season-1").put("Name","第 1 季"));if(path.contains("series-many"))seasons.put(new JSONObject().put("Id","season-2").put("Name","第 2 季"));return new JSONObject().put("Items",seasons);}
             if(path.contains("/Episodes")){JSONArray episodes=new JSONArray();int seasons=path.contains("series-many")?2:1;for(int s=1;s<=seasons;s++)for(int e=1;e<=(s==1?24:12);e++)episodes.put(new JSONObject().put("Id","episode-"+s+"-"+e).put("Type","Episode").put("Name","故事 "+e).put("SeriesName","合成剧集").put("SeriesId",seasons==2?"series-many":"series-one").put("SeasonId","season-"+s).put("ParentIndexNumber",s).put("IndexNumber",e).put("RunTimeTicks",100000000).put("Overview","第 "+e+" 集的合成简介").put("ParentBackdropItemId","series-parent").put("MediaSources",sources(false)).put("UserData",new JSONObject().put("PlaybackPositionTicks",!noProgress&&s==seasons&&e==3?30000000:0).put("Played",e==1)));if(placeholderDates)for(int i=0;i<episodes.length();i++){JSONObject ep=episodes.getJSONObject(i);int n=ep.optInt("IndexNumber");if(n>=4&&n<=7){ep.put("IsMissing",true).put("LocationType","Virtual");if(n<=6)ep.put("PremiereDate",placeholderDate(n-4)+"T00:00:00Z");}}if(!path.contains("Fields=MediaSources,MediaStreams,Overview"))for(int i=0;i<episodes.length();i++)episodes.getJSONObject(i).remove("MediaSources");return new JSONObject().put("Items",episodes);}
             String id=path.substring(path.lastIndexOf('/')+1).split("\\?")[0];boolean series=id.startsWith("series");JSONObject item=base(id,series?"Series":id.startsWith("episode-")?"Episode":"Movie");if(browseFeatures){item.put(series?"Networks":"Companies",new JSONArray().put(series?"中文平台":"中文公司"));if(studioIcons)item.put("StudioImageTags",new JSONObject().put(series?"Networks":"Companies",new JSONObject().put(series?"中文平台":"中文公司","studio-icon")));}if(liveArtwork&&changed)item.put("Name","服务器更新后的片名").put("Overview","服务器已更新的简介").put("TMDbRating",8.2).put("DoubanRating",9.1).put("CustomRating","自定义 16+");if(id.equals("movie-no-overview"))item.put("Overview","");if(id.startsWith("episode-"))item.put("SeriesId","series-one");if(!series)item.put("MediaSources",sources(!id.equals("movie-single")));if(id.equals("movie-chapters")||id.equals("movie-no-overview"))item.put("Chapters",new JSONArray().put(new JSONObject().put("Name","开场").put("ChapterIndex",0).put("StartPositionTicks",0).put("ImageTag","chapter-0").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/0")).put(new JSONObject().put("Name","转折").put("ChapterIndex",1).put("StartPositionTicks",600000000).put("ImageTag","chapter-1").put("ImagePath","/api/tv/Items/movie-chapters/Images/Chapter/1")));return item;
@@ -1389,6 +1432,7 @@ public class DetailFlowTest {
                     updateGate.await(20,java.util.concurrent.TimeUnit.SECONDS);if(!closed){events.write("event: home\ndata: {\"revision\":\"v2\"}\n\nevent: home\ndata: {\"revision\":\"v2\"}\n\n".getBytes(StandardCharsets.UTF_8));events.flush();while(!closed){Thread.sleep(1000);events.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8));events.flush();}}return;
                 }
                 if(path.contains("/FavoriteItems/"))favorite=post;if(path.contains("/PlayedItems/"))watched=post;
+                if(post&&path.equals("/api/tv/Users/Me/Danmaku")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;danmakuEnabled=new JSONObject(new String(data)).getBoolean("enabled");}
                 if(post&&path.contains("/PlaybackPreferences")){char[] body=new char[length];int received=0,n;while(received<length&&(n=reader.read(body,received,length-received))>0)received+=n;JSONObject changes=new JSONObject(new String(body));for(String key:new String[]{"audio_lang_priority","subtitle_priority"})if(changes.has(key))personal.put(key,changes.get(key));}
                 if(post&&path.contains("/Sessions/Playing/Stopped")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;stopped.add(new JSONObject(new String(data)));}
                 if(post&&path.endsWith("/SubtitleTranslation")){char[] data=new char[length];int received=0,n;while(received<length&&(n=reader.read(data,received,length-received))>0)received+=n;JSONArray cues=new JSONObject(new String(data)).getJSONArray("cues");synchronized(translationCues){for(int i=0;i<cues.length();i++){JSONObject cue=cues.getJSONObject(i);if(translationCues.stream().noneMatch(c->c.toString().equals(cue.toString())))translationCues.add(cue);}}}
@@ -1403,6 +1447,6 @@ public class DetailFlowTest {
                 OutputStream output=client.getOutputStream();output.write(headers.getBytes(StandardCharsets.US_ASCII));output.write(body,start,body.length-start);
             }
         }
-        @Override public void close()throws IOException{closed=true;playbackGate.countDown();backdropGate.countDown();updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;playbackGate.countDown();backdropGate.countDown();updateGate.countDown();metadataGate.countDown();if(translationGate!=null)translationGate.countDown();if(danmakuReportGate!=null)danmakuReportGate.countDown();socket.close();}
     }
 }
