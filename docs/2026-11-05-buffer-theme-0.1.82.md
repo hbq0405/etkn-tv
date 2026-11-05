@@ -20,4 +20,16 @@
 
 2026-11-05 12:53（Asia/Shanghai）正式 APK 已覆盖安装 192.168.31.188:5555，回执 Success；回读 versionName 0.1.82 / versionCode 83。经导出的 SetupActivity 启动成功，前台仍为 SetupActivity，当前应用进程的 AndroidRuntime 错误为空。未自动登录或恢复影片，真实电视播放中的观感待用户确认。
 
-安装前备份设备实际 0.1.81 APK 到 `outputs/etkn-tv-0.1.82/rollback-0.1.81.apk`，SHA256 `8502dd4eddbf09c8b0a970c35658608d0f68633d5c3a2b34cc013e781325d40b`，与既有发行版一致。覆盖安装保留应用数据；未清除电视数据、安装测试包或修改服务器外观。只作本地提交，未推送或创建 GitHub Release。
+安装前备份设备实际 0.1.81 APK 到 `outputs/etkn-tv-0.1.82/rollback-0.1.81.apk`，SHA256 `8502dd4eddbf09c8b0a970c35658608d0f68633d5c3a2b34cc013e781325d40b`，与既有发行版一致。覆盖安装保留应用数据；未清除电视数据、安装测试包或修改服务器外观。该安装阶段只作本地提交；后续发布结果见下文。
+
+## GitHub 正式发布
+
+2026-11-05 13:19:24（Asia/Shanghai），根据用户“推送发版”授权，源码提交 `5b6db5065741e2e1472a91a6b6d2a8048186a0ab` 已推送公开仓库 `hbq0405/etkn-tv` 的 main，签注标签 `v0.1.82` 固定指向该受测源码。Release `434810651` 先经过草稿校验，再正式发布并设为 latest：
+
+https://github.com/hbq0405/etkn-tv/releases/tag/v0.1.82
+
+- 仅发布正式 APK、中文 `update.json`、`SHA256SUMS.txt`、`release-notes.md` 四个资产，未上传回滚包、截图或验证日志。草稿正文按统一换行比对，四资产逐个核对大小与 GitHub SHA256 digest。
+- 发布后匿名查询 `releases/latest` 确认为 `v0.1.82`；匿名下载四个资产均与本地原始字节的 SHA256 一致。更新清单的包名、83/0.1.82、APK 地址、大小和 SHA256 全部通过检查。
+- 正式 APK SHA256 保持 `e90e5344354bc0ac667c2e2015b44522ba5d2ab736a8c21ecca537299b656fa2`，与此前电视覆盖安装的文件一致；未重复安装。
+- 发布通知工作流 `41973281540` 在正确源码提交上完成且结论为 success，日志唯一真实回执为 `TV release notification delivered; message_id=63756`，未重复触发通知。
+- 发布验证证据保存在 `outputs/etkn-tv-0.1.82/verification/`。本文发布结果另作记录提交，不移动正式发布标签。未推送 ETKvNext 私有仓库；真实电视播放配色观感仍待用户使用确认。
