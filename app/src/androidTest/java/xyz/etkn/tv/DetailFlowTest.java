@@ -238,7 +238,7 @@ public class DetailFlowTest {
             Object original=field(playback,"player");int cardSize=new TvPreferences(playback,playback.api).imageSize();
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();
             onMain(()->{
-                assertEquals(0xff3c087d,PixelTimeBar.playedColor());assertEquals(0xffb8e6a5,PixelTimeBar.bufferedColor());
+                assertEquals(0xff3c087d,PixelTimeBar.playedColor());assertEquals(TvAppearance.mix(0xff3c087d,Color.WHITE,.65f),PixelTimeBar.bufferedColor());
                 assertNull("播放控制栏无底色和外框",((View)field(playback,"controls")).getBackground());
                 assertFalse("播放器不改写服务器明暗模式",TvAppearance.dark());assertTrue(playback.appearanceDark());
                 assertEquals(TvAppearance.text(true),((TextView)field(playback,"videoInfo")).getCurrentTextColor());
@@ -255,7 +255,7 @@ public class DetailFlowTest {
             screenshot("light-server-dark-player-dialog.png");onMain(()->((AlertDialog)field(playback,"trackDialog")).dismiss());settle();
             server.appearance=new JSONObject(server.appearance.toString()).put("revision","dark").put("mode","dark").put("theme_color","#128a72").put("glass_opacity",1).put("shadow_strength",1).put("background_blur",30);
             await(()->"dark".equals(TvAppearance.current.optString("revision")));settle();
-            onMain(()->{assertSame("切主题不重建播放器",original,field(playback,"player"));assertFalse(((View)field(playback,"waitingBackground")).isShown());assertEquals(cardSize,new TvPreferences(playback,playback.api).imageSize());assertEquals(0xff128a72,PixelTimeBar.playedColor());assertEquals(255,Color.alpha(TvAppearance.resolve(TvActivity.PANEL)));View shadow=new View(playback);playback.shadow(shadow,8);assertEquals(playback.dp(8),shadow.getElevation(),0);});
+            onMain(()->{assertSame("切主题不重建播放器",original,field(playback,"player"));assertFalse(((View)field(playback,"waitingBackground")).isShown());assertEquals(cardSize,new TvPreferences(playback,playback.api).imageSize());assertEquals(0xff128a72,PixelTimeBar.playedColor());assertEquals(TvAppearance.mix(0xff128a72,Color.WHITE,.65f),PixelTimeBar.bufferedColor());assertEquals(255,Color.alpha(TvAppearance.resolve(TvActivity.PANEL)));View shadow=new View(playback);playback.shadow(shadow,8);assertEquals(playback.dp(8),shadow.getElevation(),0);});
             screenshot("server-theme-dark-controls.png");
             server.appearance=new JSONObject(server.appearance.toString()).put("revision","light-again").put("mode","light");
             await(()->"light-again".equals(TvAppearance.current.optString("revision")));settle();

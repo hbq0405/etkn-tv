@@ -3,6 +3,7 @@ package xyz.etkn.tv;
 import android.content.Context;
 import android.graphics.*;
 import android.util.AttributeSet;
+import androidx.core.graphics.ColorUtils;
 import androidx.media3.ui.DefaultTimeBar;
 import androidx.media3.ui.TimeBar;
 import org.json.JSONArray;
@@ -12,13 +13,14 @@ import java.util.Locale;
 /** Segmented transport bar; Media3 retains seeking and accessibility behavior. */
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 public final class PixelTimeBar extends DefaultTimeBar {
-    static final int PLAYED=0xff1a7f70,BUFFERED=0xffb8e6a5,UNPLAYED=0xff193b36;
+    private static Integer bufferedTheme;
+    private static int bufferedTint;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private long duration,position,buffered,scrub=-1;
     private JSONArray chapters;
     public PixelTimeBar(Context context){this(context,null);}
     public PixelTimeBar(Context context,AttributeSet attributes){
-        super(context,attributes);setPlayedColor(PLAYED);setBufferedColor(BUFFERED);setUnplayedColor(UNPLAYED);
+        super(context,attributes);setPlayedColor(playedColor());setBufferedColor(bufferedColor());setUnplayedColor(unplayedColor());
         addListener(new TimeBar.OnScrubListener(){
             @Override public void onScrubStart(TimeBar bar,long value){scrub=value;invalidate();}
             @Override public void onScrubMove(TimeBar bar,long value){scrub=value;invalidate();}
@@ -31,7 +33,21 @@ public final class PixelTimeBar extends DefaultTimeBar {
     @Override public void setBufferedPosition(long value){super.setBufferedPosition(value);buffered=value;invalidate();}
     void setChapterMarkers(JSONArray values){chapters=values;invalidate();}
     static int playedColor(){return TvAppearance.primary();}
-    static int bufferedColor(){return BUFFERED;}
+    static int bufferedColor(){
+        int played=playedColor();
+        if(bufferedTheme==null||bufferedTheme!=played){
+            int color=TvAppearance.mix(played,Color.WHITE,.65f);
+            if(ColorUtils.calculateContrast(played,color)<1.65){
+                int unplayed=TvAppearance.mix(played,Color.BLACK,.72f);
+                for(float amount=.45f;amount<.86f;amount+=.1f){
+                    int candidate=TvAppearance.mix(played,0xff303030,amount);
+                    if(ColorUtils.calculateContrast(played,candidate)>=1.65&&ColorUtils.calculateContrast(candidate,unplayed)>=1.5){color=candidate;break;}
+                }
+            }
+            bufferedTint=color;bufferedTheme=played;
+        }
+        return bufferedTint;
+    }
     static int unplayedColor(){return TvAppearance.mix(playedColor(),Color.BLACK,.72f);}
     static int stateColor(long cell,long position,long buffered){return cell<position?playedColor():cell<Math.max(position,buffered)?bufferedColor():unplayedColor();}
     private String time(long value){long seconds=Math.max(0,value/1000);return seconds>=3600?String.format(Locale.ROOT,"%d:%02d:%02d",seconds/3600,seconds/60%60,seconds%60):String.format(Locale.ROOT,"%d:%02d",seconds/60,seconds%60);}
