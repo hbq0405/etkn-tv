@@ -116,6 +116,27 @@ public class PrivateAccountFlowTest {
         if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){View found=findText(((ViewGroup)view).getChildAt(i),text);if(found!=null)return found;}
         return null;
     }
+    @Test public void launchWindowsUseDarkBackgroundBeforeActivitiesRun()throws Exception{
+        JSONObject previous=TvAppearance.current;try{TvAppearance.current=new JSONObject();assertTrue("没有缓存时默认暗色",TvAppearance.dark());}finally{TvAppearance.current=previous;}
+        for(Class<?> type:new Class<?>[]{SetupActivity.class,HomeActivity.class}){
+            android.content.pm.ActivityInfo info=context.getPackageManager().getActivityInfo(new ComponentName(context,type),0);
+            Context themed=new android.view.ContextThemeWrapper(context,info.getThemeResource());
+            android.content.res.TypedArray colors=themed.obtainStyledAttributes(new int[]{android.R.attr.windowBackground});
+            try{assertEquals("启动预览不能先显示浅色窗口",TvAppearance.background(true),colors.getColor(0,0));}finally{colors.recycle();}
+        }
+    }
+    @Test public void slowAccountCheckKeepsWallpaperUntilHomeIsReady()throws Exception{
+        session.save(server.origin(),"normal","normal","token-normal");LoginGate.reset();
+        server.appearance=new JSONObject().put("mode","dark");TvAppearance.save(context,server.origin(),server.appearance);server.holdPolicy=true;
+        SetupActivity setup=start(SetupActivity.class);await(()->server.policyRequests>0);
+        onMain(()->{
+            assertNotNull("检查账号期间应已挂载背景",setup.getWindow().getDecorView().findViewWithTag("server-background"));
+            assertEquals(TvAppearance.background(true),((android.graphics.drawable.ColorDrawable)setup.getWindow().getDecorView().getBackground()).getColor());
+            assertFalse(labels(setup.getWindow().getDecorView()).contains("normal"));
+        });
+        server.policyGate.countDown();await(()->resumed instanceof HomeActivity);
+        onMain(()->assertEquals(TvAppearance.background(true),((android.graphics.drawable.ColorDrawable)resumed.getWindow().getDecorView().getBackground()).getColor()));
+    }
     @Test public void savedAccountCheckDoesNotShowIntermediateScreen()throws Exception{
         session.save(server.origin(),"admin","admin","token-admin");LoginGate.reset();
         server.holdPolicy=true;
@@ -207,6 +228,7 @@ public class PrivateAccountFlowTest {
         server.appearance=new JSONObject(server.appearance.toString()).put("revision","login-dark").put("mode","dark");
         await(()->"login-dark".equals(TvAppearance.current.optString("revision"))&&windowText("登录 admin").getCurrentTextColor()==TvAppearance.text());
         onMain(()->{
+            assertEquals("动态主题同时更新窗口底色",TvAppearance.background(true),((android.graphics.drawable.ColorDrawable)home.getWindow().getDecorView().getBackground()).getColor());
             EditText password=(EditText)windowText("登录 admin").getRootView().findFocus();assertTrue(password.hasFocus());
             Bitmap fill=Bitmap.createBitmap(password.getWidth(),password.getHeight(),Bitmap.Config.ARGB_8888);password.getBackground().draw(new android.graphics.Canvas(fill));
             int actual=fill.getPixel(fill.getWidth()/2,fill.getHeight()/2),expected=TvAppearance.resolve(TvActivity.SOFT);

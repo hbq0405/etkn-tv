@@ -41,7 +41,7 @@ final class TvAppearance {
         }finally{if(temporary!=null&&temporary.exists())temporary.delete();}
     }
     static void unlock(Context context,EtknApi api,String user)throws Exception{if(!sameSession(api,user))throw new Exception("账号已切换，请重新设置");android.content.SharedPreferences prefs=context.getSharedPreferences("appearance",0);String key=lockKey(api.server,user),previous=prefs.getString(key,null);if(!prefs.edit().remove(key).commit()){prefs.edit().putString(key,previous).apply();throw new Exception("无法取消主题锁定，请重试");}backgroundFile(context,api.server,user).delete();}
-    static boolean dark(){return "dark".equals(current.optString("mode","light"));}
+    static boolean dark(){return "dark".equals(current.optString("mode","dark"));}
     static int primary(){try{return Color.parseColor(current.optString("theme_color").isEmpty()?(dark()?"#55c7b0":"#087f70"):current.getString("theme_color"));}catch(Exception ignored){return 0xff087f70;}}
     static int mix(int from,int to,float amount){return Color.rgb(Math.round(Color.red(from)*(1-amount)+Color.red(to)*amount),Math.round(Color.green(from)*(1-amount)+Color.green(to)*amount),Math.round(Color.blue(from)*(1-amount)+Color.blue(to)*amount));}
     static float shadow(){return (float)Math.max(0,Math.min(1,current.optDouble("shadow_strength",1)));}

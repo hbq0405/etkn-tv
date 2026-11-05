@@ -27,7 +27,7 @@ abstract class TvActivity extends Activity {
     int dp(float value) { return Math.round(getResources().getDisplayMetrics().density*value); }
     private TvPreferences preferences;
     private int appliedImageSize=-1;
-    @Override public void onCreate(Bundle state) { api = new EtknApi(this); TvAppearance.load(this,api.server);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);super.onCreate(state); preferences=new TvPreferences(this,api); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
+    @Override public void onCreate(Bundle state) { api = new EtknApi(this); TvAppearance.load(this,api.server);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);super.onCreate(state);getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(TvAppearance.background(appearanceDark()))); preferences=new TvPreferences(this,api); if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); CrashLog.install(getApplicationContext()); CrashLog.reportLast(this); }
     private AppearanceBackground serverBackground;
     private TextView appNotice;
     private final android.os.Handler appNoticeHandler=new android.os.Handler(android.os.Looper.getMainLooper());
@@ -56,6 +56,7 @@ abstract class TvActivity extends Activity {
     void reloadAppearance(){TvAppearance.load(this,api.server);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();appearanceChanged();refreshAppearance();}
     void themeText(TextView view,int color){view.setTag(R.id.appearance_text,color);view.setTextColor(resolveColor(color));themedTexts.add(new java.lang.ref.WeakReference<>(view));}
     private void updateAppearanceViews(){
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(TvAppearance.background(appearanceDark())));
         themedTexts.removeIf(reference->{TextView view=reference.get();if(view==null)return true;Object color=view.getTag(R.id.appearance_text);if(color instanceof Integer)view.setTextColor(resolveColor((Integer)color));return false;});
         if(serverBackground!=null)serverBackground.update();updateAppearanceTree(getWindow().getDecorView());
         themedDialogs.removeIf(reference->{android.app.AlertDialog dialog=reference.get();if(dialog==null||!dialog.isShowing())return true;updateDialogAppearance(dialog);return false;});

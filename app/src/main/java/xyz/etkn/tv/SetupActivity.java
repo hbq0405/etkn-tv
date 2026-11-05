@@ -16,6 +16,7 @@ public final class SetupActivity extends TvActivity {
     private final Set<String> discovered=new HashSet<>();
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        setContentView(new FrameLayout(this));
         boolean addAccount=getIntent().getBooleanExtra(EXTRA_ADD_ACCOUNT,false);
         if(addAccount){showLogin(true);return;}
         if(api.session.accounts().isEmpty()){showLogin(false);return;}
