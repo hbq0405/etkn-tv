@@ -21,8 +21,7 @@ public final class DiscoveryActivity extends TvActivity {
     private TextView posterStatus,detailOverview;
     private TextView detailTagline;
     private AlertDialog subscriptionSeasonsDialog;
-    private EditText cloudSearch;
-    private String cloudQuery="",cloudSource="all";
+    private String cloudSource="all";
     private LinearLayout cloudResults;
     private final Map<String,LinearLayout> cloudAreas=new LinkedHashMap<>();
     private final Map<String,Button> cloudSourceButtons=new LinkedHashMap<>();
@@ -274,7 +273,7 @@ public final class DiscoveryActivity extends TvActivity {
     private void enterCloud(){
         final JSONObject item=selected;final Integer fromSeason=season;
         back.push(()->showDetail(item,fromSeason));
-        season=null;cloudQuery=EtknApi.title(item);cloudSource="all";
+        season=null;cloudSource="all";
         showCloud();
     }
     private void showDetail(JSONObject item,Integer seasonNumber){
@@ -287,7 +286,7 @@ public final class DiscoveryActivity extends TvActivity {
         JSONObject seasonEntry=seasonNumber==null?null:findSeason(seasonNumber);
         JSONObject statusSource=seasonEntry!=null?seasonEntry:item;
         int viewport=screenScroll.getHeight()>0?screenScroll.getHeight():getResources().getDisplayMetrics().heightPixels;
-        int heroHeight=Math.min(dp(340),Math.max(dp(230),viewport-dp(260)));
+        int heroHeight=Math.min(dp(340),Math.max(dp(230),viewport-dp(164)-Math.round(actorWidth()*1.5f)));
         LinearLayout hero=row();hero.setGravity(Gravity.CENTER_VERTICAL);
         ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(10));poster.setForeground(Images.border(dp(10)));
         LinearLayout.LayoutParams posterBounds=new LinearLayout.LayoutParams(Math.round(heroHeight*2f/3f),heroHeight);
@@ -401,23 +400,28 @@ public final class DiscoveryActivity extends TvActivity {
             actorCard(grid,actor);
         }
     }
+    private int actorWidth(){
+        int viewport=screenScroll.getWidth()>0?screenScroll.getWidth():getResources().getDisplayMetrics().widthPixels;
+        return Math.max(1,(viewport-content.getPaddingLeft()-content.getPaddingRight()-dp(4))/10-dp(12));
+    }
     private void actorCard(GridLayout grid,JSONObject actor){
-        LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackgroundColor(Color.TRANSPARENT);
-        card.setOnClickListener(v->enterPerson(actor));
+        int width=actorWidth(),height=Math.round(width*1.5f);
+        LinearLayout card=column();card.setBackgroundColor(Color.TRANSPARENT);
         FrameLayout artwork=new FrameLayout(this);
+        artwork.setFocusable(true);artwork.setClickable(true);artwork.setOnClickListener(v->enterPerson(actor));
         artwork.setBackground(shape(PANEL,0));artwork.setClipToOutline(true);shadow(artwork,4);artwork.setForeground(Images.border(dp(12)));card.setClipChildren(false);card.setClipToPadding(false);
         ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(portrait,dp(9));
         artwork.addView(portrait,new FrameLayout.LayoutParams(-1,-1));
-        card.addView(artwork,new LinearLayout.LayoutParams(dp(64),dp(96)));
+        card.addView(artwork,new LinearLayout.LayoutParams(width,height));
         TextView name=text(actor.optString("name"),11,TEXT);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);name.setGravity(Gravity.CENTER);name.setPadding(0,dp(3),0,0);
-        card.addView(name,new LinearLayout.LayoutParams(dp(64),dp(17)));
+        card.addView(name,new LinearLayout.LayoutParams(width,dp(17)));
         TextView character=text(actor.optString("character"),9,MUTED);character.setMaxLines(1);character.setEllipsize(android.text.TextUtils.TruncateAt.END);character.setGravity(Gravity.CENTER);character.setPadding(0,0,0,0);
-        card.addView(character,new LinearLayout.LayoutParams(dp(64),dp(15)));
-        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=dp(64);layout.height=dp(128);layout.setMargins(dp(6),dp(4),dp(6),dp(4));
+        card.addView(character,new LinearLayout.LayoutParams(width,dp(15)));
+        GridLayout.LayoutParams layout=new GridLayout.LayoutParams();layout.width=width;layout.height=height+dp(32);layout.setMargins(dp(6),dp(4),dp(6),dp(4));
         grid.addView(card,layout);
         String image=EtknApi.tmdbImage(actor.optString("profile_path"),"w185");
         if(image.isEmpty())portrait.setBackgroundColor(PANEL);else Images.visible(api,image,portrait,success->{});
-        card.setOnFocusChangeListener((view,hasFocus)->{card.setScaleX(hasFocus?FOCUS_SCALE:1f);card.setScaleY(hasFocus?FOCUS_SCALE:1f);card.setTranslationZ(0);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():Images.border(dp(12)));});
+        artwork.setOnFocusChangeListener((view,hasFocus)->{artwork.setScaleX(hasFocus?FOCUS_SCALE:1f);artwork.setScaleY(hasFocus?FOCUS_SCALE:1f);shadow(artwork,hasFocus?8:4);artwork.setForeground(hasFocus?focusOutline():Images.border(dp(12)));});
     }
     private void enterPerson(JSONObject actor){
         if(actor.optString("id").isEmpty())return;
@@ -604,13 +608,11 @@ public final class DiscoveryActivity extends TvActivity {
         content.removeAllViews();detailOverview=null;
         content.setPadding(0,0,0,0);content.setBackground(null);screenScroll.setPadding(dp(32),dp(24),dp(32),dp(40));screenScroll.setClipToPadding(true);screenScroll.scrollTo(0,0);
         content.addView(text(EtknApi.title(item)+(wantedSeason==null?"":" · 第 "+wantedSeason+" 季"),24,TEXT));
-        LinearLayout search=row();search.setGravity(Gravity.CENTER_VERTICAL);cloudSearch=input("搜索标题",false);cloudSearch.setSingleLine(true);cloudSearch.setText(cloudQuery.isEmpty()?EtknApi.title(item):cloudQuery);search.addView(cloudSearch,new LinearLayout.LayoutParams(0,dp(44),1));
-        search.addView(button("重新搜索",()->{cloudQuery=cloudSearch.getText().toString().trim();cloudSource="all";showCloud();}));content.addView(search);
         LinearLayout sources=row();cloudAreas.clear();cloudCounts.clear();cloudSourceButtons.clear();
         for(String provider:new String[]{"all","shared_pool","re0","channel"}){Button choice=button(cloudSourceLabel(provider),()->{cloudSource=provider;updateCloudSources();});cloudSourceButtons.put(provider,choice);sources.addView(choice);}content.addView(sources);
         cloudResults=column();content.addView(cloudResults);
         status.setText("正在搜索共享池、re0 和频道…");
-        String tmdb=EtknApi.encode(item.optString("id")),title=EtknApi.encode(cloudQuery.isEmpty()?EtknApi.title(item):cloudQuery),type=mediaTypeOf(item,kind);
+        String tmdb=EtknApi.encode(item.optString("id")),title=EtknApi.encode(EtknApi.title(item)),type=mediaTypeOf(item,kind);
         String[] providers={"shared_pool","re0","channel"};
         String[] paths={
             "/api/tv/discover/shared-resources?tmdb_id="+tmdb+"&item_type="+(wantedSeason==null?type:"season")+"&q="+title+"&limit=100",
@@ -633,7 +635,8 @@ public final class DiscoveryActivity extends TvActivity {
                     runOnUiThread(()->{
                         if(isFinishing()||isDestroyed()||request!=revision)return;
                         counter.setText(rows.isEmpty()?"暂无匹配资源":rows.size()+" 个版本");
-                        for(CloudResources.Resource row:rows)resourceCard(target,row,item,wantedSeason,type);
+                        if(provider.equals("shared_pool")&&type.equals("tv"))sharedSeasonCards(target,rows,item,wantedSeason,type);
+                        else for(CloudResources.Resource row:rows)resourceCard(target,row,item,wantedSeason,type);
                         cloudCounts.put(provider,rows.size());updateCloudSources();
                         if(--pending[0]==0)status.setText("搜索完成，选择资源版本并确认获取。");
                     });
@@ -654,6 +657,19 @@ public final class DiscoveryActivity extends TvActivity {
         for(Map.Entry<String,Button> entry:cloudSourceButtons.entrySet()){String source=entry.getKey();entry.getValue().setText((cloudSource.equals(source)?"✓ ":"")+cloudSourceLabel(source)+" "+(source.equals("all")?total:cloudCounts.getOrDefault(source,0)));}
         for(Map.Entry<String,LinearLayout> entry:cloudAreas.entrySet())entry.getValue().setVisibility(cloudSource.equals("all")||cloudSource.equals(entry.getKey())?View.VISIBLE:View.GONE);
     }
+    private void sharedSeasonCards(LinearLayout area,List<CloudResources.Resource> rows,JSONObject item,Integer wantedSeason,String type){
+        Map<Integer,List<CloudResources.Resource>> seasons=new TreeMap<>(Comparator.nullsLast(Comparator.naturalOrder()));
+        for(CloudResources.Resource row:rows)seasons.computeIfAbsent(CloudResources.season(row.source),key->new ArrayList<>()).add(row);
+        for(Map.Entry<Integer,List<CloudResources.Resource>> entry:seasons.entrySet()){
+            Integer number=entry.getKey();
+            LinearLayout group=column();group.setPadding(dp(12),dp(8),dp(12),dp(12));group.setBackground(shape(PANEL,0));
+            LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
+            TextView name=text(EtknApi.title(item)+" · "+(number==null?"未标注季":number==0?"特别篇":"第 "+number+" 季"),16,TEXT);name.setTypeface(null,Typeface.BOLD);
+            heading.addView(name,new LinearLayout.LayoutParams(0,-2,1));heading.addView(text(entry.getValue().size()+" 个版本",12,MUTED));group.addView(heading);
+            for(CloudResources.Resource row:entry.getValue())resourceCard(group,row,item,wantedSeason,type);
+            LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(-1,-2);bounds.topMargin=dp(12);area.addView(group,bounds);
+        }
+    }
     private void resourceCard(LinearLayout area,CloudResources.Resource row,JSONObject item,Integer wantedSeason,String type){
         LinearLayout card=column();card.setFocusable(true);card.setClickable(true);card.setBackground(focusBackground());
         card.setPadding(dp(16),dp(10),dp(16),dp(12));
@@ -672,6 +688,8 @@ public final class DiscoveryActivity extends TvActivity {
             chips.addView(view,bounds);
         }
         card.addView(chips,new LinearLayout.LayoutParams(-1,-2));
+        String remark=row.source.isNull("remark")?"":row.source.optString("remark").trim();
+        if(!row.provider.equals("shared_pool")&&!remark.isEmpty())card.addView(text(remark,12,MUTED),new LinearLayout.LayoutParams(-1,-2));
         card.setOnClickListener(v->confirmAcquire(row,card,item,wantedSeason,type));
         LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(-1,-2);bounds.topMargin=dp(8);
         area.addView(card,bounds);

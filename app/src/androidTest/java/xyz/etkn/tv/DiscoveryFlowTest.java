@@ -105,7 +105,7 @@ public class DiscoveryFlowTest {
             await(()->activity.status.getText().toString().startsWith("搜索完成"));
             if(pass==0)capture("cloud-results");
             onMain(()->{
-                assertEquals(4,activity.content.getChildCount());
+                assertEquals(3,activity.content.getChildCount());
                 LinearLayout results=(LinearLayout)field("cloudResults");assertEquals(3,results.getChildCount());
                 assertEquals(3,((ViewGroup)results.getChildAt(0)).getChildCount());
                 assertEquals(2,((ViewGroup)results.getChildAt(1)).getChildCount());
@@ -126,7 +126,7 @@ public class DiscoveryFlowTest {
         }
         assertEquals(9,server.cloudRequests);
     }
-    @Test public void cloudSourceFiltersAndTitleRetryKeepIdentity()throws Exception{
+    @Test public void cloudSourceFiltersKeepWholeSeriesIdentityWithoutSearchInput()throws Exception{
         onMain(()->{invoke("enterDetail",new Class<?>[]{JSONObject.class},server.item("tv"));invoke("enterCloud",new Class<?>[0]);});
         await(()->activity.status.getText().toString().startsWith("搜索完成"));
         onMain(()->{
@@ -134,19 +134,47 @@ public class DiscoveryFlowTest {
             Map<String,LinearLayout> areas=(Map<String,LinearLayout>)field("cloudAreas");
             assertEquals(View.VISIBLE,areas.get("re0").getVisibility());assertEquals(View.GONE,areas.get("shared_pool").getVisibility());assertEquals(View.GONE,areas.get("channel").getVisibility());
             assertEquals("来源筛选使用已加载结果",3,server.cloudRequests);
-            android.widget.EditText search=(android.widget.EditText)field("cloudSearch");search.setText("另一个搜索标题");((ViewGroup)search.getParent()).getChildAt(1).performClick();
+            assertFalse("资源页不再提供难以遥控输入的重搜框",containsInput(activity.content));
+            assertFalse(viewText(activity.content).contains("重新搜索"));
+            ((Map<String,Button>)field("cloudSourceButtons")).get("all").performClick();
+            assertEquals(View.VISIBLE,areas.get("shared_pool").getVisibility());assertEquals(View.VISIBLE,areas.get("channel").getVisibility());
         });
-        await(()->server.cloudRequests==6&&activity.status.getText().toString().startsWith("搜索完成"));
+        assertEquals(3,server.cloudRequests);
         assertEquals("all",field("cloudSource"));
-        for(String path:server.cloudPaths.subList(3,6)){
+        for(String path:server.cloudPaths){
             assertTrue(path.contains("tmdb_id=10"));assertFalse(path.contains("&season="));assertFalse(path.contains("&season_number="));
-            if(!path.contains("re0-resources"))assertTrue(URLDecoder.decode(path,"UTF-8").contains("q=另一个搜索标题"));
+            if(!path.contains("re0-resources"))assertTrue(URLDecoder.decode(path,"UTF-8").contains("q=探索合成影片"));
         }
     }
+    @Test public void seriesSharedResourcesGroupSeasonsAndOtherProvidersShowRemarks()throws Exception{
+        server.seasonalShared=true;
+        onMain(()->{invoke("enterDetail",new Class<?>[]{JSONObject.class},server.item("tv"));invoke("enterCloud",new Class<?>[0]);});
+        await(()->activity.status.getText().toString().startsWith("搜索完成"));
+        onMain(()->{
+            Map<String,LinearLayout> areas=(Map<String,LinearLayout>)field("cloudAreas");
+            LinearLayout shared=areas.get("shared_pool");assertEquals(6,shared.getChildCount());
+            String[] labels={"特别篇","第 1 季","第 2 季","第 10 季","未标注季"};
+            for(int i=0;i<labels.length;i++){
+                ViewGroup group=(ViewGroup)shared.getChildAt(i+1);assertEquals(3,group.getChildCount());
+                assertTrue(viewText(group.getChildAt(0)).contains(labels[i]));assertTrue(viewText(group.getChildAt(0)).contains("2 个版本"));
+                assertTrue(group.getChildAt(1).isFocusable());assertTrue(group.getChildAt(2).isClickable());
+            }
+            assertEquals(Integer.valueOf(10),((Map<String,Integer>)field("cloudCounts")).get("shared_pool"));
+            assertTrue(viewText(areas.get("re0")).contains("全剧 S01-S09"));
+            assertTrue(viewText(areas.get("channel")).contains("1080p Remux 内封简英双字"));
+            ((Map<String,Button>)field("cloudSourceButtons")).get("shared_pool").performClick();
+        });
+        capture("cloud-season-groups");
+        onMain(()->((Map<String,Button>)field("cloudSourceButtons")).get("re0").performClick());
+        capture("cloud-re0-remark");
+        onMain(()->((Map<String,Button>)field("cloudSourceButtons")).get("channel").performClick());
+        capture("cloud-channel-remark");
+    }
+    private boolean containsInput(View view){if(view instanceof android.widget.EditText)return true;if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)if(containsInput(((ViewGroup)view).getChildAt(i)))return true;return false;}
     @Test public void detailPosterActionsAndCastFitOneScreen()throws Exception{
         String overview=String.join("",Collections.nCopies(60,"这是用于检查电视一屏布局的完整长简介。"));
         JSONArray cast=new JSONArray();
-        for(int i=0;i<8;i++)cast.put(new JSONObject().put("id","actor"+i).put("name","合成演员"+i).put("character","角色"+i));
+        for(int i=0;i<20;i++)cast.put(new JSONObject().put("id","actor"+i).put("name","合成演员"+i).put("character","角色"+i));
         JSONObject seasons=server.seasons();
         for(int i=3;i<=20;i++)seasons.getJSONArray("seasons").put(new JSONObject().put("season_number",i).put("name","第"+i+"季").put("episode_count",12));
         onMain(()->{
@@ -171,12 +199,37 @@ public class DiscoveryFlowTest {
                 assertTrue("简介仍有可读高度",intro.getHeight()>=activity.dp(40));
                 assertEquals(overview,intro.getText().toString());
                 View last=activity.content.getChildAt(2);
+                GridLayout actors=(GridLayout)((ViewGroup)last).getChildAt(0);assertEquals(20,actors.getChildCount());
+                ViewGroup firstActor=(ViewGroup)actors.getChildAt(0);View portrait=firstActor.getChildAt(0);
+                assertTrue("演员头像比旧版64dp更大",portrait.getWidth()>activity.dp(64));assertEquals(Math.round(portrait.getWidth()*1.5f),portrait.getHeight());
+                android.graphics.Rect tenth=new android.graphics.Rect();View actor10=actors.getChildAt(9);
+                assertTrue("第十位演员完整显示",actor10.getGlobalVisibleRect(tenth));assertEquals(actor10.getWidth(),tenth.width());
+                assertEquals("演员保持单行横向浏览",firstActor.getTop(),actors.getChildAt(19).getTop());
+                assertFalse(firstActor.isFocusable());assertTrue(portrait.isFocusable());
+                portrait.requestFocus();assertEquals(1f,firstActor.getScaleX(),0f);assertTrue(portrait.getScaleX()>1f);
+                actions.getChildAt(0).requestFocus();
                 assertTrue("演员区与底部留白均在首屏: "+last.getBottom()+" + "+activity.content.getPaddingBottom()+" <= "+activity.screenScroll.getHeight(),last.getBottom()+activity.content.getPaddingBottom()<=activity.screenScroll.getHeight());
                 assertTrue("所有操作按钮完整显示",actions.getChildAt(actions.getChildCount()-1).getRight()<=copy.getWidth());
                 assertFalse(viewText(activity.content).contains("选择季度"));
                 assertEquals(0,activity.screenScroll.getScrollY());
             });
         }
+        ViewGroup actors=(ViewGroup)((ViewGroup)activity.content.getChildAt(2)).getChildAt(0);
+        onMain(()->((ViewGroup)actors.getChildAt(0)).getChildAt(0).requestFocus());
+        for(int i=0;i<10;i++)instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);
+        View eleventh=((ViewGroup)actors.getChildAt(10)).getChildAt(0);
+        await(eleventh::hasFocus);
+        onMain(()->{
+            android.graphics.Rect visible=new android.graphics.Rect();assertTrue(eleventh.getGlobalVisibleRect(visible));
+            assertTrue("聚焦放大的头像完整可见",visible.width()>=Math.floor(eleventh.getWidth()*eleventh.getScaleX())-1);
+            assertTrue("第十一位演员通过横向滚动展示",((android.widget.HorizontalScrollView)actors.getParent()).getScrollX()>0);
+            assertEquals("演员浏览不引起纵向滚动",0,activity.screenScroll.getScrollY());
+        });
+        capture("detail-actor-focus");
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
+        await(()->field("personPayload")!=null);
+        onMain(()->{assertEquals("actor10",((JSONObject)field("person")).optString("id"));activity.onBackPressed();});
+        await(()->activity.content.getChildCount()==3&&!activity.content.isLayoutRequested());
         onMain(()->invoke("chooseSubscriptionSeasons",new Class<?>[0]));
         AlertDialog dialog=(AlertDialog)field("subscriptionSeasonsDialog");
         onMain(()->findAction(dialog.getWindow().getDecorView(),"订阅第 1 季").requestFocus());
@@ -208,7 +261,7 @@ public class DiscoveryFlowTest {
         assertTrue(server.castSent.await(5,TimeUnit.SECONDS));
         // Let the real async callback run, then inspect the current view hierarchy.
         SystemClock.sleep(350);instrumentation.waitForIdleSync();
-        onMain(()->assertEquals("迟到的演员回调不得追加到资源页",4,activity.content.getChildCount()));
+        onMain(()->assertEquals("迟到的演员回调不得追加到资源页",3,activity.content.getChildCount()));
         server.delayCloud=true;
         onMain(()->{activity.onBackPressed();invoke("enterCloud",new Class<?>[0]);});
         assertTrue(server.cloudRequested.await(5,TimeUnit.SECONDS));
@@ -347,7 +400,7 @@ public class DiscoveryFlowTest {
     private static final class Fixture implements AutoCloseable{
         final ServerSocket socket=new ServerSocket(0,16,InetAddress.getByName("127.0.0.1"));
         final CountDownLatch castRequested=new CountDownLatch(1),castGate=new CountDownLatch(1),castSent=new CountDownLatch(1),cloudRequested=new CountDownLatch(1),cloudGate=new CountDownLatch(1);
-        volatile boolean closed,delayCast,delayCloud,duplicateSha;
+        volatile boolean closed,delayCast,delayCloud,duplicateSha,seasonalShared;
         volatile int seasonRequests,cloudRequests,delayedCloudSent,queryRequests;
         volatile String lastQueryBody="{}";
         final List<JSONObject> subscriptions=Collections.synchronizedList(new ArrayList<>());
@@ -369,7 +422,16 @@ public class DiscoveryFlowTest {
                 synchronized(this){cloudRequests++;cloudPaths.add(path);}
                 JSONArray resources=new JSONArray();
                 JSONObject resource=new JSONObject().put("title","合成资源").put("resolution","1080p").put("video_codec","H265").put("size",1024000000).put("tag_labels",new JSONArray().put("一致版"));
-                if(path.contains("shared-resources")){JSONArray versions=new JSONArray().put(new JSONObject(resource.toString()).put("sha1","a")).put(new JSONObject(resource.toString()).put("sha1","b"));if(duplicateSha)versions.put(new JSONObject(resource.toString()).put("sha1","A").put("share_channel_status","valid"));resource.put("versions",versions);}
+                if(path.contains("shared-resources")){
+                    if(seasonalShared){
+                        for(int number:new int[]{10,2,0,1,-1}){
+                            JSONObject parent=new JSONObject(resource.toString());if(number>=0)parent.put("season_number",number);
+                            parent.put("versions",new JSONArray().put(new JSONObject(resource.toString()).put("sha1",number+"a")).put(new JSONObject(resource.toString()).put("sha1",number+"b")));resources.put(parent);
+                        }
+                        return new JSONObject().put("resources",resources);
+                    }
+                    JSONArray versions=new JSONArray().put(new JSONObject(resource.toString()).put("sha1","a")).put(new JSONObject(resource.toString()).put("sha1","b"));if(duplicateSha)versions.put(new JSONObject(resource.toString()).put("sha1","A").put("share_channel_status","valid"));resource.put("versions",versions);
+                }else resource.put("remark",path.contains("re0-resources")?"全剧 S01-S09":"1080p Remux 内封简英双字");
                 return new JSONObject().put("resources",resources.put(resource));
             }
             return new JSONObject();
