@@ -594,7 +594,7 @@ public class DetailFlowTest {
         }finally{if(settings[0]!=null)onMain(()->settings[0].finish());cleanup();}
     }
 
-    @Test public void moviesAndSeriesShowTenActorsWithMainInformationOnFirstScreen()throws Exception{
+    @Test public void moviesAndSeriesShowEightActorsWithMainInformationOnFirstScreen()throws Exception{
         try(Fixture server=new Fixture()){
             server.manyActors=true;server.browseFeatures=true;server.studioIcons=true;server.taglineFixture=true;
             for(String id:new String[]{"movie-single","series-one"}){
@@ -606,13 +606,13 @@ public class DetailFlowTest {
                 assertEquals("打开详情不用移动或滚动",0,page.getScrollY());assertFullyVisible((View)field(detail,"playButton"));assertFullyVisible((View)field(detail,"detailOverview"));assertFullyVisible((View)field(detail,"detailTagline"));assertFullyVisible((View)field(detail,"audioButton"));assertFullyVisible((View)field(detail,"subtitleButton"));
                 TextView overview=(TextView)field(detail,"detailOverview");assertEquals(3,overview.getMinLines());assertEquals(3,overview.getMaxLines());
                 assertNull("主页没有分集矩阵",field(detail,"episodeGrid"));assertNull(button("第 1 季"));assertNull(button("第 1 集"));if(id.startsWith("series"))assertFullyVisible((View)field(detail,"episodesButton"));
-                for(int i=0;i<10;i++){assertFullyVisible(actors.get(i));assertFullyVisible((View)actors.get(i).getParent());assertEquals("头像保持2:3",actors.get(i).getWidth()*1.5f,actors.get(i).getHeight(),1f);}
-                Rect eleventh=new Rect();actors.get(10).getGlobalVisibleRect(eleventh);assertTrue("第11人需要横向浏览才能完整显示",eleventh.width()<actors.get(10).getWidth());assertTrue("Logo高度压缩",((View)field(detail,"detailLogo")).getHeight()<=detail.dp(58));
+                for(int i=0;i<8;i++){assertFullyVisible(actors.get(i));assertFullyVisible((View)actors.get(i).getParent());assertEquals("头像保持2:3",actors.get(i).getWidth()*1.5f,actors.get(i).getHeight(),1f);}
+                Rect ninth=new Rect();actors.get(8).getGlobalVisibleRect(ninth);assertTrue("第9人需要横向浏览才能完整显示",ninth.width()<actors.get(8).getWidth());assertTrue("Logo高度压缩",((View)field(detail,"detailLogo")).getHeight()<=detail.dp(58));
                 onMain(()->detail.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE));screenshot(id+"-first-screen-cast.png");
                 for(int i=0;i<3;i++){instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();}
                 assertSame("三次下键进入第一位演员",actors.get(0),detail.getCurrentFocus());assertEquals("聚焦演员仍保留首屏",0,page.getScrollY());assertEquals(0,rail.getScrollX());
-                for(int i=0;i<10;i++)instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
-                assertSame("演员左右浏览不会重置到第一位",actors.get(10),detail.getCurrentFocus());assertEquals(0,page.getScrollY());assertTrue(rail.getScrollX()>0);
+                for(int i=0;i<8;i++)instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);settle();
+                assertSame("演员左右浏览不会重置到第一位",actors.get(8),detail.getCurrentFocus());assertEquals(0,page.getScrollY());assertTrue(rail.getScrollX()>0);
                 instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);settle();assertFalse(actors.contains(detail.getCurrentFocus()));
                 instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN);settle();assertSame("重新进入演员仍从首位开始",actors.get(0),detail.getCurrentFocus());assertEquals(0,rail.getScrollX());
                 DetailActivity previous=detail;onMain(previous::finish);await(previous::isDestroyed);detail=null;

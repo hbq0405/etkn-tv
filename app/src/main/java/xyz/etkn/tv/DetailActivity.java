@@ -159,7 +159,7 @@ public final class DetailActivity extends TvActivity {
             boolean delete=admin||(permissions!=null&&permissions.optBoolean("CanDeleteMedia"));
             refreshButton.setVisibility(refresh?View.VISIBLE:View.GONE);deleteButton.setVisibility(delete?View.VISIBLE:View.GONE);
         });
-        LinearLayout selections=row();selections.setPadding(0,dp(4),0,dp(4));versionButton=compactButton("版本",this::chooseVersion);audioButton=compactButton("音轨",()->chooseStream(false));subtitleButton=compactButton("字幕",()->chooseStream(true));
+        LinearLayout selections=row();selections.setPadding(0,dp(2),0,dp(2));versionButton=compactButton("版本",this::chooseVersion);audioButton=compactButton("音轨",()->chooseStream(false));subtitleButton=compactButton("字幕",()->chooseStream(true));
         selections.addView(versionButton);selections.addView(audioButton);selections.addView(subtitleButton);
         for(Button choice:new Button[]{versionButton,audioButton,subtitleButton})choice.setBackground(selectionBackground());
         HorizontalScrollView selectionScroll=new FocusScroll.Row(this);selectionScroll.setHorizontalScrollBarEnabled(false);selectionScroll.addView(selections);content.addView(selectionScroll);
@@ -498,8 +498,8 @@ public final class DetailActivity extends TvActivity {
         castEntry=null;castScroll=null;
         JSONArray people=item.optJSONArray("People");if(people==null||people.length()==0)return;
         List<JSONObject> actors=new ArrayList<>();for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person!=null&&person.optString("Type",person.optString("PersonType")).equalsIgnoreCase("Actor"))actors.add(person);}if(actors.isEmpty())return;
-        TextView heading=text("演员表",18,Color.WHITE);heading.setPadding(0,dp(4),0,dp(4));content.addView(heading);LinearLayout cast=row();castScroll=new FocusScroll.Row(this);castScroll.setHorizontalScrollBarEnabled(false);castScroll.setFocusable(false);castScroll.setClipToPadding(false);castScroll.addView(cast);content.addView(castScroll);
-        int width=Math.max(1,(getResources().getDisplayMetrics().widthPixels-content.getPaddingLeft()-content.getPaddingRight())/10-dp(12)),height=Math.round(width*1.5f);
+        TextView heading=text("演员表",18,Color.WHITE);heading.setPadding(0,0,0,0);content.addView(heading);LinearLayout cast=row();castScroll=new FocusScroll.Row(this);castScroll.setHorizontalScrollBarEnabled(false);castScroll.setFocusable(false);castScroll.setClipToPadding(false);castScroll.addView(cast);content.addView(castScroll);
+        int width=Math.max(1,(getResources().getDisplayMetrics().widthPixels-content.getPaddingLeft()-content.getPaddingRight())/8-dp(12)),height=Math.round(width*1.5f);
         for(JSONObject person:actors){
             LinearLayout card=column();LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(width,height+dp(50));bounds.setMargins(dp(6),dp(8),dp(6),dp(8));cast.addView(card,bounds);
             ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);portrait.setImageResource(android.R.drawable.ic_menu_myplaces);Images.rounded(portrait,dp(7));portrait.setForeground(Images.border(dp(12)));shadow(portrait,4);portrait.setFocusable(true);portrait.setClickable(true);portrait.setContentDescription("演员 · "+person.optString("Name"));
