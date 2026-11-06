@@ -24,8 +24,6 @@ abstract class TvActivity extends Activity {
     TextView status;
     ScrollView screenScroll;
     EtknApi api;
-    private final android.os.Handler longBackHandler=new android.os.Handler(android.os.Looper.getMainLooper());
-    private boolean backHeld,longBackHandled;
     int dp(float value) { return Math.round(getResources().getDisplayMetrics().density*value); }
     private TvPreferences preferences;
     private int appliedImageSize=-1;
@@ -96,7 +94,7 @@ abstract class TvActivity extends Activity {
     @Override protected void onStart(){super.onStart();foregroundActivities++;}
     @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
     @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);appearanceForeground=true;updateAppearanceViews();noticeTimer.removeCallbacks(appearancePoll);noticeTimer.post(appearancePoll);if(LoginGate.isSatisfied()){int size=preferences.imageSize();boolean changed=appliedImageSize>=0&&appliedImageSize!=size;appliedImageSize=size;if(changed){applyImageSizeNow();imageSizeChanged();}IngestNotifications.resumed(this);noticeTimer.post(noticePoll);refreshForeground=true;noticeTimer.post(refreshPoll);}}
-    @Override protected void onPause(){backHeld=false;longBackHandler.removeCallbacksAndMessages(null);appearanceForeground=false;noticeTimer.removeCallbacks(appearancePoll);refreshForeground=false;noticeTimer.removeCallbacks(refreshPoll);noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
+    @Override protected void onPause(){appearanceForeground=false;noticeTimer.removeCallbacks(appearancePoll);refreshForeground=false;noticeTimer.removeCallbacks(refreshPoll);noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
     int imageSize(){return preferences.imageSize();}
     float imageScale(){switch(imageSize()){case TvPreferences.IMAGE_EXTREMELY_SMALL:return 0.72f;case TvPreferences.IMAGE_SMALL:return 0.86f;case TvPreferences.IMAGE_LARGE:return 1.14f;case TvPreferences.IMAGE_EXTREMELY_LARGE:return 1.28f;default:return 1f;}}
     int imageDimension(int baseDp){return Math.round(baseDp*imageScale());}
@@ -227,9 +225,9 @@ abstract class TvActivity extends Activity {
     }
     private StateListDrawable menuButtonBackground(){
         StateListDrawable state=new StateListDrawable();
-        android.graphics.drawable.GradientDrawable focused=shape(SOFT,0);focused.setCornerRadius(dp(24));
-        android.graphics.drawable.LayerDrawable focusLayer=new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{focused,new FocusPulse(dp(22),dp(3),ACCENT,forceDarkAppearance())});
-        android.graphics.drawable.GradientDrawable normal=shape(PANEL,0);normal.setCornerRadius(dp(24));
+        android.graphics.drawable.GradientDrawable focused=shape(SOFT,0);focused.setCornerRadius(dp(22));
+        android.graphics.drawable.LayerDrawable focusLayer=new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{focused,new FocusPulse(dp(20.5f),dp(3),ACCENT,forceDarkAppearance())});focusLayer.setPaddingMode(android.graphics.drawable.LayerDrawable.PADDING_MODE_STACK);
+        android.graphics.drawable.GradientDrawable normal=shape(PANEL,0);normal.setCornerRadius(dp(22));
         state.addState(new int[]{android.R.attr.state_focused},focusLayer);state.addState(new int[]{},normal);return state;
     }
     android.graphics.drawable.GradientDrawable capsuleSurface(int color){android.graphics.drawable.GradientDrawable background=shape(color,0);background.setCornerRadius(dp(40));return background;}
@@ -237,7 +235,7 @@ abstract class TvActivity extends Activity {
         menu.animate().cancel();menu.setVisibility(View.VISIBLE);menu.setAlpha(1f);menu.setTranslationY(-dp(84));menu.animate().translationY(0).setDuration(220).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
     }
     void nav(String title, Runnable click) {
-        Button view=button(title,click);view.setTypeface(androidx.core.content.res.ResourcesCompat.getFont(this,R.font.smiley_sans));view.setTextSize(15);view.setBackground(menuButtonBackground());view.setPadding(dp(20),dp(6),dp(20),dp(6));view.setMinHeight(dp(44));nav.addView(view);
+        Button view=button(title,click);view.setTypeface(Typeface.DEFAULT,Typeface.BOLD);view.setTextSize(15);view.setBackground(menuButtonBackground());view.setPadding(dp(20),dp(6),dp(20),dp(6));view.setMinHeight(dp(44));LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(-2,dp(44));bounds.rightMargin=dp(10);view.setLayoutParams(bounds);nav.addView(view);
     }
     EditText input(String hint, boolean password) {
         EditText view = new EditText(this); view.setBackgroundTintList(null);view.setSingleLine(true); view.setTextSize(17); themeText(view,TEXT); view.setHintTextColor(resolveColor(MUTED)); view.setHint(hint); view.setPadding(dp(12),dp(8),dp(12),dp(8));
@@ -263,30 +261,6 @@ abstract class TvActivity extends Activity {
         if(duration>0){appNoticeHide=()->{if(view.getText().toString().equals(message))view.setVisibility(View.GONE);};appNoticeHandler.postDelayed(appNoticeHide,duration);}return view;
     }
     void open(Class<?> activity) { startActivity(new Intent(this,activity)); }
-    boolean handleLongBack(android.view.KeyEvent event,Runnable shortPress){
-        if(event.getKeyCode()!=android.view.KeyEvent.KEYCODE_BACK)return false;
-        if(event.getAction()==android.view.KeyEvent.ACTION_DOWN){
-            if(event.getRepeatCount()==0){
-                backHeld=true;longBackHandled=false;longBackHandler.removeCallbacksAndMessages(null);
-                longBackHandler.postDelayed(()->{if(backHeld&&!isFinishing()&&!(this instanceof SetupActivity)){longBackHandled=true;returnHome();}},android.view.ViewConfiguration.getLongPressTimeout());
-            }
-            return true;
-        }
-        if(event.getAction()==android.view.KeyEvent.ACTION_UP){
-            backHeld=false;longBackHandler.removeCallbacksAndMessages(null);boolean handled=longBackHandled;longBackHandled=false;
-            if(!handled&&!event.isCanceled())shortPress.run();
-            return true;
-        }
-        backHeld=false;longBackHandler.removeCallbacksAndMessages(null);longBackHandled=false;return true;
-    }
-    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
-        if(handleLongBack(event,this::onBackPressed))return true;
-        return super.dispatchKeyEvent(event);
-    }
-    private void returnHome(){
-        startActivity(new Intent(this,HomeActivity.class).putExtra("returnHome",true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));
-        if(!(this instanceof HomeActivity))finish();
-    }
     View seasonCard(org.json.JSONObject season,Runnable click){
         FrameLayout card=new FrameLayout(this);card.setBackground(shape(PANEL,0));shadow(card,4);card.setClipToOutline(true);card.setForeground(Images.border(dp(12)));card.setContentDescription("季海报 · "+EtknApi.title(season));
         ImageView poster=new ImageView(this);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(poster,dp(9));card.addView(poster,new FrameLayout.LayoutParams(-1,-1));

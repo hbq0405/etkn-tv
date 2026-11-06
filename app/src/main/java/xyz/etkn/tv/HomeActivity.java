@@ -74,7 +74,6 @@ public final class HomeActivity extends TvActivity {
     private final java.util.Map<String,View> libraryCards=new java.util.HashMap<>();
     private String libraryOrigin="home",pendingLibraryFocus="";
     private boolean carouselEnabled,carouselActive;
-    private boolean focusFirstResumeOnRefresh;
     private final List<JSONObject> carouselItems=new java.util.ArrayList<>();
     private int carouselIndex;
     private ImageView carouselPrefetch;
@@ -96,14 +95,14 @@ public final class HomeActivity extends TvActivity {
         homeScroll=new FocusScroll.Vertical(this);homeScroll.setFillViewport(true);homeScroll.setClipToPadding(false);
         content=column();homeScroll.addView(content);stage.addView(homeScroll,new FrameLayout.LayoutParams(-1,-1));
         homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{maybeLoadPosterPage();});
-        nav=row();nav.setPadding(dp(12),dp(8),dp(12),dp(8));
-        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));menu.addView(nav);menu.setVisibility(View.GONE);
+        nav=row();nav.setGravity(Gravity.CENTER_VERTICAL);nav.setBaselineAligned(false);nav.setPadding(dp(12),dp(8),dp(12),dp(8));
+        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));menu.addView(nav,new FrameLayout.LayoutParams(-2,-1));menu.setVisibility(View.GONE);
         FrameLayout.LayoutParams menuBounds=new FrameLayout.LayoutParams(-2,dp(68),Gravity.TOP|Gravity.CENTER_HORIZONTAL);menuBounds.topMargin=dp(12);stage.addView(menu,menuBounds);
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);stage.addView(status,notice);
         setContentView(stage);refreshNavigation();
         handleLaunchIntent(getIntent());checkUpdateOnce();
-        stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->{boolean heroFocused="home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView());homeBackdrop.resumeFocused(heroFocused);resumeTextColor(heroFocused);maybeLoadPosterPage();});
+        stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->{updateHomeBackdropFocus();maybeLoadPosterPage();});
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);handleLaunchIntent(intent);}
     private void handleLaunchIntent(Intent intent){
@@ -115,7 +114,6 @@ public final class HomeActivity extends TvActivity {
     private void showMenu(){previousFocus=getCurrentFocus();homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);animateMenuIn(menu);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
     private void hideMenu(){menu.animate().cancel();menu.setTranslationY(-dp(84));menu.setVisibility(View.GONE);homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
-        if(handleLongBack(event,this::onBackPressed))return true;
         if(menuTransitionKey!=0&&event.getKeyCode()==menuTransitionKey){if(event.getAction()==KeyEvent.ACTION_UP)menuTransitionKey=0;return true;}
         if(event.getKeyCode()==KeyEvent.KEYCODE_MENU&&getCurrentFocus()!=null&&(actionItems.containsKey(getCurrentFocus())||"items".equals(mode)&&getCurrentFocus().getTag() instanceof JSONObject)){
             if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)showItemMenu(getCurrentFocus());
@@ -162,7 +160,7 @@ public final class HomeActivity extends TvActivity {
     @Override void mediaDeleted(){if("items".equals(mode))refreshPosters();else if("home".equals(mode))refreshHome();else loadItems();}
     @Override void metadataRefreshed(){super.metadataRefreshed();refreshCurrent();}
     private void refreshCurrent(){if("group".equals(mode)){refreshLibraryGroup();return;}if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
-    private void refreshHome(){if(!"home".equals(mode))return;focusFirstResumeOnRefresh=true;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
+    private void refreshHome(){if(!"home".equals(mode))return;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
     private void homeRequest(String path,int request,java.util.function.Consumer<JSONObject> done){
         if(request!=revision||pendingShelves.contains(path))return;
         JSONObject cached=homeCache.get(path);
@@ -179,7 +177,7 @@ public final class HomeActivity extends TvActivity {
         nav.removeAllViews();FrameLayout account=new FrameLayout(this);account.setBackground(focusBackground());account.setFocusable(true);account.setClickable(true);account.setContentDescription("当前用户头像，按确定切换账号或登录新用户");
         ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(19));
         FrameLayout.LayoutParams image=new FrameLayout.LayoutParams(dp(38),dp(38),Gravity.CENTER);account.addView(avatar,image);
-        LinearLayout.LayoutParams face=new LinearLayout.LayoutParams(dp(52),dp(54));face.setMargins(0,dp(4),dp(8),0);nav.addView(account,face);account.setOnClickListener(view->{hideMenu();showAccounts();});loadAvatar(avatar);
+        LinearLayout.LayoutParams face=new LinearLayout.LayoutParams(dp(52),dp(44));face.setMargins(0,0,dp(8),0);nav.addView(account,face);account.setOnClickListener(view->{hideMenu();showAccounts();});loadAvatar(avatar);
         nav("首页",this::loadHome);nav("媒体库",this::loadLibraries);nav("收藏",this::openFavorites);nav("搜索",this::search);if(canDiscover)nav("影视探索",()->open(DiscoveryActivity.class));nav("设置",()->open(SettingsActivity.class));
     }
     private void loadHome(){
@@ -230,18 +228,7 @@ public final class HomeActivity extends TvActivity {
             loadLatestSection(libraries,areas,index+2,request);
         });
     }
-    private void showAccounts(){
-        List<SavedAccounts.Account> accounts=api.session.accounts();
-        if(accounts.isEmpty())return;
-        String[] labels=new String[accounts.size()];
-        for(int index=0;index<accounts.size();index++){
-            SavedAccounts.Account account=accounts.get(index);labels[index]=account.name+(account.userId.equals(api.session.userId())?"（当前）":"")+(account.needsPassword?"（需密码）":"");
-        }
-        AlertDialog picker=dialogBuilder().setTitle("切换用户").setItems(labels,(dialog,index)->{
-            SavedAccounts.Account account=accounts.get(index);if(!account.needsPassword&&account.userId.equals(api.session.userId()))return;
-            SetupActivity.selectAccount(this,account,this::recreate);
-        }).setNeutralButton("登录新用户",(dialog,index)->startActivity(new Intent(this,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true))).setNegativeButton("取消",null).create();picker.show();themeDialog(picker);
-    }
+    private void showAccounts(){startActivity(new Intent(this,SetupActivity.class).putExtra(SetupActivity.EXTRA_PICK_ACCOUNT,true));}
     private LinearLayout section(String title){return section(title,content);}
     private LinearLayout section(String title,LinearLayout parent){
         LinearLayout area=column();area.setPadding(dp(28),dp(14),dp(22),dp(2));area.addView(text(title,20,TEXT));area.addView(text("正在加载…",13,MUTED));parent.addView(area);return area;
@@ -249,15 +236,15 @@ public final class HomeActivity extends TvActivity {
     private void loadShelf(LinearLayout area,String path,int request,boolean landscape,boolean libraries,boolean resumeShelf,String empty){
         homeReloads.put(path,()->loadShelf(area,path,request,landscape,libraries,resumeShelf,empty));
         homeRequest(path,request,result->{
-            if(request!=revision)return;boolean focusFirst=resumeShelf&&focusFirstResumeOnRefresh;String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
+            if(request!=revision)return;boolean focusFirst=resumeShelf&&resumeCards.contains(getCurrentFocus());String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
             if(libraries)loadLatestByLibrary(latestSections,request,items);
-            if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);if(focusFirst)focusFirstResumeOnRefresh=false;else if(!focused.isEmpty()&&libraryFirst!=null&&libraryFirst.isShown())libraryFirst.requestFocus();return;}
+            if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);if(!focused.isEmpty()&&libraryFirst!=null&&libraryFirst.isShown())libraryFirst.requestFocus();return;}
             HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
             for(JSONObject item:items){View card=mediaCard(shelf,item,()->{if(libraries)openLibrary(item);else if(resumeShelf)resumePlayback(item);else detail(item);},landscape,resumeShelf,view->onHomeCardFocused(view,item,libraries,resumeShelf));registerHomeCard(card);bindActions(card,item);card.setTag(item.optString("Id"));if(libraries)libraryCards.put(item.optString("Id"),card);if(resumeShelf)resumeCards.add(card);if(first==null)first=card;if(item.optString("Id").equals(focused))card.requestFocus();}
             onHomeShelfLoaded(resumeShelf,first);
-            if(resumeShelf)resumeTextColor(resumeCards.contains(getCurrentFocus())||getCurrentFocus()==homeBackdrop.actionView());
-            if(focusFirst&&first!=null){first.requestFocus();focusFirstResumeOnRefresh=false;}else if(!focused.isEmpty()&&items.stream().noneMatch(item->focused.equals(item.optString("Id")))&&first!=null)first.requestFocus();
+            if(resumeShelf)updateHomeBackdropFocus();
+            if(focusFirst&&first!=null){first.requestFocus();}else if(!focused.isEmpty()&&items.stream().noneMatch(item->focused.equals(item.optString("Id")))&&first!=null)first.requestFocus();
             area.post(this::positionResumeRow);
         });
     }
@@ -280,6 +267,9 @@ public final class HomeActivity extends TvActivity {
         positionResumeRow();
         homeScroll.post(()->{homeScroll.scrollTo(0,0);target.requestFocus();});
     }
+    private void updateHomeBackdropFocus(){
+        View focused=getCurrentFocus();boolean heroFocused="home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView()||carouselActive&&menu.getVisibility()==View.VISIBLE);homeBackdrop.resumeFocused(heroFocused);resumeTextColor(heroFocused);
+    }
     private void resumeTextColor(boolean heroFocused){
         if(resumeArea==null||!"home".equals(mode))return;
         int color=heroFocused?android.graphics.Color.WHITE:TEXT;resumeLabelColor((TextView)resumeArea.getChildAt(0),color);
@@ -298,7 +288,7 @@ public final class HomeActivity extends TvActivity {
         carouselItems.clear();carouselItems.addAll(items);carouselIndex=0;
         carouselActive=carouselEnabled&&"home".equals(mode)&&!carouselItems.isEmpty();
         homeTimer.removeCallbacks(carouselRotate);
-        homeBackdrop.actionVisible(carouselActive);homeBackdrop.actionView().setFocusable(initialFocusChosen);
+        homeBackdrop.actionVisible(carouselActive);homeBackdrop.actionView().setFocusable(initialFocusChosen);updateHomeBackdropFocus();
         if(!carouselActive)return;
         showCarouselItem(0);
         if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);

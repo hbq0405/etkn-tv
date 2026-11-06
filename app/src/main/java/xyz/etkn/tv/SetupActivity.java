@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Set;
 
 public final class SetupActivity extends TvActivity {
-    static final String EXTRA_ADD_ACCOUNT="addAccount";
+    static final String EXTRA_ADD_ACCOUNT="addAccount",EXTRA_PICK_ACCOUNT="pickAccount";
     private LanDiscovery discovery;
     private EditText server,username,password;
     private LinearLayout servers,savedUsers,loginPanel;
@@ -17,6 +17,7 @@ public final class SetupActivity extends TvActivity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         setContentView(new FrameLayout(this));
+        if(getIntent().getBooleanExtra(EXTRA_PICK_ACCOUNT,false)){if(api.session.accounts().isEmpty())showLogin(true);else showPicker();return;}
         boolean addAccount=getIntent().getBooleanExtra(EXTRA_ADD_ACCOUNT,false);
         if(addAccount){showLogin(true);return;}
         if(api.session.accounts().isEmpty()){showLogin(false);return;}

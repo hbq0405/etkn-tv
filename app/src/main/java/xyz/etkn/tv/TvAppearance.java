@@ -47,7 +47,7 @@ final class TvAppearance {
     static float shadow(){return (float)Math.max(0,Math.min(1,current.optDouble("shadow_strength",1)));}
     static int translucent(int color){return (color&0x00ffffff)|(Math.round(255*(float)Math.max(0,Math.min(1,current.optDouble("glass_opacity",.76))))<<24);}
     static int background(){return background(dark());}
-    static int background(boolean dark){return dark?0xff111716:0xffeef3f1;}
+    static int background(boolean dark){return dark?0xff28332f:0xffb5bfb9;}
     static int surface(){return surface(dark());}
     static int surface(boolean dark){return dark?0xff1e2825:0xfffafdfb;}
     static int text(){return text(dark());}

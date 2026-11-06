@@ -69,7 +69,6 @@ public final class DetailActivity extends TvActivity {
 
     private boolean inEpisodeMatrix(View view){while(view!=null){if(view==episodeGrid)return true;android.view.ViewParent parent=view.getParent();view=parent instanceof View?(View)parent:null;}return false;}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
-        if(handleLongBack(event,this::onBackPressed))return true;
         if(mainMenuTransitionKey!=0&&event.getKeyCode()==mainMenuTransitionKey){if(event.getAction()==KeyEvent.ACTION_UP)mainMenuTransitionKey=0;return true;}
         if(event.getAction()==KeyEvent.ACTION_DOWN){
             if(event.getKeyCode()==KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()!=View.VISIBLE){View focused=getCurrentFocus();if(focused==null||focused.focusSearch(View.FOCUS_UP)==null){showMainMenu();mainMenuTransitionKey=event.getKeyCode();return true;}}
@@ -97,8 +96,8 @@ public final class DetailActivity extends TvActivity {
     }
 
     private void setupMainMenu(FrameLayout stage){
-        nav=row();nav.setPadding(dp(12),dp(8),dp(12),dp(8));
-        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setClipChildren(false);menu.setClipToPadding(false);menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));menu.addView(nav);menu.setVisibility(View.GONE);
+        nav=row();nav.setGravity(Gravity.CENTER_VERTICAL);nav.setBaselineAligned(false);nav.setPadding(dp(12),dp(8),dp(12),dp(8));
+        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setClipChildren(false);menu.setClipToPadding(false);menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));menu.addView(nav,new FrameLayout.LayoutParams(-2,-1));menu.setVisibility(View.GONE);
         FrameLayout.LayoutParams bounds=new FrameLayout.LayoutParams(-2,dp(68),Gravity.TOP|Gravity.CENTER_HORIZONTAL);bounds.topMargin=dp(12);stage.addView(menu,bounds);refreshMainMenu();
     }
     private void refreshMainMenu(){
@@ -266,7 +265,7 @@ public final class DetailActivity extends TvActivity {
         },result->{
             if(!artworkForeground||ticket!=playbackRefreshTicket||result==null)return;
             JSONObject current=result.optJSONObject("item");if(current!=null){if(confirmed)applyUserData(current.optJSONObject("UserData"));mergeSources(current);}
-            for(JSONObject updated:EtknApi.rows(result.optJSONObject("episodes")))for(JSONObject episode:allEpisodes)if(updated.optString("Id").equals(episode.optString("Id"))){if(confirmed)mergeUserData(episode,updated.optJSONObject("UserData"));mergeSources(updated);break;}
+            JSONObject episodesResult=result.optJSONObject("episodes");if(episodesResult!=null)for(JSONObject updated:EtknApi.rows(episodesResult))for(JSONObject episode:allEpisodes)if(updated.optString("Id").equals(episode.optString("Id"))){if(confirmed)mergeUserData(episode,updated.optJSONObject("UserData"));mergeSources(updated);break;}
             refreshPlaybackViews();if(confirmed)playbackReturnPending=false;
         });
     }

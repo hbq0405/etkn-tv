@@ -143,8 +143,9 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
     @Test public void returningFromMoviePlaybackRefreshesResumeActionAfterStoppedSync()throws Exception{
-        try(Fixture server=new Fixture()){
+        try(Fixture server=new Fixture(true)){
             server.stoppedGate=new java.util.concurrent.CountDownLatch(1);open(server,"movie-single");play();
+            onMain(()->assertTrue("进度返回测试使用带索引的可跳转素材",((ExoPlayer)field(playback,"player")).isCurrentMediaItemSeekable()));
             onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.seekTo(5000);});await(()->Math.abs(((ExoPlayer)field(playback,"player")).getCurrentPosition()-5000)<600);
             closePlayer();assertTrue("停播进度已提交",server.stoppedReceived.await(5,java.util.concurrent.TimeUnit.SECONDS));
             await(()->"继续播放".equals(((Button)field(detail,"playButton")).getContentDescription()));assertEquals("服务端回执未释放时先用停播位置刷新",1L,server.stoppedGate.getCount());
@@ -153,11 +154,13 @@ public class DetailFlowTest {
         }finally{cleanup();}
     }
     @Test public void returningFromEpisodePlaybackRefreshesMatrixProgress()throws Exception{
-        try(Fixture server=new Fixture()){
+        try(Fixture server=new Fixture(true)){
             server.stoppedGate=new java.util.concurrent.CountDownLatch(1);open(server,"series-one");await(()->button("第 2 集")!=null);
             Instrumentation.ActivityMonitor monitor=instrumentation.addMonitor(PlayerActivity.class.getName(),null,false);onMain(()->button("第 2 集").performClick());playback=(PlayerActivity)monitor.waitForActivityWithTimeout(10000);instrumentation.removeMonitor(monitor);assertNotNull(playback);
-            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");player.pause();player.seekTo(5000);});await(()->Math.abs(((ExoPlayer)field(playback,"player")).getCurrentPosition()-5000)<600);
-            closePlayer();assertTrue("分集停播进度已提交",server.stoppedReceived.await(5,java.util.concurrent.TimeUnit.SECONDS));Button episode=button("第 2 集");await(()->episode.getContentDescription().toString().contains("续播进度 50%"));
+            await(()->field(playback,"player")!=null&&((ExoPlayer)field(playback,"player")).getPlaybackState()==Player.STATE_READY);onMain(()->{ExoPlayer player=(ExoPlayer)field(playback,"player");assertTrue("进度返回测试使用带索引的可跳转素材",player.isCurrentMediaItemSeekable());player.pause();player.seekTo(5000);});await(()->Math.abs(((ExoPlayer)field(playback,"player")).getCurrentPosition()-5000)<600);
+            closePlayer();assertTrue("分集停播进度已提交",server.stoppedReceived.await(5,java.util.concurrent.TimeUnit.SECONDS));
+            JSONObject report=server.stopped.get(0);int percent=(int)(100*report.getLong("PositionTicks")/report.getLong("RunTimeTicks"));assertTrue(percent>0&&percent<100);
+            Button episode=button("第 2 集");await(()->episode.getContentDescription().toString().contains("续播进度 "+percent+"%"));
             server.stoppedGate.countDown();await(()->!(Boolean)field(detail,"playbackReturnPending"));assertEquals("episode-1-2",server.stopped.get(0).optString("ItemId"));
         }finally{cleanup();}
     }
