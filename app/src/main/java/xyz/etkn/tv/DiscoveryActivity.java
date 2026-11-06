@@ -19,6 +19,7 @@ public final class DiscoveryActivity extends TvActivity {
     private boolean directCloudOpened;
     private GridLayout posterGrid;
     private TextView posterStatus,detailOverview;
+    private TextView detailTagline;
     private ImageView detailBackdrop;
     private LinearLayout browseView;
     private View browseFocus;
@@ -58,9 +59,9 @@ public final class DiscoveryActivity extends TvActivity {
         screenScroll=new FocusScroll.Vertical(this);screenScroll.setFillViewport(true);screenScroll.setClipToPadding(false);
         content=column();screenScroll.addView(content);
         stage.addView(screenScroll,new FrameLayout.LayoutParams(-1,-1));
-        nav=row();nav.setPadding(dp(28),dp(10),dp(18),dp(10));nav.setClipChildren(false);nav.setClipToPadding(false);
-        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setClipChildren(false);menu.setClipToPadding(false);menu.setBackground(shape(PANEL,0));menu.addView(nav);menu.setVisibility(View.GONE);
-        stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(82),Gravity.TOP));
+        nav=row();nav.setPadding(dp(12),dp(8),dp(12),dp(8));nav.setClipChildren(false);nav.setClipToPadding(false);
+        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setClipChildren(false);menu.setClipToPadding(false);menu.setBackground(capsuleSurface(PANEL));menu.addView(nav);menu.setVisibility(View.GONE);
+        FrameLayout.LayoutParams menuBounds=new FrameLayout.LayoutParams(-2,dp(68),Gravity.TOP|Gravity.CENTER_HORIZONTAL);menuBounds.topMargin=dp(12);stage.addView(menu,menuBounds);
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);
         stage.addView(status,notice);
@@ -97,11 +98,12 @@ public final class DiscoveryActivity extends TvActivity {
     }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
     private void showMenu(){
-        previousFocus=getCurrentFocus();menu.setVisibility(View.VISIBLE);
+        previousFocus=getCurrentFocus();animateMenuIn(menu);
         for(int i=0;i<nav.getChildCount();i++){View child=nav.getChildAt(i);if(child.isFocusable()){child.requestFocus();break;}}
     }
-    private void hideMenu(){menu.setVisibility(View.GONE);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
+    private void hideMenu(){menu.animate().cancel();menu.setTranslationY(-dp(84));menu.setVisibility(View.GONE);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
     @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
+        if(handleLongBack(event,this::onBackPressed))return true;
         if(event.getAction()==android.view.KeyEvent.ACTION_DOWN){
             if(event.getKeyCode()==android.view.KeyEvent.KEYCODE_DPAD_UP&&menu.getVisibility()!=View.VISIBLE){
                 View focused=getCurrentFocus();
@@ -302,6 +304,7 @@ public final class DiscoveryActivity extends TvActivity {
         copy.addView(titleRow,new LinearLayout.LayoutParams(-1,dp(52)));
         TextView meta=text(detailMeta(item,series,statusSource),12,Color.rgb(207,222,231));meta.setMaxLines(1);meta.setEllipsize(android.text.TextUtils.TruncateAt.END);
         copy.addView(meta);
+        detailTagline=text("",15,ACCENT);detailTagline.setTypeface(null,Typeface.BOLD);detailTagline.setVisibility(View.GONE);copy.addView(detailTagline);updateDetailTagline();
         detailOverview=text(item.optString("overview"),12,Color.rgb(226,232,238));
         detailOverview.setMaxLines(4);detailOverview.setEllipsize(android.text.TextUtils.TruncateAt.END);
         detailOverview.setFocusable(true);detailOverview.setBackground(transparentFocusBackground());detailOverview.setPadding(dp(12),dp(4),dp(4),dp(4));
@@ -310,9 +313,7 @@ public final class DiscoveryActivity extends TvActivity {
         copy.addView(detailOverview);
         hero.addView(copy,copyBounds);
         content.addView(hero,new LinearLayout.LayoutParams(-1,dp(296)));
-        String backdrop=EtknApi.tmdbImage(item.optString("backdrop_path"),"w1280");
-        if(backdrop.isEmpty())backdrop=EtknApi.tmdbImage(item.optString("poster_path"),"w780");
-        if(!backdrop.isEmpty())Images.backdrop(api,backdrop,detailBackdrop,success->{});
+        loadDetailBackdrop(item);
         String posterUrl=EtknApi.tmdbImage(item.optString("poster_path"),"w342");
         if(posterUrl.isEmpty())poster.setBackgroundColor(PANEL);else Images.visible(api,posterUrl,poster,success->{});
         LinearLayout actions=row();
@@ -366,11 +367,23 @@ public final class DiscoveryActivity extends TvActivity {
     private void enrichFromDetails(JSONObject item,JSONObject details){
         fillIfEmpty(item,"backdrop_path",details.optString("backdrop_path"));
         fillIfEmpty(item,"overview",details.optString("overview"));
-        if(selected==item){
-            String backdrop=EtknApi.tmdbImage(item.optString("backdrop_path"),"w1280");
-            if(!backdrop.isEmpty()&&detailBackdrop!=null)Images.backdrop(api,backdrop,detailBackdrop,success->{});
-        }
+        fillIfEmpty(item,"tagline",details.optString("tagline"));
+        if(selected==item){loadDetailBackdrop(item);updateDetailTagline();}
     }
+    private void updateDetailTagline(){
+        if(detailTagline==null)return;String value=detailTagline(selected);detailTagline.setText(value);detailTagline.setVisibility(value.isEmpty()?View.GONE:View.VISIBLE);
+    }
+    private String detailTagline(JSONObject item){String value=item.optString("Tagline",item.optString("tagline"));return value==null?"":value.trim();}
+    private void loadDetailBackdrop(JSONObject item){
+        if(detailBackdrop==null)return;
+        String id=item.optString("Id",item.optString("media_item_id"));
+        if(!id.isEmpty())try{
+            JSONObject local=item;if(item.optString("Id").isEmpty())local=new JSONObject(item.toString()).put("Id",id);
+            Images.backdrop(api,api.artwork(local,"Backdrop",1920),detailBackdrop,ok->{if(!ok)loadTmdbBackdrop(item);});return;
+        }catch(Exception ignored){}
+        loadTmdbBackdrop(item);
+    }
+    private void loadTmdbBackdrop(JSONObject item){String backdrop=EtknApi.tmdbImage(item.optString("backdrop_path"),"w1280");if(backdrop.isEmpty())backdrop=EtknApi.tmdbImage(item.optString("poster_path"),"w780");if(!backdrop.isEmpty())Images.backdrop(api,backdrop,detailBackdrop,success->{});}
     private void renderSeasonList(JSONArray seasons){
         seasonList=seasons;
         if(seasons==null)return;
@@ -410,9 +423,7 @@ public final class DiscoveryActivity extends TvActivity {
             if(selected==item){
                 fillIfEmpty(item,"backdrop_path",result.optString("backdrop_path"));
                 fillIfEmpty(item,"overview",result.optString("overview"));
-                String backdrop=EtknApi.tmdbImage(item.optString("backdrop_path"),"w1280");
-                if(!backdrop.isEmpty()&&detailBackdrop!=null)Images.backdrop(api,backdrop,detailBackdrop,success->{});
-                if(detailOverview!=null)detailOverview.setText(item.optString("overview"));
+                if(detailBackdrop!=null)loadDetailBackdrop(item);if(detailOverview!=null)detailOverview.setText(item.optString("overview"));if(detailTagline!=null)updateDetailTagline();
             }
             renderCast(cast);
         });

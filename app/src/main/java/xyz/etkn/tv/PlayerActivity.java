@@ -562,13 +562,17 @@ public final class PlayerActivity extends TvActivity {
         if(source==null)return;long milliseconds=player==null?position:Math.max(0,player.getCurrentPosition());boolean paused=player==null||!player.isPlaying();long duration=player==null?source.optLong("RunTimeTicks"):player.getDuration()>0?player.getDuration()*10000:source.optLong("RunTimeTicks");
         try{JSONObject payload=new JSONObject().put("ItemId",itemId).put("UserId",api.session.userId()).put("MediaSourceId",source.optString("Id")).put("PlaySessionId",playSession).put("PositionTicks",milliseconds*10000).put("RunTimeTicks",duration).put("IsPaused",paused).put("CanSeek",true).put("PlayMethod","DirectStream").put("Client","ETKN TV");
             if(event.equals("Stopped")&&completedByCredits)payload.put("PlayedToCompletion",true);
+            if(event.equals("Stopped"))notifyPlaybackProgress(payload,false);
             int revision=danmakuRevision;ExoPlayer expectedPlayer=player;String expectedSession=playSession;
             JSONObject currentState=info==null?null:info.optJSONObject("Danmaku");
             if(!event.equals("Stopped")&&!danmakuSaving&&currentState!=null&&currentState.optBoolean("Available")&&new TvPreferences(this,api).danmaku().optBoolean("enabled"))payload.put("DanmakuActive",true);
-            reports.execute(()->{try{JSONObject result=api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);JSONObject state=result.optJSONObject("Danmaku");
+            reports.execute(()->{try{JSONObject result=api.post("/api/tv/Sessions/Playing"+(event.equals("Started")?"":"/"+event),payload);if(event.equals("Stopped"))notifyPlaybackProgress(payload,true);JSONObject state=result.optJSONObject("Danmaku");
                 if(state!=null)runOnUiThread(()->{if(revision==danmakuRevision&&expectedSession.equals(playSession)&&player==expectedPlayer&&player!=null&&foreground&&!danmakuSaving)applyDanmakuState(state);});
             }catch(Exception ignored){}});
         }catch(Exception ignored){}
+    }
+    private void notifyPlaybackProgress(JSONObject payload,boolean synced){
+        Intent update=new Intent(DetailActivity.ACTION_PLAYBACK_PROGRESS).setPackage(getPackageName()).putExtra("itemId",payload.optString("ItemId")).putExtra("positionTicks",payload.optLong("PositionTicks")).putExtra("runtimeTicks",payload.optLong("RunTimeTicks")).putExtra("completed",payload.optBoolean("PlayedToCompletion")).putExtra("synced",synced);sendBroadcast(update);
     }
     private void stopPlayer(){cancelConfirm();if(danmakuDialog!=null)danmakuDialog.dismiss();danmakuSaving=false;danmakuRevision++;if(danmaku!=null){danmaku.close();danmaku=null;}if(translation!=null){translation.close();translation=null;}cancelCreditsCountdown();creditsSkipCancelled=false;hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}updatePlaybackOverlay();}
     @Override protected void onStart(){super.onStart();if(!LoginGate.isSatisfied()&&api.session.persist()!=SessionStore.PERSIST_FULL)return;foreground=true;if(info!=null&&player==null)startSource();}
@@ -578,14 +582,9 @@ public final class PlayerActivity extends TvActivity {
     @Override protected void onDestroy(){timer.removeCallbacksAndMessages(null);reports.shutdown();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle state){state.putFloat("speed",playbackSpeed);state.putLong("position",player==null?position:player.getCurrentPosition());state.putString("sourceId",source==null?getIntent().getStringExtra("sourceId"):source.optString("Id"));state.putInt("audioIndex",audioIndex);state.putInt("subtitleIndex",subtitleIndex);state.putBoolean("softwareVideo",softwareVideo);state.putBoolean("softwareAudio",softwareAudio);state.putBoolean("enhancedSubtitles",enhancedSubtitles);state.putBoolean("playWhenReady",player==null?playWhenReady:player.getPlayWhenReady());super.onSaveInstanceState(state);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(handleLongBack(event,()->{cancelConfirm();if(episodePanel.isShown())hideEpisodes();else if(creditsCountdownStartedAt>=0){creditsSkipCancelled=true;cancelCreditsCountdown();}else if(seekKeys||controls.getVisibility()==View.VISIBLE||video.isControllerFullyVisible()){hideSeekProgress();video.hideController();controls.setVisibility(View.GONE);video.requestFocus();}else finish();}))return true;
         int key=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
         if(down)focusNextWhenLoaded=false;
-        if(key==KeyEvent.KEYCODE_BACK){cancelConfirm();if(down&&event.getRepeatCount()==0){
-            if(episodePanel.isShown())hideEpisodes();
-            else if(creditsCountdownStartedAt>=0){creditsSkipCancelled=true;cancelCreditsCountdown();}
-            else if(seekKeys||controls.getVisibility()==View.VISIBLE||video.isControllerFullyVisible()){hideSeekProgress();video.hideController();controls.setVisibility(View.GONE);video.requestFocus();}
-            else finish();
-        }return true;}
         if(episodePanel.isShown()){
             if(key==KeyEvent.KEYCODE_MENU||key==KeyEvent.KEYCODE_MEDIA_FAST_FORWARD||key==KeyEvent.KEYCODE_MEDIA_REWIND)return true;
             if(key>=KeyEvent.KEYCODE_DPAD_UP&&key<=KeyEvent.KEYCODE_DPAD_RIGHT){View focus=getCurrentFocus();int direction=key==KeyEvent.KEYCODE_DPAD_UP?View.FOCUS_UP:key==KeyEvent.KEYCODE_DPAD_DOWN?View.FOCUS_DOWN:key==KeyEvent.KEYCODE_DPAD_LEFT?View.FOCUS_LEFT:View.FOCUS_RIGHT;if(focus==null||!episodePanel.contains(focus.focusSearch(direction)))return true;}

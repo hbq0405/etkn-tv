@@ -74,6 +74,7 @@ public final class HomeActivity extends TvActivity {
     private final java.util.Map<String,View> libraryCards=new java.util.HashMap<>();
     private String libraryOrigin="home",pendingLibraryFocus="";
     private boolean carouselEnabled,carouselActive;
+    private boolean focusFirstResumeOnRefresh;
     private final List<JSONObject> carouselItems=new java.util.ArrayList<>();
     private int carouselIndex;
     private ImageView carouselPrefetch;
@@ -95,21 +96,26 @@ public final class HomeActivity extends TvActivity {
         homeScroll=new FocusScroll.Vertical(this);homeScroll.setFillViewport(true);homeScroll.setClipToPadding(false);
         content=column();homeScroll.addView(content);stage.addView(homeScroll,new FrameLayout.LayoutParams(-1,-1));
         homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{maybeLoadPosterPage();});
-        nav=row();nav.setPadding(dp(28),dp(8),dp(18),dp(8));
-        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackgroundColor(TvAppearance.surface(appearanceDark()));menu.addView(nav);menu.setVisibility(View.GONE);
-        stage.addView(menu,new FrameLayout.LayoutParams(-1,dp(76),Gravity.TOP));
+        nav=row();nav.setPadding(dp(12),dp(8),dp(12),dp(8));
+        menu=new HorizontalScrollView(this);menu.setHorizontalScrollBarEnabled(false);menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));menu.addView(nav);menu.setVisibility(View.GONE);
+        FrameLayout.LayoutParams menuBounds=new FrameLayout.LayoutParams(-2,dp(68),Gravity.TOP|Gravity.CENTER_HORIZONTAL);menuBounds.topMargin=dp(12);stage.addView(menu,menuBounds);
         status=text("",13,MUTED);status.setPadding(dp(24),dp(4),dp(24),dp(4));
         FrameLayout.LayoutParams notice=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.START);stage.addView(status,notice);
         setContentView(stage);refreshNavigation();
-        if(getIntent().hasExtra("collection")){try{libraryOrigin="detail";openCollection(new JSONObject(getIntent().getStringExtra("collection")));}catch(Exception error){loadHome();}}
-        else if(getIntent().hasExtra("facetKind")){try{JSONObject library=new JSONObject().put("Id","facet").put("Name",getIntent().getStringExtra("facetValue")).put("SourceType","facet");openLibrary(library);libraryOrigin="detail";}catch(Exception error){loadHome();}}
-        else loadHome();checkUpdateOnce();
+        handleLaunchIntent(getIntent());checkUpdateOnce();
         stage.getViewTreeObserver().addOnGlobalFocusChangeListener((previous,focused)->{boolean heroFocused="home".equals(mode)&&(resumeCards.contains(focused)||focused==homeBackdrop.actionView());homeBackdrop.resumeFocused(heroFocused);resumeTextColor(heroFocused);maybeLoadPosterPage();});
     }
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);handleLaunchIntent(intent);}
+    private void handleLaunchIntent(Intent intent){
+        if(intent.hasExtra("collection")){try{libraryOrigin="detail";openCollection(new JSONObject(intent.getStringExtra("collection")));}catch(Exception error){loadHome();}}
+        else if(intent.hasExtra("facetKind")){try{JSONObject library=new JSONObject().put("Id","facet").put("Name",intent.getStringExtra("facetValue")).put("SourceType","facet");openLibrary(library);libraryOrigin="detail";}catch(Exception error){loadHome();}}
+        else {loadHome();String target=intent.getStringExtra("mainMenuTarget");if(target!=null&&!target.isEmpty())homeTimer.postDelayed(()->{if("library".equals(target))loadLibraries();else if("favorites".equals(target))openFavorites();else if("search".equals(target))search();},120);}
+    }
     @Override void nav(String title,Runnable click){super.nav(title,()->{hideMenu();click.run();});}
-    private void showMenu(){previousFocus=getCurrentFocus();homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);menu.setVisibility(View.VISIBLE);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
-    private void hideMenu(){menu.setVisibility(View.GONE);homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
+    private void showMenu(){previousFocus=getCurrentFocus();homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);animateMenuIn(menu);if(nav.getChildCount()>0)nav.getChildAt(0).requestFocus();}
+    private void hideMenu(){menu.animate().cancel();menu.setTranslationY(-dp(84));menu.setVisibility(View.GONE);homeScroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS);if(previousFocus==null||!previousFocus.isShown()||!previousFocus.requestFocus())content.requestFocus(View.FOCUS_DOWN);}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(handleLongBack(event,this::onBackPressed))return true;
         if(menuTransitionKey!=0&&event.getKeyCode()==menuTransitionKey){if(event.getAction()==KeyEvent.ACTION_UP)menuTransitionKey=0;return true;}
         if(event.getKeyCode()==KeyEvent.KEYCODE_MENU&&getCurrentFocus()!=null&&(actionItems.containsKey(getCurrentFocus())||"items".equals(mode)&&getCurrentFocus().getTag() instanceof JSONObject)){
             if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)showItemMenu(getCurrentFocus());
@@ -145,7 +151,7 @@ public final class HomeActivity extends TvActivity {
         async(()->api.get("/api/tv/auth/check_status"),result->{JSONObject user=result.optJSONObject("user");boolean allowed=user!=null&&user.optBoolean("can_access_discovery");if(canDiscover!=allowed){canDiscover=allowed;refreshNavigation();}});
     }
     @Override protected void onPause(){foreground=false;homeTimer.removeCallbacksAndMessages(null);if(homeUpdates!=null){homeUpdates.close();homeUpdates=null;}super.onPause();}
-    @Override void appearanceChanged(){if(menu!=null)menu.setBackgroundColor(TvAppearance.surface(appearanceDark()));}
+    @Override void appearanceChanged(){if(menu!=null)menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));}
     @Override void imageSizeChanged(){if("home".equals(mode))loadHome();else if("search".equals(mode)||"resume".equals(mode)){offset=0;listingLimit=0;loadItems();}else if("items".equals(mode))refreshPosters();else if("group".equals(mode))refreshLibraryGroup();}
     private int homeShelfLimit(int cardWidthDp){return shelfCapacity(cardWidthDp,12,74)+1;}
     private int posterPageSize(){
@@ -156,7 +162,7 @@ public final class HomeActivity extends TvActivity {
     @Override void mediaDeleted(){if("items".equals(mode))refreshPosters();else if("home".equals(mode))refreshHome();else loadItems();}
     @Override void metadataRefreshed(){super.metadataRefreshed();refreshCurrent();}
     private void refreshCurrent(){if("group".equals(mode)){refreshLibraryGroup();return;}if("items".equals(mode))refreshPosters();else if("resume".equals(mode))loadItems();else refreshHome();}
-    private void refreshHome(){if(!"home".equals(mode))return;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
+    private void refreshHome(){if(!"home".equals(mode))return;focusFirstResumeOnRefresh=true;for(Runnable reload:new java.util.ArrayList<>(homeReloads.values()))reload.run();}
     private void homeRequest(String path,int request,java.util.function.Consumer<JSONObject> done){
         if(request!=revision||pendingShelves.contains(path))return;
         JSONObject cached=homeCache.get(path);
@@ -243,15 +249,15 @@ public final class HomeActivity extends TvActivity {
     private void loadShelf(LinearLayout area,String path,int request,boolean landscape,boolean libraries,boolean resumeShelf,String empty){
         homeReloads.put(path,()->loadShelf(area,path,request,landscape,libraries,resumeShelf,empty));
         homeRequest(path,request,result->{
-            if(request!=revision)return;String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
+            if(request!=revision)return;boolean focusFirst=resumeShelf&&focusFirstResumeOnRefresh;String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
             if(libraries)loadLatestByLibrary(latestSections,request,items);
-            if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);if(!focused.isEmpty()&&libraryFirst!=null&&libraryFirst.isShown())libraryFirst.requestFocus();return;}
+            if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);if(focusFirst)focusFirstResumeOnRefresh=false;else if(!focused.isEmpty()&&libraryFirst!=null&&libraryFirst.isShown())libraryFirst.requestFocus();return;}
             HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
             for(JSONObject item:items){View card=mediaCard(shelf,item,()->{if(libraries)openLibrary(item);else if(resumeShelf)resumePlayback(item);else detail(item);},landscape,resumeShelf,view->onHomeCardFocused(view,item,libraries,resumeShelf));registerHomeCard(card);bindActions(card,item);card.setTag(item.optString("Id"));if(libraries)libraryCards.put(item.optString("Id"),card);if(resumeShelf)resumeCards.add(card);if(first==null)first=card;if(item.optString("Id").equals(focused))card.requestFocus();}
             onHomeShelfLoaded(resumeShelf,first);
             if(resumeShelf)resumeTextColor(resumeCards.contains(getCurrentFocus())||getCurrentFocus()==homeBackdrop.actionView());
-            if(!focused.isEmpty()&&items.stream().noneMatch(item->focused.equals(item.optString("Id")))&&first!=null)first.requestFocus();
+            if(focusFirst&&first!=null){first.requestFocus();focusFirstResumeOnRefresh=false;}else if(!focused.isEmpty()&&items.stream().noneMatch(item->focused.equals(item.optString("Id")))&&first!=null)first.requestFocus();
             area.post(this::positionResumeRow);
         });
     }
