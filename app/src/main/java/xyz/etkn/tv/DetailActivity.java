@@ -135,7 +135,7 @@ public final class DetailActivity extends TvActivity {
         ImageView tmdb=new ImageView(this);tmdb.setImageDrawable(tmdbMark());metadata.addView(tmdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
         detailTmdb=meta("",Color.rgb(255,205,75));metadata.addView(detailTmdb);
         detailYear=meta("",MUTED);metadata.addView(detailYear);detailDuration=meta("",MUTED);metadata.addView(detailDuration);
-        detailRating=meta("",Color.WHITE);detailRating.setPadding(dp(7),dp(2),dp(7),dp(2));detailRating.setBackground(shape(Color.TRANSPARENT,MUTED));metadata.addView(detailRating);
+        detailRating=meta("",Color.WHITE);detailRating.setPadding(dp(7),dp(2),dp(7),dp(2));detailRating.setBackground(shape(Color.TRANSPARENT,MUTED));LinearLayout.LayoutParams ratingBounds=new LinearLayout.LayoutParams(-2,-2);ratingBounds.rightMargin=dp(12);metadata.addView(detailRating,ratingBounds);
         seriesButton=compactButton("系列",this::openItemCollection);seriesButton.setContentDescription("所属合集");seriesButton.setVisibility(View.GONE);
         facetButtons=row();facetButtons.setGravity(Gravity.CENTER_VERTICAL);metadata.addView(facetButtons);
         studioButtons=row();studioButtons.setGravity(Gravity.CENTER_VERTICAL);metadata.addView(studioButtons);
