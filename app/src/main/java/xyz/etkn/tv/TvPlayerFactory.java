@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.RenderersFactory;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.extractor.*;
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory;
 import androidx.media3.extractor.mkv.MatroskaExtractor;
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory;
 import androidx.media3.extractor.text.SubtitleParser;
@@ -52,7 +53,7 @@ final class TvPlayerFactory {
         // Keep embedded PGS raw for the decoder worker; external SUP still needs extraction parsing.
         SubtitleParser.Factory delegate=ass==null?new DefaultSubtitleParserFactory():new AssSubtitleParserFactory(ass);
         SubtitleParser.Factory parsers=new TvSubtitleParserFactory(delegate,false);
-        DefaultExtractorsFactory defaults=new DefaultExtractorsFactory().setSubtitleParserFactory(parsers);
+        DefaultExtractorsFactory defaults=new DefaultExtractorsFactory().setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_IGNORE_SPLICE_INFO_STREAM).setSubtitleParserFactory(parsers);
         ExtractorsFactory extractors=defaults;
         if(ass!=null){
             extractors=()->{
