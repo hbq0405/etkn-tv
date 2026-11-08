@@ -31,7 +31,11 @@ import java.util.concurrent.TimeUnit;
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 final class TvPlayerFactory {
     private static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(30,TimeUnit.SECONDS)
-        .readTimeout(10,TimeUnit.SECONDS).connectionPool(new ConnectionPool(5,5,TimeUnit.MINUTES)).build();
+        .readTimeout(10,TimeUnit.SECONDS).connectionPool(new ConnectionPool(5,5,TimeUnit.MINUTES))
+        .addInterceptor(chain->chain.withReadTimeout(mediaReadTimeoutSeconds(chain.request().url().encodedPath()),TimeUnit.SECONDS).proceed(chain.request())).build();
+    static int mediaReadTimeoutSeconds(String path){
+        return path.startsWith("/api/tv/Transcodes/")&&path.endsWith(".ts")?65:10;
+    }
     static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles){
         return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,null);
     }
