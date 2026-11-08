@@ -10,8 +10,9 @@ final class PlaybackNetwork implements TransferListener {
     private final LongSupplier clock;
     private final Runnable firstBytes;
     private final Set<DataSource> active=Collections.newSetFromMap(new IdentityHashMap<>());
-    private long bytes,readMs,activeSince,windowAt=-1,windowBytes,windowRead,stalledAt=-1,holdUntil;
-    private boolean notified;
+    private long bytes,readMs,activeSince,windowAt=-1,windowBytes,windowRead,stalledAt=-1,holdUntil,lastAt,stalledMs;
+    private int stalls;
+    private boolean notified,wasStalled;
     PlaybackNetwork(Runnable firstBytes){this(firstBytes,android.os.SystemClock::elapsedRealtime);}
     PlaybackNetwork(Runnable firstBytes,LongSupplier clock){this.firstBytes=firstBytes;this.clock=clock;}
     private boolean media(DataSpec spec){
@@ -30,18 +31,27 @@ final class PlaybackNetwork implements TransferListener {
     @Override public synchronized void onTransferEnd(DataSource source,DataSpec spec,boolean network){
         if(active.remove(source)&&active.isEmpty())readMs+=Math.max(0,clock.getAsLong()-activeSince);
     }
-    synchronized void afterSeek(long now){holdUntil=now+8000;windowAt=stalledAt=-1;}
+    private void reset(){windowAt=stalledAt=-1;stalledMs=0;stalls=0;wasStalled=false;}
+    synchronized void afterSeek(long now){holdUntil=now+8000;reset();}
     synchronized int target(long now,boolean eligible,boolean buffering,long buffered,long current,double speed){
         long reads=readMs+(active.isEmpty()?0:Math.max(0,now-activeSince));
-        if(!eligible||buffered>=5000||now<holdUntil){windowAt=stalledAt=-1;return 0;}
-        if(windowAt<0){windowAt=now;windowBytes=bytes;windowRead=reads;}
-        if(buffering&&buffered<1500){if(stalledAt<0)stalledAt=now;}else stalledAt=-1;
+        if(!eligible||now<holdUntil){reset();return 0;}
+        if(windowAt<0||now-windowAt>30000){reset();windowAt=lastAt=now;windowBytes=bytes;windowRead=reads;}
+        if(wasStalled)stalledMs+=Math.max(0,now-lastAt);
+        boolean stalled=buffering&&buffered<5000;
+        if(stalled){if(!wasStalled){stalledAt=now;stalls++;}}else stalledAt=-1;
+        wasStalled=stalled;lastAt=now;
         long elapsed=reads-windowRead,loaded=bytes-windowBytes;
-        if(current<=1_000_000||stalledAt<0||now-stalledAt<3000||now-windowAt<6000||elapsed<3000||loaded<256*1024)return 0;
-        long measured=loaded*8000/elapsed;
-        if(measured>=current*Math.max(.1,speed)*.9)return 0;
-        long target=Math.max(1_000_000,Math.min(current*4/5,(long)(measured*.8/Math.max(.1,speed))));
-        holdUntil=now+20000;windowAt=stalledAt=-1;
+        if(!notified||current<=1_000_000||!stalled||now-windowAt<3000
+                ||(now-stalledAt<3000&&(stalls<2||stalledMs<1500)))return 0;
+        long target=current*4/5;
+        if(elapsed>=2000&&loaded>=256*1024){
+            long measured=loaded*8000/elapsed;
+            if(measured>=current*Math.max(.1,speed)*.9&&stalls<2)return 0;
+            target=Math.min(target,(long)(measured*.8/Math.max(.1,speed)));
+        }
+        target=Math.max(1_000_000,target);
+        holdUntil=now+20000;reset();
         return (int)Math.min(1_000_000_000,target/250000*250000);
     }
 }
