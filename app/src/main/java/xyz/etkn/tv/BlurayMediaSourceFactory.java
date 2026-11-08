@@ -25,6 +25,14 @@ final class BlurayMediaSourceFactory implements MediaSource.Factory {
     static boolean isIso(Uri uri){String path=uri.getPath();return path!=null&&path.toLowerCase(Locale.ROOT).endsWith(".iso");}
     @Override public MediaSource createMediaSource(MediaItem item){
         Uri uri=Objects.requireNonNull(item.localConfiguration).uri;
+        Object sourceTag=item.localConfiguration.tag;
+        if(sourceTag instanceof org.json.JSONObject&&((org.json.JSONObject)sourceTag).optBoolean("AudioOnly")&&((org.json.JSONObject)sourceTag).has("OriginalVideoUrl")){
+            String original=((org.json.JSONObject)sourceTag).optString("OriginalVideoUrl");
+            MediaItem video=item.buildUpon().setUri(original).setTag(null).build();
+            MediaItem audio=item.buildUpon().setSubtitleConfigurations(java.util.Collections.emptyList()).build();
+            return new MergingMediaSource(true,new FilteringMediaSource(ordinary.createMediaSource(video),new java.util.HashSet<>(java.util.Arrays.asList(C.TRACK_TYPE_VIDEO,C.TRACK_TYPE_TEXT))),
+                    new FilteringMediaSource(ordinary.createMediaSource(audio),C.TRACK_TYPE_AUDIO));
+        }
         if(!isIso(uri))return ordinary.createMediaSource(item);
         Object tag=item.localConfiguration.tag;
         int playlist=tag instanceof org.json.JSONObject?((org.json.JSONObject)tag).optInt("BlurayPlaylist",-1):-1;

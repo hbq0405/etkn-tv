@@ -21,6 +21,8 @@ final class TvPreferences {
         catch(org.json.JSONException invalid){return new org.json.JSONObject();}
     }
     void saveDanmaku(org.json.JSONObject settings){prefs.edit().putString(scope+"danmaku",settings.toString()).apply();}
+    int bitrateLimit(){return prefs.getInt(scope+"bitrate-limit",0);}
+    void setBitrateLimit(int value){prefs.edit().putInt(scope+"bitrate-limit",value).apply();}
     int skipMode(){int value=prefs.getInt(scope+"skip",SKIP_BUTTON);return value>=0&&value<SKIP_LABELS.length?value:SKIP_BUTTON;}
     void setSkipMode(int value){prefs.edit().putInt(scope+"skip",value).apply();}
     int seasonAudio(String season){return season==null||season.isEmpty()?-1:prefs.getInt(scope+"season-audio/"+season,-1);}

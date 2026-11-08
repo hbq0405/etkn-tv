@@ -32,4 +32,12 @@ final class PlaybackAddress {
     }
     private static boolean sameOrigin(HttpUrl a,HttpUrl b){
         return a.scheme().equalsIgnoreCase(b.scheme())&&a.host().equalsIgnoreCase(b.host())&&a.port()==b.port();
-    }}
+    }
+    static String subtitle(String address,String server,String token){
+        HttpUrl url=HttpUrl.get(address.startsWith("/")?server+address:address);
+        if(!sameOrigin(url,HttpUrl.get(server)))throw new IllegalArgumentException("字幕地址不属于当前服务器");
+        HttpUrl.Builder builder=url.newBuilder();
+        builder.removeAllQueryParameters("UserId").setQueryParameter("X-Emby-Token",token);
+        return builder.build().toString();
+    }
+}

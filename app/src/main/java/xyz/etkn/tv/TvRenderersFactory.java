@@ -43,8 +43,14 @@ final class TvRenderersFactory extends DefaultRenderersFactory {
     }
     @Override protected void buildVideoRenderers(Context context,int mode,MediaCodecSelector selector,
             boolean fallback,Handler handler,VideoRendererEventListener listener,long joining,ArrayList<Renderer> out){
-        Renderer hardware=new TvVideoRenderer(context,selector,handler,listener,joining);
+        MediaCodecSelector hardwareOnly=(mime,secure,tunneling)->{
+            java.util.List<androidx.media3.exoplayer.mediacodec.MediaCodecInfo> result=new java.util.ArrayList<>();
+            for(androidx.media3.exoplayer.mediacodec.MediaCodecInfo codec:selector.getDecoderInfos(mime,secure,tunneling))if(codec.hardwareAccelerated)result.add(codec);
+            return result;
+        };
+        Renderer hardware=new TvVideoRenderer(context,softwareVideo?selector:hardwareOnly,handler,listener,joining);
         Renderer software=new FfmpegVideoRenderer(joining,handler,listener,50);
-        out.add(softwareVideo?software:hardware);out.add(softwareVideo?hardware:software);
+        if(softwareVideo)out.add(software);
+        out.add(hardware);
     }
 }

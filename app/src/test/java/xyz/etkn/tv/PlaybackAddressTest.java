@@ -49,6 +49,15 @@ public class PlaybackAddressTest {
             PlaybackAddress.resolve(source,"http://tv.local","secret","user-1"));
     }
 
+    @Test public void subtitleUsesCurrentTokenWithoutConflictingUserId() {
+        assertEquals("http://tv.local/subtitle.vtt?X-Emby-Token=current", PlaybackAddress.subtitle(
+            "/subtitle.vtt?UserId=other&X-Emby-Token=old&UserId=another", "http://tv.local", "current"));
+        assertEquals("http://tv.local/subtitle.vtt?X-Emby-Token=current", PlaybackAddress.subtitle(
+            "/subtitle.vtt", "http://tv.local", "current"));
+    }
+    @Test(expected=IllegalArgumentException.class) public void subtitleNeverLeaksTokenToAnotherOrigin() {
+        PlaybackAddress.subtitle("https://cdn.example/subtitle.vtt", "http://tv.local", "current");
+    }
     @Test public void externalIsoDoesNotReceiveSessionCredentials() throws Exception {
         JSONObject source=new JSONObject()
             .put("Container","iso")
