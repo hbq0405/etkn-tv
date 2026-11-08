@@ -28,7 +28,6 @@ public final class PlayerActivity extends TvActivity {
     private PlaybackTiming playbackTiming;
     private PlaybackNetwork playbackNetwork;
     private int networkGeneration,automaticNetworkBitrate;
-    private double fallbackFrameRate;
     private SubtitleTranslation translation;
     private DanmakuSession danmaku;
     private FrameLayout playbackStage;
@@ -45,7 +44,7 @@ public final class PlayerActivity extends TvActivity {
     private JSONObject transcodeSource;
     private String transcodeSession="";
     private int assistanceRevision;
-    private boolean assistancePending,bitrateAttempted,audioAssistAttempted;
+    private boolean assistancePending,bitrateAttempted,audioAssistAttempted,autoTranscodeNoticePending;
     private Button danmakuPanelToggle;
     private boolean danmakuSaving;
     private int danmakuRevision;
@@ -66,7 +65,7 @@ public final class PlayerActivity extends TvActivity {
     private boolean softwareVideo,hardwareSurfaceRetry,playWhenReady=true;
     private boolean softwareAudio=true,enhancedSubtitles=true;
     private boolean videoFrameSeen,completedByCredits,introSkippedAtStart,creditsSkipCancelled;
-    private long videoReadySince,sourceStartedAt,networkRetryAfter,lastPlaybackDiagnostic;
+    private long videoReadySince,sourceStartedAt,networkRetryAfter,lastPlaybackDiagnostic,autoTranscodeNoticeUntil;
     private boolean videoAssistAttempted,assistanceDisabled;
     private String videoDecoder="等待解码器";
     private TextView videoInfo;
@@ -361,7 +360,7 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if((reason==Player.DISCONTINUITY_REASON_SEEK||reason==Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)&&playbackNetwork!=null)playbackNetwork.afterSeek(android.os.SystemClock.elapsedRealtime());}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
-                @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);hideLoading();status.setVisibility(View.GONE);updateTrackButtons();if(introSkippedAtStart){introSkippedAtStart=false;showSkipNotice("已跳过片头",2200);}}if(state==Player.STATE_ENDED)advanceQueue();}
+                @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);hideLoading();status.setVisibility(View.GONE);updateTrackButtons();if(introSkippedAtStart){introSkippedAtStart=false;showSkipNotice("已跳过片头",2200);}if(autoTranscodeNoticePending){autoTranscodeNoticePending=false;autoTranscodeNoticeUntil=android.os.SystemClock.elapsedRealtime()+4000;showUnifiedNotice("已自动转码",4000);}}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
             applyDanmakuState(info.optJSONObject("Danmaku"));
@@ -558,7 +557,7 @@ public final class PlayerActivity extends TvActivity {
     private void requestAssistance(String reason){
         if(assistancePending||assistanceDisabled||!foreground||source==null)return;
         int revision=++assistanceRevision;assistancePending=true;bitrateAttempted=true;showLoading();
-        playbackTiming.event("assistance_requested","reason="+reason+" frame_limit="+fallbackFrameRate+" network_bitrate="+automaticNetworkBitrate);
+        playbackTiming.event("assistance_requested","reason="+reason+" network_bitrate="+automaticNetworkBitrate);
         String expectedItem=itemId,expectedSource=source.optString("Id"),expectedPlay=playSession;
         long at=player==null?position:Math.max(0,player.getCurrentPosition());int limit=new TvPreferences(this,api).bitrateLimit();
         JSONObject original=info.optJSONArray("MediaSources").optJSONObject(selected);
@@ -567,11 +566,10 @@ public final class PlayerActivity extends TvActivity {
         if(locked>=0)requestedAudio=PlaybackSelection.audioAt(original,locked);
         final int audioRequested=requestedAudio<0?-1:requestedAudio;
         final int subtitleRequested=subtitleIndex;
-        if(reason.equals("no_first_frame")||reason.equals("decoder_error"))fallbackFrameRate=30;
-        double frameLimit=fallbackFrameRate;int networkLimit=automaticNetworkBitrate;
+        int networkLimit=automaticNetworkBitrate;
         reports.execute(()->{
             JSONObject result=null;String failure="";
-            try{result=api.post("/api/tv/Items/"+EtknApi.encode(expectedItem)+"/Transcode",new JSONObject().put("MediaSourceId",expectedSource).put("PlaySessionId",expectedPlay).put("PositionTicks",at*10000).put("Reason",reason).put("Bitrate",limit).put("MaxWidth",TranscodeChoice.width(limit)).put("MaxHeight",TranscodeChoice.height(limit)).put("MaxFrameRate",frameLimit).put("NetworkBitrate",networkLimit).put("H264",TranscodeChoice.capabilities(original)).put("HEVC",TranscodeChoice.hevcCapabilities(original)).put("HevcHdr10",TranscodeChoice.hdrCapabilities(PlayerActivity.this,original)).put("AudioStreamIndex",audioRequested).put("SubtitleIndex",subtitleRequested));}
+            try{result=api.post("/api/tv/Items/"+EtknApi.encode(expectedItem)+"/Transcode",new JSONObject().put("MediaSourceId",expectedSource).put("PlaySessionId",expectedPlay).put("PositionTicks",at*10000).put("Reason",reason).put("Bitrate",limit).put("MaxWidth",TranscodeChoice.width(limit)).put("MaxHeight",TranscodeChoice.height(limit)).put("NetworkBitrate",networkLimit).put("H264",TranscodeChoice.capabilities(original)).put("HEVC",TranscodeChoice.hevcCapabilities(original)).put("HevcHdr10",TranscodeChoice.hdrCapabilities(PlayerActivity.this,original)).put("AudioStreamIndex",audioRequested).put("SubtitleIndex",subtitleRequested));}
             catch(Exception error){failure=error.getMessage()==null?"服务端协助转码失败":error.getMessage();}
             JSONObject response=result;String error=failure;
             runOnUiThread(()->{
@@ -589,7 +587,7 @@ public final class PlayerActivity extends TvActivity {
                 }
                 transcodeSession=response.optString("SessionId");transcodeSource=response.optJSONObject("MediaSource");softwareVideo=false;softwareAudio=false;hardwareSurfaceRetry=false;
                 if(transcodeSession.isEmpty()||transcodeSource==null){message("服务端未返回可用转码流");return;}
-                if(!reason.equals("user_bitrate")&&!reason.equals("track_switch")&&!reason.equals("subtitle"))showUnifiedNotice("已自动转码",4000);
+                autoTranscodeNoticePending=!reason.equals("user_bitrate")&&!reason.equals("track_switch")&&!reason.equals("subtitle");
                 stopPlayer(false);videoAssistAttempted=false;
                 playbackTiming.event("server_transcode",response.optString("Method"));startSource();
                 if(!response.optString("Notice").isEmpty())showSkipNotice(response.optString("Notice"),8000);
@@ -597,7 +595,7 @@ public final class PlayerActivity extends TvActivity {
         });
     }
     private void clearAssistance(){
-        automaticNetworkBitrate=0;fallbackFrameRate=0;networkRetryAfter=0;
+        automaticNetworkBitrate=0;networkRetryAfter=0;autoTranscodeNoticePending=false;
         assistanceRevision++;assistancePending=false;bitrateAttempted=false;audioAssistAttempted=false;videoAssistAttempted=false;assistanceDisabled=false;String id=transcodeSession;transcodeSession="";transcodeSource=null;
         if(!id.isEmpty())reports.execute(()->{try{api.delete("/api/tv/Transcodes/"+id);}catch(Exception ignored){}});
     }
@@ -620,7 +618,7 @@ public final class PlayerActivity extends TvActivity {
     }
     private void showDanmakuNotice(String value,long duration){
         if(value.isEmpty()){if(skipNotice!=null&&skipNotice.getText().toString().equals(danmakuNotice))hideSkipNotice.run();}
-        else showUnifiedNotice(value,duration);
+        else if(android.os.SystemClock.elapsedRealtime()>=autoTranscodeNoticeUntil)showUnifiedNotice(value,duration);
         danmakuNotice=value;
     }
     private void saveDanmaku(JSONObject settings){
