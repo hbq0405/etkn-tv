@@ -100,7 +100,7 @@ public final class PlayerActivity extends TvActivity {
         boolean buffered=(state==Player.STATE_READY||state==Player.STATE_BUFFERING)&&player.getTotalBufferedDuration()>=2000&&pendingSeekPosition<0&&!player.isPlayingAd();
         if(!expected||videoFrameSeen||!player.getPlayWhenReady()||!buffered)videoReadySince=0;
         else if(videoReadySince==0)videoReadySince=android.os.SystemClock.elapsedRealtime();
-        else if(android.os.SystemClock.elapsedRealtime()-videoReadySince>=3000&&!assistancePending&&!videoAssistAttempted){videoAssistAttempted=true;if(transcodeSource==null)requestAssistance("no_first_frame");else{message("转码后仍未输出画面，请选择更低码率或其他版本");showControls();}}
+        else if(android.os.SystemClock.elapsedRealtime()-videoReadySince>=3000&&!assistancePending&&!videoAssistAttempted){videoAssistAttempted=true;if(transcodeSource==null)requestAssistance("no_first_frame");else{message("转码后仍未输出画面，请选择更低质量或其他版本");showControls();}}
         long now=android.os.SystemClock.elapsedRealtime();
         if(!assistancePending&&!bitrateAttempted&&transcodeSource==null&&TranscodeChoice.required(source,new TvPreferences(PlayerActivity.this,api).bitrateLimit())&&now-sourceStartedAt>=1000){requestAssistance("user_bitrate");}
         updateVideoInfo();if(danmaku!=null)danmaku.tick();if(episodePanel!=null&&episodePanel.isShown())episodePanel.updateCurrent(player);timer.postDelayed(this,1000);
@@ -129,7 +129,7 @@ public final class PlayerActivity extends TvActivity {
         LinearLayout actions=row();versionButton=button("版本",this::chooseVersion);actions.addView(versionButton);
         audioButton=button("音轨",()->chooseTrack(C.TRACK_TYPE_AUDIO));subtitleButton=button("字幕",()->chooseTrack(C.TRACK_TYPE_TEXT));decoderButton=button("解码",this::chooseDecoder);
         speedButton=button("倍速 · "+speedLabel(),this::chooseSpeed);
-        bitrateButton=button("码率",this::chooseBitrate);
+        bitrateButton=button("质量",this::chooseBitrate);
         danmakuSettingsButton=button("弹幕设置",this::showDanmakuSettings);
         nextButton=button("下一集",this::advanceQueue);nextButton.setVisibility(View.GONE);
         actions.addView(audioButton);actions.addView(subtitleButton);actions.addView(nextButton);actions.addView(bitrateButton);actions.addView(speedButton);actions.addView(danmakuSettingsButton);actions.addView(decoderButton);
@@ -380,7 +380,7 @@ public final class PlayerActivity extends TvActivity {
             stopPlayer(false);hardwareSurfaceRetry=true;message("正在重试硬件视频输出…");startSource();
         }else{
             boolean assisted=!transcodeSession.isEmpty();playbackTiming.event("video_output_failed");stopPlayer();
-            if(assisted){message("转码后设备仍无法硬解，请选择更低码率或其他版本");showControls();}
+            if(assisted){message("转码后设备仍无法硬解，请选择更低质量或其他版本");showControls();}
             else requestAssistance("no_first_frame");
         }
     }
@@ -525,13 +525,12 @@ public final class PlayerActivity extends TvActivity {
         for(JSONObject stream:PlaybackSelection.streams(source,subtitles)){TrackRef ref=findTrack(stream,type);if(ref!=null&&ref.group.isTrackSelected(ref.index))return PlaybackSelection.streamLabel(stream);}
         return PlaybackSelection.selectionLabel(source,subtitles?subtitleIndex:audioIndex,subtitles);
     }
-    private void updateTrackButtons(){versionButton.setText("版本 · "+PlaybackSelection.slotLabel(source));audioButton.setText("音轨 · "+currentTrackTitle(false));subtitleButton.setText("字幕 · "+currentTrackTitle(true));decoderButton.setText(softwareVideo?"解码 · 软件兼容":"解码 · 自动");int limit=new TvPreferences(this,api).bitrateLimit();bitrateButton.setText(limit==0?"码率 · 原画":"码率 · ≤"+(limit/1_000_000)+" Mbps");}
+    private void updateTrackButtons(){versionButton.setText("版本 · "+PlaybackSelection.slotLabel(source));audioButton.setText("音轨 · "+currentTrackTitle(false));subtitleButton.setText("字幕 · "+currentTrackTitle(true));decoderButton.setText(softwareVideo?"解码 · 软件兼容":"解码 · 自动");int limit=new TvPreferences(this,api).bitrateLimit();bitrateButton.setText("质量 · "+TranscodeChoice.label(limit));}
 
     private void chooseBitrate(){
-        if(source==null)return;int limit=new TvPreferences(this,api).bitrateLimit(),checked=0;
-        for(int i=0;i<TranscodeChoice.BITRATES.length;i++)if(TranscodeChoice.BITRATES[i]==limit)checked=i;
+        if(source==null)return;int limit=new TvPreferences(this,api).bitrateLimit(),checked=TranscodeChoice.index(limit);
         video.setControllerShowTimeoutMs(0);
-        AlertDialog dialog=PlayerChoiceDialog.create(this,"码率上限",TranscodeChoice.LABELS,checked,(choice,index)->{
+        AlertDialog dialog=PlayerChoiceDialog.create(this,"播放质量",TranscodeChoice.LABELS,checked,(choice,index)->{
             int limitWanted=TranscodeChoice.BITRATES[index];new TvPreferences(this,api).setBitrateLimit(limitWanted);hardwareSurfaceRetry=false;choice.dismiss();
             if(limitWanted==0){stopPlayer();startSource();}
             else{bitrateAttempted=false;if(player!=null)position=Math.max(0,player.getCurrentPosition());requestAssistance("user_bitrate");}
@@ -551,7 +550,7 @@ public final class PlayerActivity extends TvActivity {
         final int subtitleRequested=subtitleIndex;
         reports.execute(()->{
             JSONObject result=null;String failure="";
-            try{result=api.post("/api/tv/Items/"+EtknApi.encode(expectedItem)+"/Transcode",new JSONObject().put("MediaSourceId",expectedSource).put("PlaySessionId",expectedPlay).put("PositionTicks",at*10000).put("Reason",reason).put("Bitrate",limit).put("H264",TranscodeChoice.capabilities()).put("AudioStreamIndex",audioRequested).put("SubtitleIndex",subtitleRequested));}
+            try{result=api.post("/api/tv/Items/"+EtknApi.encode(expectedItem)+"/Transcode",new JSONObject().put("MediaSourceId",expectedSource).put("PlaySessionId",expectedPlay).put("PositionTicks",at*10000).put("Reason",reason).put("Bitrate",limit).put("MaxWidth",TranscodeChoice.width(limit)).put("MaxHeight",TranscodeChoice.height(limit)).put("H264",TranscodeChoice.capabilities()).put("AudioStreamIndex",audioRequested).put("SubtitleIndex",subtitleRequested));}
             catch(Exception error){failure=error.getMessage()==null?"服务端协助转码失败":error.getMessage();}
             JSONObject response=result;String error=failure;
             runOnUiThread(()->{
