@@ -64,7 +64,7 @@ public final class PlayerActivity extends TvActivity {
     private boolean softwareAudio=true,enhancedSubtitles=true;
     private boolean videoFrameSeen,completedByCredits,introSkippedAtStart,creditsSkipCancelled;
     private long videoReadySince,sourceStartedAt;
-    private boolean videoAssistAttempted,automaticAssistanceNotice;
+    private boolean videoAssistAttempted,automaticAssistanceNotice,assistanceDisabled;
     private String videoDecoder="等待解码器";
     private TextView videoInfo;
     private KeyEvent confirmPress;
@@ -100,7 +100,7 @@ public final class PlayerActivity extends TvActivity {
         boolean buffered=(state==Player.STATE_READY||state==Player.STATE_BUFFERING)&&player.getTotalBufferedDuration()>=2000&&pendingSeekPosition<0&&!player.isPlayingAd();
         if(!expected||videoFrameSeen||!player.getPlayWhenReady()||!buffered)videoReadySince=0;
         else if(videoReadySince==0)videoReadySince=android.os.SystemClock.elapsedRealtime();
-        else if(android.os.SystemClock.elapsedRealtime()-videoReadySince>=8000&&!assistancePending&&!videoAssistAttempted){videoAssistAttempted=true;if(transcodeSource==null)requestAssistance("no_first_frame");else{message("转码后仍未输出画面，请选择更低码率或其他版本");showControls();}}
+        else if(android.os.SystemClock.elapsedRealtime()-videoReadySince>=3000&&!assistancePending&&!videoAssistAttempted){videoAssistAttempted=true;if(transcodeSource==null)requestAssistance("no_first_frame");else{message("转码后仍未输出画面，请选择更低码率或其他版本");showControls();}}
         long now=android.os.SystemClock.elapsedRealtime();
         if(!assistancePending&&!bitrateAttempted&&transcodeSource==null&&TranscodeChoice.required(source,new TvPreferences(PlayerActivity.this,api).bitrateLimit())&&now-sourceStartedAt>=1000){requestAssistance("user_bitrate");}
         updateVideoInfo();if(danmaku!=null)danmaku.tick();if(episodePanel!=null&&episodePanel.isShown())episodePanel.updateCurrent(player);timer.postDelayed(this,1000);
@@ -539,7 +539,7 @@ public final class PlayerActivity extends TvActivity {
         dialog.setOnDismissListener(value->{video.setControllerShowTimeoutMs(5000);showControls();bitrateButton.requestFocus();});dialog.show();
     }
     private void requestAssistance(String reason){
-        if(assistancePending||!foreground||source==null)return;
+        if(assistancePending||assistanceDisabled||!foreground||source==null)return;
         int revision=++assistanceRevision;assistancePending=true;bitrateAttempted=true;showLoading();
         String expectedItem=itemId,expectedSource=source.optString("Id"),expectedPlay=playSession;
         long at=player==null?position:Math.max(0,player.getCurrentPosition());int limit=new TvPreferences(this,api).bitrateLimit();
@@ -561,7 +561,12 @@ public final class PlayerActivity extends TvActivity {
                 }
                 assistancePending=false;
                 if(response==null){message(error);showControls();return;}
-                if(response.optBoolean("DirectPlay")){stopPlayer();startSource();return;}
+                if(response.optBoolean("DirectPlay")){
+                    boolean disabled=response.has("AssistanceAllowed")&&!response.optBoolean("AssistanceAllowed");
+                    if(transcodeSource!=null){stopPlayer();assistanceDisabled=disabled;startSource();}
+                    else{assistanceDisabled=disabled;hideLoading();if(player==null)startSource();}
+                    return;
+                }
                 transcodeSession=response.optString("SessionId");transcodeSource=response.optJSONObject("MediaSource");softwareVideo=false;softwareAudio=false;hardwareSurfaceRetry=false;
                 if(transcodeSession.isEmpty()||transcodeSource==null){message("服务端未返回可用转码流");return;}
                 stopPlayer(false);videoAssistAttempted=false;automaticAssistanceNotice=!reason.equals("user_bitrate")&&!reason.equals("track_switch")&&!reason.equals("subtitle");
@@ -571,7 +576,7 @@ public final class PlayerActivity extends TvActivity {
         });
     }
     private void clearAssistance(){
-        assistanceRevision++;assistancePending=false;bitrateAttempted=false;audioAssistAttempted=false;videoAssistAttempted=false;automaticAssistanceNotice=false;String id=transcodeSession;transcodeSession="";transcodeSource=null;
+        assistanceRevision++;assistancePending=false;bitrateAttempted=false;audioAssistAttempted=false;videoAssistAttempted=false;assistanceDisabled=false;automaticAssistanceNotice=false;String id=transcodeSession;transcodeSession="";transcodeSource=null;
         if(!id.isEmpty())reports.execute(()->{try{api.delete("/api/tv/Transcodes/"+id);}catch(Exception ignored){}});
     }
     private void showSeekProgress(){
