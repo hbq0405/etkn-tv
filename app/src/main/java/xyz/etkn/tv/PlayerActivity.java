@@ -26,6 +26,10 @@ import java.util.concurrent.Executors;
 public final class PlayerActivity extends TvActivity {
     private ExoPlayer player;
     private PlaybackTiming playbackTiming;
+    private PlaybackNetwork playbackNetwork;
+    private int networkGeneration,automaticNetworkBitrate;
+    private double fallbackFrameRate;
+    private String assistanceNotice="原画播放失败已自动转码";
     private SubtitleTranslation translation;
     private DanmakuSession danmaku;
     private FrameLayout playbackStage;
@@ -63,7 +67,7 @@ public final class PlayerActivity extends TvActivity {
     private boolean softwareVideo,hardwareSurfaceRetry,playWhenReady=true;
     private boolean softwareAudio=true,enhancedSubtitles=true;
     private boolean videoFrameSeen,completedByCredits,introSkippedAtStart,creditsSkipCancelled;
-    private long videoReadySince,sourceStartedAt;
+    private long videoReadySince,sourceStartedAt,networkRetryAfter;
     private boolean videoAssistAttempted,automaticAssistanceNotice,assistanceDisabled;
     private String videoDecoder="等待解码器";
     private TextView videoInfo;
@@ -103,6 +107,11 @@ public final class PlayerActivity extends TvActivity {
         else if(android.os.SystemClock.elapsedRealtime()-videoReadySince>=3000&&!assistancePending&&!videoAssistAttempted){videoAssistAttempted=true;if(transcodeSource==null)requestAssistance("no_first_frame");else{message("转码后仍未输出画面，请选择更低质量或其他版本");showControls();}}
         long now=android.os.SystemClock.elapsedRealtime();
         if(!assistancePending&&!bitrateAttempted&&transcodeSource==null&&TranscodeChoice.required(source,new TvPreferences(PlayerActivity.this,api).bitrateLimit())&&now-sourceStartedAt>=1000){requestAssistance("user_bitrate");}
+        if(playbackNetwork!=null&&!assistancePending&&!assistanceDisabled&&new TvPreferences(PlayerActivity.this,api).bitrateLimit()==0){
+            int target=playbackNetwork.target(now,now>=networkRetryAfter&&videoFrameSeen&&player.getPlayWhenReady()&&player.isLoading()&&pendingSeekPosition<0,
+                    state==Player.STATE_BUFFERING,player.getTotalBufferedDuration(),TranscodeChoice.bitrate(source),playbackSpeed);
+            if(target>0){automaticNetworkBitrate=target;networkRetryAfter=now+20000;requestAssistance("network_limit");}
+        }
         updateVideoInfo();if(danmaku!=null)danmaku.tick();if(episodePanel!=null&&episodePanel.isShown())episodePanel.updateCurrent(player);timer.postDelayed(this,1000);
     }};
 
@@ -291,6 +300,13 @@ public final class PlayerActivity extends TvActivity {
             showLoading();playbackTiming.event("source_start");
             completedByCredits=false;
             source=transcodeSource==null?info.getJSONArray("MediaSources").getJSONObject(selected):transcodeSource;
+            int quality=new TvPreferences(this,api).bitrateLimit();
+            String planned=transcodeSource!=null||bitrateAttempted||assistanceDisabled||softwareVideo||source.optString("Container").equalsIgnoreCase("iso")?"":
+                    TranscodeChoice.required(source,quality)?"user_bitrate":TranscodeChoice.hardwareRequired(source,TranscodeChoice.sourceCapabilities(source))?"hardware_limit":"";
+            int generation=++networkGeneration;
+            playbackNetwork=new PlaybackNetwork(planned.isEmpty()?null:()->timer.post(()->{
+                if(generation==networkGeneration&&player!=null&&!bitrateAttempted&&!assistancePending)requestAssistance(planned);
+            }));
             boolean texture=useTextureVideo();
             if((video.getVideoSurfaceView() instanceof TextureView)!=texture){
                 ViewGroup parent=(ViewGroup)video.getParent();int index=parent.indexOfChild(video);ViewGroup.LayoutParams layout=video.getLayoutParams();
@@ -306,8 +322,8 @@ public final class PlayerActivity extends TvActivity {
             JSONObject translationPlan=source.optJSONObject("SubtitleTranslation");
             if(translationPlan!=null&&subtitleIndex==PlaybackSelection.AUTO)
                 translation=new SubtitleTranslation(api,itemId,source.optString("Id"),translationPlan,video,()->player,()->subtitleIndex==PlaybackSelection.AUTO);
-            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation,playbackTiming);}
-            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation,playbackTiming);TvNotice.show(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG);}
+            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation,playbackTiming,playbackNetwork);}
+            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation,playbackTiming,playbackNetwork);TvNotice.show(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG);}
             playbackTiming.event("player_created");
             video.setPlayer(player);player.setPlaybackSpeed(playbackSpeed);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
@@ -340,7 +356,8 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onEvents(Player current,Player.Events events){updatePlaybackOverlay();if(danmaku!=null)danmaku.tick();}
                 @Override public void onTimelineChanged(Timeline timeline,int reason){updateTimelineMarkers();}
                 @Override public void onPlaybackParametersChanged(PlaybackParameters parameters){playbackSpeed=parameters.speed;speedButton.setText("倍速 · "+speedLabel());}
-                @Override public void onRenderedFirstFrame(){playbackTiming.event("first_frame");videoFrameSeen=true;videoReadySince=0;if(automaticAssistanceNotice){automaticAssistanceNotice=false;showUnifiedNotice("原画播放失败已自动转码",4000);}updatePlaybackOverlay();updateVideoInfo();}
+                @Override public void onRenderedFirstFrame(){playbackTiming.event("first_frame");videoFrameSeen=true;videoReadySince=0;if(automaticAssistanceNotice){automaticAssistanceNotice=false;showUnifiedNotice(assistanceNotice,4000);}updatePlaybackOverlay();updateVideoInfo();}
+                @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if(playbackNetwork!=null)playbackNetwork.afterSeek(android.os.SystemClock.elapsedRealtime());}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
                 @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
                 @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);hideLoading();status.setVisibility(View.GONE);updateTrackButtons();if(introSkippedAtStart){introSkippedAtStart=false;showSkipNotice("已跳过片头",2200);}}if(state==Player.STATE_ENDED)advanceQueue();}
@@ -531,9 +548,9 @@ public final class PlayerActivity extends TvActivity {
         if(source==null)return;int limit=new TvPreferences(this,api).bitrateLimit(),checked=TranscodeChoice.index(limit);
         video.setControllerShowTimeoutMs(0);
         AlertDialog dialog=PlayerChoiceDialog.create(this,"播放质量",TranscodeChoice.LABELS,checked,(choice,index)->{
-            int limitWanted=TranscodeChoice.BITRATES[index];new TvPreferences(this,api).setBitrateLimit(limitWanted);hardwareSurfaceRetry=false;choice.dismiss();
+            int limitWanted=TranscodeChoice.BITRATES[index];new TvPreferences(this,api).setBitrateLimit(limitWanted);automaticNetworkBitrate=0;hardwareSurfaceRetry=false;choice.dismiss();
             if(limitWanted==0){stopPlayer();startSource();}
-            else{bitrateAttempted=false;if(player!=null)position=Math.max(0,player.getCurrentPosition());requestAssistance("user_bitrate");}
+            else{bitrateAttempted=false;if(player!=null)position=Math.max(0,player.getCurrentPosition());JSONObject original=info.optJSONArray("MediaSources").optJSONObject(selected);requestAssistance(!TranscodeChoice.required(original,limitWanted)&&TranscodeChoice.hardwareRequired(original,TranscodeChoice.sourceCapabilities(original))?"hardware_limit":"user_bitrate");}
         });
         dialog.setOnDismissListener(value->{video.setControllerShowTimeoutMs(5000);showControls();bitrateButton.requestFocus();});dialog.show();
     }
@@ -548,9 +565,11 @@ public final class PlayerActivity extends TvActivity {
         if(locked>=0)requestedAudio=PlaybackSelection.audioAt(original,locked);
         final int audioRequested=requestedAudio<0?-1:requestedAudio;
         final int subtitleRequested=subtitleIndex;
+        if(reason.equals("no_first_frame")||reason.equals("decoder_error"))fallbackFrameRate=30;
+        double frameLimit=fallbackFrameRate;int networkLimit=automaticNetworkBitrate;
         reports.execute(()->{
             JSONObject result=null;String failure="";
-            try{result=api.post("/api/tv/Items/"+EtknApi.encode(expectedItem)+"/Transcode",new JSONObject().put("MediaSourceId",expectedSource).put("PlaySessionId",expectedPlay).put("PositionTicks",at*10000).put("Reason",reason).put("Bitrate",limit).put("MaxWidth",TranscodeChoice.width(limit)).put("MaxHeight",TranscodeChoice.height(limit)).put("H264",TranscodeChoice.capabilities()).put("AudioStreamIndex",audioRequested).put("SubtitleIndex",subtitleRequested));}
+            try{result=api.post("/api/tv/Items/"+EtknApi.encode(expectedItem)+"/Transcode",new JSONObject().put("MediaSourceId",expectedSource).put("PlaySessionId",expectedPlay).put("PositionTicks",at*10000).put("Reason",reason).put("Bitrate",limit).put("MaxWidth",TranscodeChoice.width(limit)).put("MaxHeight",TranscodeChoice.height(limit)).put("MaxFrameRate",frameLimit).put("NetworkBitrate",networkLimit).put("H264",TranscodeChoice.capabilities(original)).put("HEVC",TranscodeChoice.hevcCapabilities(original)).put("HevcHdr10",TranscodeChoice.hdrCapabilities(PlayerActivity.this,original)).put("AudioStreamIndex",audioRequested).put("SubtitleIndex",subtitleRequested));}
             catch(Exception error){failure=error.getMessage()==null?"服务端协助转码失败":error.getMessage();}
             JSONObject response=result;String error=failure;
             runOnUiThread(()->{
@@ -569,12 +588,14 @@ public final class PlayerActivity extends TvActivity {
                 transcodeSession=response.optString("SessionId");transcodeSource=response.optJSONObject("MediaSource");softwareVideo=false;softwareAudio=false;hardwareSurfaceRetry=false;
                 if(transcodeSession.isEmpty()||transcodeSource==null){message("服务端未返回可用转码流");return;}
                 stopPlayer(false);videoAssistAttempted=false;automaticAssistanceNotice=!reason.equals("user_bitrate")&&!reason.equals("track_switch")&&!reason.equals("subtitle");
+                assistanceNotice=reason.equals("hardware_limit")?"已按电视硬件能力自动转码":reason.equals("network_limit")?"网络带宽不足，已自动降低码率":"原画播放失败已自动转码";
                 playbackTiming.event("server_transcode",response.optString("Method"));startSource();
                 if(!response.optString("Notice").isEmpty())showSkipNotice(response.optString("Notice"),8000);
             });
         });
     }
     private void clearAssistance(){
+        automaticNetworkBitrate=0;fallbackFrameRate=0;networkRetryAfter=0;
         assistanceRevision++;assistancePending=false;bitrateAttempted=false;audioAssistAttempted=false;videoAssistAttempted=false;assistanceDisabled=false;automaticAssistanceNotice=false;String id=transcodeSession;transcodeSession="";transcodeSource=null;
         if(!id.isEmpty())reports.execute(()->{try{api.delete("/api/tv/Transcodes/"+id);}catch(Exception ignored){}});
     }

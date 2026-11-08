@@ -39,10 +39,16 @@ final class TvPlayerFactory {
         return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,translation,null);
     }
     static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles,SubtitleTranslation translation,PlaybackTiming timing){
+        return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,translation,timing,null);
+    }
+    static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles,SubtitleTranslation translation,PlaybackTiming timing,PlaybackNetwork network){
         if(subtitleView!=null)subtitleView.setStyle(new androidx.media3.ui.CaptionStyleCompat(android.graphics.Color.WHITE,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,android.graphics.Color.BLACK,null));
         // Authentication stays in same-origin media URIs; never attach ETKN headers to CDN requests.
         DefaultDataSource.Factory data=new DefaultDataSource.Factory(context,new OkHttpDataSource.Factory(HTTP).setUserAgent(EtknApi.USER_AGENT));
         if(timing!=null)data.setTransferListener(timing);
+        androidx.media3.datasource.DataSource.Factory observed=()->{
+            androidx.media3.datasource.DataSource value=data.createDataSource();if(network!=null)value.addTransferListener(network);return value;
+        };
         ActivityManager memory=(ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE);
         int bufferMb=memory!=null&&memory.isLowRamDevice()?128:256;
         ExoPlayer.Builder builder=new ExoPlayer.Builder(context).setLoadControl(new DefaultLoadControl.Builder()
@@ -65,8 +71,8 @@ final class TvPlayerFactory {
         }
         ExtractorsFactory videoExtractors=new TvExtractorsFactory(extractors,translation);
         SubtitleParser.Factory externalParsers=new TvSubtitleParserFactory(delegate);
-        DefaultMediaSourceFactory sources=new DefaultMediaSourceFactory(data,videoExtractors).setSubtitleParserFactory(externalParsers);
-        ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new BlurayMediaSourceFactory(sources,data,videoExtractors,externalParsers)).build();
+        DefaultMediaSourceFactory sources=new DefaultMediaSourceFactory(observed,videoExtractors).setSubtitleParserFactory(externalParsers);
+        ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new BlurayMediaSourceFactory(sources,observed,videoExtractors,externalParsers)).build();
         try{
             if(ass!=null){ass.init(player);if(subtitleView!=null)subtitleView.addView(new AssSubtitleView(context,ass));}
             return player;
