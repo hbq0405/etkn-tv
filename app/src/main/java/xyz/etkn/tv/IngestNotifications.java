@@ -68,7 +68,7 @@ final class IngestNotifications {
         String seen=account(context)+".seen."+item.optString("EventId",item.optString("VersionId"));
         if(prefs(context).getBoolean(seen,false))return;prefs(context).edit().putBoolean(seen,true).apply();
         if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"我的入库提醒",NotificationManager.IMPORTANCE_DEFAULT));
-        String result=outcomeLabel(item.optString("Outcome"));
+        String result=outcomeLabel(item);
         String title=item.optString("SeriesName");String message=(title.isEmpty()?"":title+" · ")+item.optString("Name");
         Activity activity=foreground.get();TvNotice.show(activity,result+"："+message,Toast.LENGTH_LONG);
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
@@ -76,5 +76,9 @@ final class IngestNotifications {
         int id=item.optString("Id").hashCode();PendingIntent action=PendingIntent.getActivity(context,id,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         try{NotificationManagerCompat.from(context).notify(id,new NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle(result).setContentText(message).setStyle(new NotificationCompat.BigTextStyle().bigText(message)).setContentIntent(action).setAutoCancel(true).build());}catch(SecurityException ignored){}
     }
-    static String outcomeLabel(String outcome){return "replaced".equals(outcome)?"洗版成功":"version_added".equals(outcome)?"新增版本":"已入库";}
+    static String outcomeLabel(JSONObject item){
+        String outcome=item.optString("Outcome");
+        boolean episode="Episode".equals(item.optString("Type"))||!item.optString("SeriesName").isEmpty();
+        return "replaced".equals(outcome)?"洗版成功":"version_added".equals(outcome)?(episode?"已更新":"新增版本"):"已入库";
+    }
 }

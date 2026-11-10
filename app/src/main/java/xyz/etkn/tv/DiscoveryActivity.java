@@ -719,7 +719,7 @@ public final class DiscoveryActivity extends TvActivity {
                 long runId=result.optLong("workflow_run_id",0);
                 AcquireTracker.track(this,runId,EtknApi.title(item));
                 markAcquired(card);
-                new AlertDialog.Builder(this).setTitle("获取任务已提交").setMessage((runId>0?"任务 #"+runId+" 已创建，":"获取任务已创建，")+"入库完成后会提醒已入库、洗版成功或新增版本；获取失败也会收到通知。").setPositiveButton("刷新入库状态",(dialog2,which2)->libraryMatches()).setNegativeButton("关闭",null).show();
+                new AlertDialog.Builder(this).setTitle("获取任务已提交").setMessage((runId>0?"任务 #"+runId+" 已创建，":"获取任务已创建，")+"入库完成后会提醒已入库、洗版成功或"+("tv".equals(type)?"已更新":"新增版本")+"；获取失败也会收到通知。").setPositiveButton("刷新入库状态",(dialog2,which2)->libraryMatches()).setNegativeButton("关闭",null).show();
             });
         }).setNegativeButton("取消",null).show();
     }

@@ -13,7 +13,16 @@ public class DetailPresentationTest {
         assertEquals("原盘 · 收藏版 · 4K HEVC HDR10",PlaybackSelection.sourceLabel(source,0));
         source.put("Name","4K HEVC HDR10");assertEquals("主版本",PlaybackSelection.slotLabel(source));
         assertEquals("主版本",PlaybackSelection.slotLabel(new JSONObject()));assertEquals("默认",PlaybackSelection.slotLabel(null));
-        assertEquals("已入库",IngestNotifications.outcomeLabel("ingested"));assertEquals("洗版成功",IngestNotifications.outcomeLabel("replaced"));assertEquals("新增版本",IngestNotifications.outcomeLabel("version_added"));
+        assertEquals("已入库",IngestNotifications.outcomeLabel(new JSONObject().put("Outcome","ingested")));assertEquals("洗版成功",IngestNotifications.outcomeLabel(new JSONObject().put("Outcome","replaced")));assertEquals("新增版本",IngestNotifications.outcomeLabel(new JSONObject().put("Outcome","version_added").put("Type","Movie")));
+    }
+    @Test public void episodeVersionNotificationsSayUpdatedWithOrWithoutType()throws Exception{
+        JSONObject subscription=new JSONObject().put("Type","Episode").put("Outcome","version_added");
+        assertEquals("已更新",IngestNotifications.outcomeLabel(subscription));
+        JSONObject acquisition=new JSONObject().put("SeriesName","合成剧集").put("Outcome","version_added");
+        assertEquals("已更新",IngestNotifications.outcomeLabel(acquisition));
+        assertEquals("已入库",IngestNotifications.outcomeLabel(subscription.put("Outcome","ingested")));
+        assertEquals("洗版成功",IngestNotifications.outcomeLabel(subscription.put("Outcome","replaced")));
+        assertEquals("新增版本",IngestNotifications.outcomeLabel(new JSONObject().put("Outcome","version_added").put("SeriesName","")));
     }
     @Test public void customContentRatingOverridesOfficialAndEmptyValuesFallBack()throws Exception{
         JSONObject item=new JSONObject().put("OfficialRating","PG-13").put("CustomRating","  自定义 16+  ");

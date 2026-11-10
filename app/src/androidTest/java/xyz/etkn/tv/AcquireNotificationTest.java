@@ -23,11 +23,13 @@ public class AcquireNotificationTest {
         try(Server server=new Server()){
             SessionStore session=new SessionStore(context);session.save(server.origin(),"acquire-one","一","synthetic");
             assertFalse(IngestNotifications.enabled(context));
-            String[] outcomes={"ingested","replaced","version_added"},labels={"已入库","洗版成功","新增版本"};
+            String[] outcomes={"ingested","replaced","version_added","version_added","version_added"},labels={"已入库","洗版成功","新增版本","已更新","已更新"};
             for(int i=0;i<outcomes.length;i++){
                 notifications.cancelAll();AcquireTracker.track(context,100+i,"合成电影");server.ready=false;
                 AcquireTracker.poll(context);assertTrue(AcquireTracker.hasPending(context));assertEquals(0,notifications.getActiveNotifications().length);
                 server.item=new JSONObject().put("Id","item-"+i).put("VersionId",i).put("EventId",i+":sha").put("Name","合成电影").put("Outcome",outcomes[i]);server.ready=true;server.complete=false;
+                if(i==3)server.item.put("Type","Episode");
+                if(i==4)server.item.put("SeriesName","合成剧集");
                 AcquireTracker.poll(context);assertTrue(AcquireTracker.hasPending(context));server.complete=true;AcquireTracker.poll(context);assertFalse(AcquireTracker.hasPending(context));
                 StatusBarNotification[] shown=notifications.getActiveNotifications();assertEquals(1,shown.length);assertEquals(labels[i],shown[0].getNotification().extras.getString(Notification.EXTRA_TITLE));
                 long time=shown[0].getPostTime();IngestNotifications.notifyIngest(context,server.item);AcquireTracker.poll(context);
