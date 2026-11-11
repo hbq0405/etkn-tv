@@ -32,7 +32,7 @@ public final class DetailActivity extends TvActivity {
     private Button refreshButton,deleteButton;
     private boolean managementBusy;
     private AlertDialog managementDialog;
-    private LinearLayout episodeArea,preview;
+    private LinearLayout episodeArea,preview,castArea,chapterArea;
     private TextView episodeTitle,episodeOverview;
     private ImageView backdrop,episodeImage,detailLogo;
     private TextView detailTitle,detailDouban,detailTmdb,detailYear,detailDuration,detailRating,detailCategories,detailOverview,detailTagline;
@@ -41,13 +41,17 @@ public final class DetailActivity extends TvActivity {
     private boolean canDiscover,cloudSearching;
     private JSONObject previewEpisode;
     private HomeUpdates artworkUpdates;
-    private boolean artworkForeground,artworkLoading,artworkPending;
+    private boolean artworkForeground,artworkLoading;
     private boolean playbackReturnPending,playbackReceiverRegistered,playbackReportConfirmed;
     private int playbackRefreshTicket;
-    private String artworkRevision="";
+    private final DetailChanges detailChanges=new DetailChanges();
+    private final Set<String> artworkInFlight=new LinkedHashSet<>();
+    private int artworkTicket;
+    private final Map<String,JSONObject> visibleSeasons=new HashMap<>();
+    private final Map<String,View> seasonCards=new HashMap<>();
+    private final Map<String,ImageView> castImages=new HashMap<>(),chapterImages=new HashMap<>();
     private final android.os.Handler artworkTimer=new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable artworkRefresh=()->refreshArtwork();
-    private final Runnable artworkFallback=new Runnable(){@Override public void run(){refreshArtwork();artworkTimer.postDelayed(this,60000);}};
     private final Runnable playbackRefreshFallback=()->{if(artworkForeground&&playbackReturnPending&&!playbackReportConfirmed)refreshPlaybackProgress();};
     private final BroadcastReceiver playbackProgressReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){
@@ -243,7 +247,8 @@ public final class DetailActivity extends TvActivity {
         for(JSONObject episode:allEpisodes)if(episode.optString("Id").equals(data.getStringExtra("episodeId"))){setPlayable(episode);int index=PlaybackSelection.sourceIndex(sources,data.getStringExtra("sourceId"));if(index>=0)sourceIndex=index;audio=data.getIntExtra("audioIndex",PlaybackSelection.AUTO);subtitle=data.getIntExtra("subtitleIndex",PlaybackSelection.AUTO);updateChoices();break;}
     }
     private void copyPresentation(JSONObject target,JSONObject value){
-        for(String key:new String[]{"Name","Overview","Tagline","Taglines","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","Networks","Companies","StudioImageTags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
+        for(String key:new String[]{"Name","Overview","Tagline","Taglines","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","Networks","Companies","StudioImageTags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType","People","Chapters"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
+        for(String key:new String[]{"IndexNumber","ParentIndexNumber","SeriesId","SeriesName","SeasonId","ParentId"})if(value.has(key))try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
     }
     private Button compactButton(String title,Runnable click){
         Button choice=button(title,click);choice.setBackground(selectionBackground());choice.setTextSize(12);choice.setPadding(dp(10),0,dp(10),0);choice.setMinWidth(0);choice.setMinimumWidth(0);choice.setMinHeight(0);choice.setMinimumHeight(0);
@@ -384,29 +389,60 @@ public final class DetailActivity extends TvActivity {
         if(playbackReturnPending){if(playbackReportConfirmed)refreshPlaybackProgress();else artworkTimer.postDelayed(playbackRefreshFallback,2500);}
         if(cloudButton!=null)updateDiscoveryPermission();
         if(!PlaybackSelection.seasonKey(playable).isEmpty()){audio=PlaybackSelection.AUTO;updateChoices();}
-        refreshArtwork();artworkTimer.postDelayed(artworkFallback,60000);
-        artworkUpdates=new HomeUpdates(api,value->runOnUiThread(()->{
-            if(!artworkForeground||value.equals(artworkRevision))return;
-            artworkRevision=value;artworkTimer.removeCallbacks(artworkRefresh);artworkTimer.postDelayed(artworkRefresh,250);
+        artworkUpdates=HomeUpdates.detail(api,getIntent().getStringExtra("id"),value->runOnUiThread(()->{
+            if(!artworkForeground)return;
+            JSONArray removed=value.optJSONArray("Removed");if(removed!=null)for(int i=0;i<removed.length();i++)if(getIntent().getStringExtra("id").equals(removed.optString(i))){finish();return;}
+            detailChanges.accept(value);artworkTimer.removeCallbacks(artworkRefresh);artworkTimer.postDelayed(artworkRefresh,250);
         }),()->runOnUiThread(()->{if(artworkForeground){api.session.clear();startActivity(new Intent(this,SetupActivity.class));finish();}}));
     }
-    @Override protected void onPause(){artworkForeground=false;artworkTimer.removeCallbacksAndMessages(null);if(artworkUpdates!=null){artworkUpdates.close();artworkUpdates=null;}super.onPause();}
+    @Override protected void onPause(){artworkForeground=false;++artworkTicket;artworkLoading=false;detailChanges.updated.addAll(artworkInFlight);artworkInFlight.clear();artworkTimer.removeCallbacksAndMessages(null);if(artworkUpdates!=null){artworkUpdates.close();artworkUpdates=null;}super.onPause();}
     private void refreshArtwork(){
-        if(!artworkForeground||item==null)return;if(artworkLoading){artworkPending=true;return;}
-        artworkLoading=true;String path=api.userPath()+"/Items/"+EtknApi.encode(item.optString("Id"));
-        String episodeId=previewEpisode==null?"":previewEpisode.optString("Id");
-        async(()->{try{JSONObject result=api.get(path);if(!episodeId.isEmpty())result.put("_preview",api.get(api.userPath()+"/Items/"+EtknApi.encode(episodeId)));return result;}
-            catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject();}},result->{
-            artworkLoading=false;if(artworkForeground&&!result.optString("Id").isEmpty()){
-                copyPresentation(item,result);mergeSources(result);if(!playbackReturnPending){applyUserData(result.optJSONObject("UserData"));refreshStateButtons();}updateMetadata();
-                Images.backdrop(api,api.artwork(result,"Backdrop",1920),backdrop,ok->{});
-                if(!episodePicker)Images.backdrop(api,api.artwork(result,"Logo",720),detailLogo,ok->{detailLogo.setVisibility(ok?View.VISIBLE:View.GONE);detailTitle.setVisibility(ok?View.GONE:View.VISIBLE);});
-                JSONObject episode=result.optJSONObject("_preview");if(episode!=null&&previewEpisode!=null&&episodeId.equals(previewEpisode.optString("Id"))){copyPresentation(previewEpisode,episode);mergeSources(episode);updatePreviewText(previewEpisode);Images.load(api,api.artwork(episode,"Primary",640),episodeImage);}
-            }
-            if(artworkPending){artworkPending=false;refreshArtwork();}
+        if(!artworkForeground||item==null||artworkLoading)return;
+        if(detailChanges.structure){detailChanges.structure=false;if(episodeArea!=null)loadEpisodes(true);renderCollections();}
+        Set<String> ids=new LinkedHashSet<>(detailChanges.updated);detailChanges.updated.clear();
+        String root=item.optString("Id");
+        for(String parent:new String[]{item.optString("SeriesId"),item.optString("ParentId"),item.optString("ParentBackdropItemId"),item.optString("ParentLogoItemId")})if(ids.contains(parent))ids.add(root);
+        ids.removeIf(id->!id.equals(root)&&!visibleSeasons.containsKey(id)&&allEpisodes.stream().noneMatch(episode->id.equals(episode.optString("Id"))));
+        if(ids.isEmpty())return;
+        artworkLoading=true;artworkInFlight.addAll(ids);int ticket=++artworkTicket;
+        async(()->{JSONObject values=new JSONObject();for(String id:ids)try{values.put(id,api.get(api.userPath()+"/Items/"+EtknApi.encode(id)));}catch(EtknApi.AuthException error){throw error;}catch(Exception ignored){}return values;},values->{
+            if(ticket!=artworkTicket||!artworkForeground)return;artworkLoading=false;artworkInFlight.clear();
+            for(String id:ids){JSONObject value=values.optJSONObject(id);if(value==null){detailChanges.updated.add(id);continue;}applyDetail(value);}
+            if(!detailChanges.updated.isEmpty()){artworkTimer.removeCallbacks(artworkRefresh);artworkTimer.postDelayed(artworkRefresh,3000);}
         });
     }
-    @Override void metadataRefreshed(){super.metadataRefreshed();refreshArtwork();renderCollections();focusPlay();}
+    private void applyDetail(JSONObject value){
+        String id=value.optString("Id");
+        if(id.equals(item.optString("Id"))){
+            String oldBackground=api.artwork(item,"Backdrop",1920),oldLogo=api.artwork(item,"Logo",720);
+            updateDependentImages(item,value);copyPresentation(item,value);mergeSources(value);
+            if(!playbackReturnPending){applyUserData(value.optJSONObject("UserData"));refreshStateButtons();}updateMetadata();
+            if(!oldBackground.equals(api.artwork(item,"Backdrop",1920)))Images.backdrop(api,api.artwork(item,"Backdrop",1920),backdrop,ok->{});
+            if(!episodePicker&&!oldLogo.equals(api.artwork(item,"Logo",720)))Images.backdrop(api,api.artwork(item,"Logo",720),detailLogo,ok->{detailLogo.setVisibility(ok?View.VISIBLE:View.GONE);detailTitle.setVisibility(ok?View.GONE:View.VISIBLE);});
+            if("Movie".equals(item.optString("Type")))renderCollections();
+        }
+        JSONObject season=visibleSeasons.get(id);View card=seasonCards.get(id);
+        if(season!=null&&card instanceof ViewGroup){if(!api.image(season).equals(api.image(value)))Images.visible(api,api.image(value),(ImageView)((ViewGroup)card).getChildAt(0),ok->{});copyPresentation(season,value);((Button)((ViewGroup)card).getChildAt(2)).setText(EtknApi.title(season));}
+        for(JSONObject episode:allEpisodes)if(id.equals(episode.optString("Id"))){
+            String oldImage=api.artwork(episode,"Primary",640);copyPresentation(episode,value);mergeSources(value);if(!playbackReturnPending)mergeUserData(episode,value.optJSONObject("UserData"));
+            Button cell=episodeCells.get(id);if(cell!=null)updateEpisodeCell(cell,episode,Boolean.TRUE.equals(episodeCellDates.get(id)));
+            if(previewEpisode!=null&&id.equals(previewEpisode.optString("Id"))){copyPresentation(previewEpisode,value);updatePreviewText(previewEpisode);if(!oldImage.equals(api.artwork(value,"Primary",640)))Images.load(api,api.artwork(value,"Primary",640),episodeImage);}
+            if(playable!=null&&id.equals(playable.optString("Id")))updatePlayAction();break;
+        }
+    }
+    private void updateDependentImages(JSONObject before,JSONObject after){
+        JSONArray people=after.optJSONArray("People"),oldPeople=before.optJSONArray("People");
+        if(!castIds(people).equals(castIds(oldPeople)))renderCast(after);
+        else if(people!=null)for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person==null)continue;ImageView view=castImages.get(person.optString("Id"));if(view==null)continue;JSONObject old=null;if(oldPeople!=null)for(int j=0;j<oldPeople.length();j++){JSONObject candidate=oldPeople.optJSONObject(j);if(candidate!=null&&person.optString("Id").equals(candidate.optString("Id")))old=candidate;}if(old==null||!api.artwork(old,"Primary",240).equals(api.artwork(person,"Primary",240)))Images.load(api,api.artwork(person,"Primary",240),view);
+            ViewGroup card=(ViewGroup)view.getParent();((TextView)card.getChildAt(1)).setText(person.optString("Name"));((TextView)card.getChildAt(2)).setText(person.optString("Role"));view.setContentDescription("演员 · "+person.optString("Name"));view.setOnClickListener(v->startActivity(new Intent(this,PersonActivity.class).putExtra("id",person.optString("Id")).putExtra("name",person.optString("Name"))));}
+        JSONArray chapters=after.optJSONArray("Chapters"),oldChapters=before.optJSONArray("Chapters");
+        if(!chapterIds(chapters).equals(chapterIds(oldChapters)))renderChapters(after);
+        else if(chapters!=null)for(int i=0;i<chapters.length();i++){JSONObject chapter=chapters.optJSONObject(i);if(chapter==null)continue;String key=String.valueOf(chapter.optInt("ChapterIndex",i));ImageView view=chapterImages.get(key);JSONObject old=oldChapters==null?null:oldChapters.optJSONObject(i);if(view==null)continue;if(old==null||!api.chapterArtwork(before,old,480).equals(api.chapterArtwork(after,chapter,480)))Images.load(api,api.chapterArtwork(after,chapter,480),view);
+            ViewGroup card=(ViewGroup)view.getParent();String name=chapter.optString("Name");if(name.isEmpty())name="章节 "+(i+1);((TextView)card.getChildAt(1)).setText(name+"  ·  "+chapterTime(chapter.optLong("StartPositionTicks")));card.setContentDescription(name);card.setOnClickListener(v->playChapter(chapter));}
+    }
+    private List<String> castIds(JSONArray people){List<String> ids=new ArrayList<>();if(people!=null)for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person!=null&&person.optString("Type",person.optString("PersonType")).equalsIgnoreCase("Actor"))ids.add(person.optString("Id"));}return ids;}
+    private List<String> chapterIds(JSONArray chapters){List<String> ids=new ArrayList<>();if(chapters!=null)for(int i=0;i<chapters.length();i++){JSONObject chapter=chapters.optJSONObject(i);if(chapter!=null&&(!chapter.optString("ImageTag").isEmpty()||!chapter.optString("ImagePath").isEmpty()))ids.add(String.valueOf(chapter.optInt("ChapterIndex",i)));}return ids;}
+    @Override void metadataRefreshed(){super.metadataRefreshed();if(item!=null)detailChanges.updated.add(item.optString("Id"));refreshArtwork();focusPlay();}
     private void updateChoices(){
         int locked=new TvPreferences(this,api).seasonAudio(PlaybackSelection.seasonKey(playable));
         if(locked>=0)audio=PlaybackSelection.audioAt(selectedSource(),locked);
@@ -427,23 +463,29 @@ public final class DetailActivity extends TvActivity {
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(subtitles?"字幕":"音轨").setSingleChoiceItems(labels.toArray(new String[0]),current,(choice,index)->{if(subtitles)subtitle=indices.get(index);else{audio=indices.get(index);new TvPreferences(this,api).saveSeasonAudio(PlaybackSelection.seasonKey(playable),PlaybackSelection.audioOrdinal(selectedSource(),audio));}updateChoices();choice.dismiss();}).setNegativeButton("取消",null).create();
         dialog.show();dialog.getWindow().setBackgroundDrawable(shape(OVERLAY,0));dialog.getWindow().setDimAmount(0.15f);
     }
-    private void loadEpisodes(){
+    private void loadEpisodes(){loadEpisodes(false);}
+    private void loadEpisodes(boolean preserve){
+        String previousEpisode=preserve&&playable!=null?playable.optString("Id"):"",previousSource=preserve&&selectedSource()!=null?selectedSource().optString("Id"):"";
+        int previousAudio=audio,previousSubtitle=subtitle,previousY=scroll.getScrollY();View focused=getCurrentFocus();boolean matrixFocused=inEpisodeMatrix(focused);
         String series=item.optString("Type").equals("Series")?item.optString("Id"):item.optString("SeriesId",item.optString("ParentId"));status.setText("正在读取分集…");
         async(()->new JSONObject().put("seasons",api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Seasons?UserId="+EtknApi.encode(api.session.userId()))).put("episodes",api.get("/api/tv/Shows/"+EtknApi.encode(series)+"/Episodes?UserId="+EtknApi.encode(api.session.userId())+"&Fields=MediaSources,MediaStreams,Overview")),data->{
             episodeArea.removeAllViews();episodeGrid=null;preview=null;episodeCells.clear();episodeCellDates.clear();
             allEpisodes.clear();allEpisodes.addAll(EtknApi.rows(data.optJSONObject("episodes")));
             if(item.optString("Type").equals("Season"))allEpisodes.removeIf(episode->!item.optString("Id").equals(episode.optString("SeasonId")));
             if(allEpisodes.isEmpty()){status.setText("暂无可播放分集");return;}
-            JSONObject recommended=DetailPresentation.recommended(allEpisodes);if(item.optString("Type").equals("Episode"))for(JSONObject episode:allEpisodes)if(item.optString("Id").equals(episode.optString("Id"))){recommended=episode;break;}setPlayable(recommended);List<JSONObject> seasons=EtknApi.rows(data.optJSONObject("seasons"));
-            if(!episodePicker){episodesButton.setEnabled(true);status.setText("");focusPlay();return;}
-            for(JSONObject episode:allEpisodes)if(episode.optString("Id").equals(getIntent().getStringExtra("episodeId"))){recommended=episode;setPlayable(episode);break;}
+            JSONObject recommended=DetailPresentation.recommended(allEpisodes);if(item.optString("Type").equals("Episode")||preserve)for(JSONObject episode:allEpisodes)if((preserve?previousEpisode:item.optString("Id")).equals(episode.optString("Id"))){recommended=episode;break;}setPlayable(recommended);List<JSONObject> seasons=EtknApi.rows(data.optJSONObject("seasons"));
+            if(!episodePicker){if(preserve){int retained=PlaybackSelection.sourceIndex(sources,previousSource);if(retained>=0){sourceIndex=retained;audio=previousAudio;subtitle=previousSubtitle;updateChoices();}}episodesButton.setEnabled(true);status.setText("");if(!preserve)focusPlay();return;}
+            visibleSeasons.clear();seasonCards.clear();
+            if(!preserve)for(JSONObject episode:allEpisodes)if(episode.optString("Id").equals(getIntent().getStringExtra("episodeId"))){recommended=episode;setPlayable(episode);break;}
             int selected=PlaybackSelection.sourceIndex(sources,getIntent().getStringExtra("sourceId"));if(selected>=0)sourceIndex=selected;audio=getIntent().getIntExtra("audioIndex",PlaybackSelection.AUTO);subtitle=getIntent().getIntExtra("subtitleIndex",PlaybackSelection.AUTO);updateChoices();
             LinearLayout seasonRow=row();HorizontalScrollView seasonScroll=new FocusScroll.Row(this);seasonScroll.setHorizontalScrollBarEnabled(false);seasonScroll.setClipToPadding(false);seasonScroll.addView(seasonRow);
-            View seasonEntry=null;if(seasons.size()>1&&!item.optString("Type").equals("Season")){episodeArea.addView(seasonScroll);for(JSONObject season:seasons){View card=seasonCard(season,()->showSeason(season.optString("Id")));seasonRow.addView(card);if(season.optString("Id").equals(recommended.optString("SeasonId")))seasonEntry=((ViewGroup)card).getChildAt(2);}}
+            View seasonEntry=null;if(seasons.size()>1&&!item.optString("Type").equals("Season")){episodeArea.addView(seasonScroll);for(JSONObject season:seasons){View card=seasonCard(season,()->showSeason(season.optString("Id")));visibleSeasons.put(season.optString("Id"),season);seasonCards.put(season.optString("Id"),card);seasonRow.addView(card);if(season.optString("Id").equals(recommended.optString("SeasonId")))seasonEntry=((ViewGroup)card).getChildAt(2);}}
             preview=row();preview.setGravity(Gravity.CENTER_VERTICAL);preview.setPadding(0,dp(8),0,dp(8));
             episodeImage=new ImageView(this);episodeImage.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(episodeImage,dp(8));episodeImage.setForeground(Images.border(dp(8)));preview.addView(episodeImage,new LinearLayout.LayoutParams(dp(224),dp(126)));
             LinearLayout copy=column();copy.setPadding(dp(18),0,0,0);episodeTitle=text("",19,Color.WHITE);episodeTitle.setMaxLines(2);copy.addView(episodeTitle);episodeOverview=text("",14,MUTED);episodeOverview.setMaxLines(4);episodeOverview.setEllipsize(android.text.TextUtils.TruncateAt.END);copy.addView(episodeOverview);preview.addView(copy,new LinearLayout.LayoutParams(0,dp(144),1));episodeArea.addView(preview);
-            showSeason(recommended.optString("SeasonId"),recommended);status.setText(allEpisodes.size()+" 集");View entry=seasonEntry==null?episodeEntry:seasonEntry;if(entry!=null)entry.post(entry::requestFocus);
+            showSeason(recommended.optString("SeasonId"),recommended);status.setText(allEpisodes.size()+" 集");
+            if(preserve){int retained=PlaybackSelection.sourceIndex(sources,previousSource);if(retained>=0){sourceIndex=retained;audio=previousAudio;subtitle=previousSubtitle;updateChoices();}View entry=matrixFocused?episodeCells.get(previousEpisode):focused;if(entry==null||!entry.isAttachedToWindow())entry=episodeEntry;View restore=entry;episodeArea.post(()->{if(restore!=null)restore.requestFocus();scroll.scrollTo(0,previousY);});}
+            else{View entry=seasonEntry==null?episodeEntry:seasonEntry;if(entry!=null)entry.post(entry::requestFocus);}
         });
     }
     private void showSeason(String seasonId){
@@ -473,20 +515,23 @@ public final class DetailActivity extends TvActivity {
         episodeImage.setImageDrawable(null);Images.load(api,api.artwork(episode,"Primary",640),episodeImage);
     }
     private void updatePreviewText(JSONObject episode){episodeTitle.setText(DetailPresentation.episodeNumber(episode)+"  ·  "+EtknApi.title(episode)+(DetailPresentation.placeholder(episode)?"\n播出："+DetailPresentation.airDate(episode):""));episodeOverview.setText(episode.optString("Overview").isEmpty()?"暂无分集简介":episode.optString("Overview"));}
-    private void renderChapters(){
-        JSONArray chapters=item.optJSONArray("Chapters");if(chapters==null||chapters.length()==0)return;
+    private void renderChapters(){renderChapters(item);}
+    private void renderChapters(JSONObject source){
+        String focused="";for(Map.Entry<String,ImageView> entry:chapterImages.entrySet())if(entry.getValue().getParent()==getCurrentFocus())focused=entry.getKey();String restore=focused;
+        if(chapterArea==null){chapterArea=column();content.addView(chapterArea);}chapterArea.removeAllViews();chapterImages.clear();
+        JSONArray chapters=source.optJSONArray("Chapters");if(chapters==null||chapters.length()==0)return;
         List<JSONObject> images=new ArrayList<>();for(int i=0;i<chapters.length();i++){JSONObject chapter=chapters.optJSONObject(i);if(chapter!=null&&(!chapter.optString("ImageTag").isEmpty()||!chapter.optString("ImagePath").isEmpty()))images.add(chapter);}
         if(images.isEmpty())return;
-        TextView heading=text("章节",20,Color.WHITE);heading.setFocusable(false);heading.setFocusableInTouchMode(false);content.addView(heading);
+        TextView heading=text("章节",20,Color.WHITE);heading.setFocusable(false);heading.setFocusableInTouchMode(false);chapterArea.addView(heading);
         HorizontalScrollView rail=new FocusScroll.Row(this);rail.setHorizontalScrollBarEnabled(false);rail.setFocusable(false);rail.setFocusableInTouchMode(false);rail.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        LinearLayout cards=row();cards.setFocusable(false);cards.setFocusableInTouchMode(false);rail.addView(cards);content.addView(rail);
+        LinearLayout cards=row();cards.setFocusable(false);cards.setFocusableInTouchMode(false);rail.addView(cards);chapterArea.addView(rail);
         for(int i=0;i<images.size();i++){
             JSONObject chapter=images.get(i);LinearLayout card=column();card.setFocusable(true);card.setFocusableInTouchMode(false);card.setClickable(true);card.setBackground(transparentFocusBackground());card.setPadding(dp(3),dp(3),dp(3),dp(3));
             LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(dp(180),dp(140));bounds.setMargins(0,dp(8),dp(14),dp(8));cards.addView(card,bounds);
-            ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(8));image.setForeground(Images.border(dp(8)));image.setFocusable(false);card.addView(image,new LinearLayout.LayoutParams(-1,dp(102)));Images.load(api,api.chapterArtwork(item,chapter,480),image);
+            ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,dp(8));image.setForeground(Images.border(dp(8)));image.setFocusable(false);card.addView(image,new LinearLayout.LayoutParams(-1,dp(102)));chapterImages.put(String.valueOf(chapter.optInt("ChapterIndex",i)),image);Images.load(api,api.chapterArtwork(source,chapter,480),image);
             String name=chapter.optString("Name");if(name.isEmpty())name="章节 "+(i+1);TextView label=text(name+"  ·  "+chapterTime(chapter.optLong("StartPositionTicks")),12,Color.WHITE);label.setFocusable(false);label.setFocusableInTouchMode(false);label.setMaxLines(1);label.setEllipsize(android.text.TextUtils.TruncateAt.END);label.setPadding(dp(3),dp(3),dp(3),0);card.addView(label);
             card.setContentDescription(name);card.setOnClickListener(view->playChapter(chapter));
-        }
+        }if(!restore.isEmpty()){ImageView retained=chapterImages.get(restore);View target=retained==null?cards.getChildAt(0):(View)retained.getParent();target.post(target::requestFocus);}
     }
     private String chapterTime(long ticks){long seconds=Math.max(0,ticks/10000000L),minutes=seconds/60;seconds%=60;return String.format(Locale.ROOT,"%02d:%02d",minutes,seconds);}
     private void playChapter(JSONObject chapter){
@@ -494,20 +539,22 @@ public final class DetailActivity extends TvActivity {
         Intent intent=new Intent(this,PlayerActivity.class).putExtra("id",playable.optString("Id")).putExtra("title",EtknApi.resumeTitle(playable)).putExtra("position",position).putExtra("seriesId",playable.optString("SeriesId",item.optString("Type").equals("Series")?item.optString("Id"):item.optString("SeriesId")));
         if(selectedSource()!=null)intent.putExtra("sourceId",selectedSource().optString("Id"));intent.putExtra("seasonKey",PlaybackSelection.seasonKey(playable)).putExtra("audioIndex",audio).putExtra("subtitleIndex",subtitle);startPlayback(intent);
     }
-    private void renderCast(){
-        castEntry=null;castScroll=null;
-        JSONArray people=item.optJSONArray("People");if(people==null||people.length()==0)return;
+    private void renderCast(){renderCast(item);}
+    private void renderCast(JSONObject source){
+        String focusedId="";for(Map.Entry<String,ImageView> entry:castImages.entrySet())if(entry.getValue()==getCurrentFocus())focusedId=entry.getKey();String restore=focusedId;
+        if(castArea==null){castArea=column();content.addView(castArea);}castArea.removeAllViews();castImages.clear();castEntry=null;castScroll=null;
+        JSONArray people=source.optJSONArray("People");if(people==null||people.length()==0)return;
         List<JSONObject> actors=new ArrayList<>();for(int i=0;i<people.length();i++){JSONObject person=people.optJSONObject(i);if(person!=null&&person.optString("Type",person.optString("PersonType")).equalsIgnoreCase("Actor"))actors.add(person);}if(actors.isEmpty())return;
-        TextView heading=text("演员表",18,Color.WHITE);heading.setPadding(0,0,0,0);content.addView(heading);LinearLayout cast=row();castScroll=new FocusScroll.Row(this);castScroll.setHorizontalScrollBarEnabled(false);castScroll.setFocusable(false);castScroll.setClipToPadding(false);castScroll.addView(cast);content.addView(castScroll);
+        TextView heading=text("演员表",18,Color.WHITE);heading.setPadding(0,0,0,0);castArea.addView(heading);LinearLayout cast=row();castScroll=new FocusScroll.Row(this);castScroll.setHorizontalScrollBarEnabled(false);castScroll.setFocusable(false);castScroll.setClipToPadding(false);castScroll.addView(cast);castArea.addView(castScroll);
         int width=Math.max(1,(getResources().getDisplayMetrics().widthPixels-content.getPaddingLeft()-content.getPaddingRight())/8-dp(12)),height=Math.round(width*1.5f);
         for(JSONObject person:actors){
             LinearLayout card=column();LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(width,height+dp(50));bounds.setMargins(dp(6),dp(8),dp(6),dp(8));cast.addView(card,bounds);
-            ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);portrait.setImageResource(android.R.drawable.ic_menu_myplaces);Images.rounded(portrait,dp(7));portrait.setForeground(Images.border(dp(12)));shadow(portrait,4);portrait.setFocusable(true);portrait.setClickable(true);portrait.setContentDescription("演员 · "+person.optString("Name"));
+            ImageView portrait=new ImageView(this);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);portrait.setImageResource(android.R.drawable.ic_menu_myplaces);Images.rounded(portrait,dp(7));portrait.setForeground(Images.border(dp(12)));shadow(portrait,4);portrait.setFocusable(true);portrait.setClickable(true);portrait.setContentDescription("演员 · "+person.optString("Name"));castImages.put(person.optString("Id"),portrait);
             portrait.setOnClickListener(view->startActivity(new Intent(this,PersonActivity.class).putExtra("id",person.optString("Id")).putExtra("name",person.optString("Name"))));
             if(castEntry==null)castEntry=portrait;
             portrait.setOnFocusChangeListener((view,focused)->{portrait.setScaleX(focused?FOCUS_SCALE:1f);portrait.setScaleY(focused?FOCUS_SCALE:1f);shadow(portrait,focused?8:4);portrait.setForeground(focused?focusOutline():Images.border(dp(12)));});card.addView(portrait,new LinearLayout.LayoutParams(-1,height));Images.load(api,api.artwork(person,"Primary",240),portrait);
             TextView name=text(person.optString("Name"),13,Color.WHITE);name.setGravity(Gravity.CENTER);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);name.setPadding(0,dp(4),0,0);card.addView(name,new LinearLayout.LayoutParams(-1,dp(22)));TextView role=text(person.optString("Role"),11,MUTED);role.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);role.setMaxLines(2);role.setEllipsize(android.text.TextUtils.TruncateAt.END);role.setPadding(0,0,0,0);card.addView(role,new LinearLayout.LayoutParams(-1,dp(28)));
-        }
+        }if(!restore.isEmpty()){View target=castImages.containsKey(restore)?castImages.get(restore):castEntry;target.post(target::requestFocus);}
     }
     private void renderSimilar(){
         LinearLayout area=column();content.addView(area);area.addView(text("更多类似",20,Color.WHITE));TextView loading=text("正在读取相似媒体…",13,MUTED);area.addView(loading);

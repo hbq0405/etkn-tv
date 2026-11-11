@@ -13,10 +13,16 @@ final class HomeUpdates implements AutoCloseable {
     private volatile HttpURLConnection connection;
     private final Thread worker;
     HomeUpdates(EtknApi api,java.util.function.Consumer<String> update,Runnable expired){
+        this(api,"",value->update.accept(value.optString("revision")),expired);
+    }
+    static HomeUpdates detail(EtknApi api,String itemId,java.util.function.Consumer<JSONObject> update,Runnable expired){
+        return new HomeUpdates(api,itemId,update,expired);
+    }
+    private HomeUpdates(EtknApi api,String itemId,java.util.function.Consumer<JSONObject> update,Runnable expired){
         worker=new Thread(()->{
             while(!closed){
                 try{
-                    HttpURLConnection current=(HttpURLConnection)new URL(api.server+api.userPath()+"/Home/Events").openConnection();
+                    HttpURLConnection current=(HttpURLConnection)new URL(api.server+api.userPath()+"/Home/Events"+(itemId.isEmpty()?"":"?ItemId="+EtknApi.encode(itemId))).openConnection();
                     connection=current;current.setInstanceFollowRedirects(false);current.setConnectTimeout(7000);current.setReadTimeout(25000);
                     current.setRequestProperty("Accept","text/event-stream");current.setRequestProperty("X-Emby-Token",api.token);
                     if(current.getResponseCode()==401){expired.run();return;}
@@ -28,7 +34,7 @@ final class HomeUpdates implements AutoCloseable {
                             else if(line.startsWith("data:"))data=line.substring(5).trim();
                             else if(line.isEmpty()){
                                 if("auth-expired".equals(event)){expired.run();return;}
-                                if("home".equals(event)&&!data.isEmpty())update.accept(new JSONObject(data).getString("revision"));
+                                if((itemId.isEmpty()?"home":"items").equals(event)&&!data.isEmpty())update.accept(new JSONObject(data));
                                 event="";data="";
                             }
                         }
