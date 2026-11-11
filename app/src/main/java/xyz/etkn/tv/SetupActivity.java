@@ -12,6 +12,8 @@ public final class SetupActivity extends TvActivity {
     private LanDiscovery discovery;
     private EditText server,username,password;
     private LinearLayout servers,savedUsers,loginPanel;
+    private TextView serverBrand;
+    private int serverBrandGeneration;
     private int scanRevision;
     private final Set<String> discovered=new HashSet<>();
     @Override public void onCreate(Bundle state) {
@@ -31,6 +33,7 @@ public final class SetupActivity extends TvActivity {
         if(!addAccount&&(LoginGate.requiresPicker(this,api)||api.session.persist()==SessionStore.PERSIST_ACCOUNT&&!api.session.accounts().isEmpty())){showPicker();return;}
         if(!api.token.isEmpty()&&!addAccount){openHome();return;}
         screen(addAccount?"登录新用户":"连接你的 ETKN",addAccount?"为当前 ETKN 媒体服务器添加登录用户。":"自动发现局域网 ETKN 媒体服务器，遥控器点选后登录。");
+        installServerBrand();loadServerBrand(api.session.server());
         content.setGravity(android.view.Gravity.CENTER);content.setPadding(dp(12),dp(16),dp(12),dp(20));
         loginPanel=column();loginPanel.setPadding(dp(28),dp(20),dp(28),dp(18));loginPanel.setBackground(shape(PANEL,0));shadow(loginPanel,8);
         content.addView(loginPanel,new LinearLayout.LayoutParams(Math.min(dp(560),availableWidth(96)),-2));
@@ -44,7 +47,7 @@ public final class SetupActivity extends TvActivity {
             }
         }
         servers=column();loginPanel.addView(servers);
-        server=input("媒体服务器地址，例如 192.168.1.10:8097",false);server.setText(api.session.server());loginPanel.addView(server);
+        server=input("媒体服务器地址，例如 192.168.1.10:8097",false);server.setText(api.session.server());server.setOnFocusChangeListener((view,focused)->{if(!focused)loadServerBrand(server.getText().toString());});loginPanel.addView(server);
         if(addAccount){server.setFocusable(false);server.setFocusableInTouchMode(false);server.setEnabled(false);servers.setVisibility(android.view.View.GONE);loginPanel.addView(text("账号仅保存在当前 ETKN 媒体服务器下，不支持多服务器账号切换。",13,MUTED));}
         username=input("用户名",false);loginPanel.addView(username);password=input("密码",true);loginPanel.addView(password);
         loginPanel.addView(button("连接并登录",()->{
@@ -57,9 +60,25 @@ public final class SetupActivity extends TvActivity {
         }));if(!addAccount)scan();
     }
     private void openHome(){LoginGate.satisfy();startActivity(new Intent(this,HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));finish();}
+    private void installServerBrand(){
+        if(root.getChildCount()>0)root.removeViewAt(0);
+        LinearLayout brand=row();brand.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.etkn_logo);logo.setContentDescription("ETKN");brand.addView(logo,new LinearLayout.LayoutParams(dp(32),dp(32)));
+        serverBrand=text("ETKN 媒体服务器",14,ACCENT);serverBrand.setTypeface(null,android.graphics.Typeface.BOLD);serverBrand.setSingleLine(true);serverBrand.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams label=new LinearLayout.LayoutParams(-2,dp(32));label.setMargins(dp(10),0,0,0);brand.addView(serverBrand,label);
+        root.addView(brand,0,new LinearLayout.LayoutParams(-1,dp(38)));
+    }
+    private void loadServerBrand(String address){
+        int generation=++serverBrandGeneration;if(serverBrand==null)return;
+        String value=address==null?"":address.trim();if(value.isEmpty()){serverBrand.setText("ETKN 媒体服务器");return;}
+        IO.execute(()->{String name="";try{name=api.request(EtknApi.normalizeServer(value),"","GET","/api/tv/System/Info/Public",null).optString("ServerName").trim();}catch(Exception ignored){}
+            String result=name;runOnUiThread(()->{if(generation==serverBrandGeneration&&!isFinishing()&&!isDestroyed()&&serverBrand!=null)serverBrand.setText(result.isEmpty()?"ETKN 媒体服务器":result);});
+        });
+    }
+    private void showServerBrand(String name){serverBrandGeneration++;if(serverBrand!=null)serverBrand.setText(name==null||name.isBlank()?"ETKN 媒体服务器":name.trim());}
     /** 用户选择框：横向展示已保存用户，下方独立提供登录新用户入口。 */
     private void showPicker(){
         screen("选择登录用户","点选要进入的用户，也可以登录新用户。");
+        installServerBrand();loadServerBrand(api.session.server());
         content.setGravity(android.view.Gravity.CENTER);
         LinearLayout panel=column();panel.setBackground(shape(PANEL,0));shadow(panel,8);panel.setPadding(dp(30),dp(24),dp(30),dp(20));panel.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
         FocusScroll.Row scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));
@@ -129,7 +148,7 @@ public final class SetupActivity extends TvActivity {
         int revision=++scanRevision;if(discovery!=null)discovery.cancel();discovered.clear();if(servers==null)return;servers.removeAllViews();status.setText("正在搜索同网段 ETKN 媒体服务器…");
         discovery=new LanDiscovery();discovery.scan(this,item->runOnUiThread(()->{
             if(isDestroyed()||revision!=scanRevision||!discovered.add(item.optString("url")))return;
-            Button choice=button(item.optString("name")+"   ·   "+item.optString("url"),()->{server.setText(item.optString("url"));username.requestFocus();});
+            Button choice=button(item.optString("name")+"   ·   "+item.optString("url"),()->{server.setText(item.optString("url"));showServerBrand(item.optString("name"));username.requestFocus();});
             servers.addView(choice);if(discovered.size()==1)choice.requestFocus();
         }),()->runOnUiThread(()->{if(!isDestroyed()&&revision==scanRevision)status.setText(discovered.isEmpty()?"未找到服务器。请确认电视与 ETKN 在同一局域网，或手动填写媒体服务器地址。":"找到 "+discovered.size()+" 台服务器，选择后登录。");}));
     }

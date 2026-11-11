@@ -48,6 +48,7 @@ public final class MusicActivity extends TvActivity {
         for(int i=0;i<TABS.length;i++){Button choice=(Button)musicMenu.getChildAt(i);themeText(choice,TABS[i].equals(tab)?ACCENT:TEXT);choice.setTypeface(null,TABS[i].equals(tab)?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);}
         if(tab.equals("recommended")){recommendations();return;}
         if(tab.equals("playlists")&&key.isEmpty()){playlists();return;}
+        if(tab.equals("albums")&&!key.isEmpty()){playAlbum(key,title);return;}
         listing=grid(content,tracksOnly||!key.isEmpty()&&!tab.equals("artists")?300:140,12,104);
         listing.setPadding(0,dp(8),0,dp(12));more=button("加载更多",this::page);content.addView(more);page();
     }
@@ -79,7 +80,16 @@ public final class MusicActivity extends TvActivity {
         });
     }
     private static List<JSONObject> items(JSONArray array){List<JSONObject> items=new ArrayList<>();if(array!=null)for(int i=0;i<array.length();i++)if(array.optJSONObject(i)!=null)items.add(array.optJSONObject(i));return items;}
-    private void openGroup(JSONObject item){String kind=item.optString("Kind",tab);open(this,parent,kind,item.optString("Key"),item.optString("Name"));}
+    private String albumPath(String albumKey){return api.userPath()+"/Music?ParentId="+EtknApi.encode(parent)+"&Tab=albums&Key="+EtknApi.encode(albumKey)+"&SortBy=Name&SortOrder=Ascending";}
+    private void playAlbum(String albumKey,String albumTitle){
+        String albumPath=albumPath(albumKey);int ticket=revision;status.setText("正在打开专辑…");
+        async(()->api.get(albumPath+"&StartIndex=0&Limit=200"),result->{
+            if(ticket!=revision)return;List<JSONObject> songs=new ArrayList<>();for(JSONObject item:EtknApi.rows(result))if("Audio".equals(item.optString("Type")))songs.add(item);
+            if(songs.isEmpty()){status.setText("专辑暂无可播放歌曲");return;}
+            status.setText("正在播放 · "+albumTitle);MusicPlayback.get(this).play(songs,songs.get(0),albumPath,result.optInt("TotalRecordCount",songs.size()));open(MusicPlayerActivity.class);
+        });
+    }
+    private void openGroup(JSONObject item){String kind=item.optString("Kind",tab);if(kind.equals("albums")){playAlbum(item.optString("Key"),item.optString("Name"));return;}open(this,parent,kind,item.optString("Key"),item.optString("Name"));}
     private void bindTrack(View card,JSONObject item){card.setTag(item);card.setOnLongClickListener(view->{MusicActions.trackMenu(this,item,parent,this::refreshAfterAction);return true;});card.setOnKeyListener((view,code,event)->{if(code!=KeyEvent.KEYCODE_MENU)return false;if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)MusicActions.trackMenu(this,item,parent,this::refreshAfterAction);return true;});}
     private void refreshAfterAction(){if(tab.equals("playlists"))load();}
     private void play(JSONObject item,List<JSONObject> items,String context){MusicPlayback.get(this).play(new ArrayList<>(items),item,context,context.isEmpty()?items.size():total);open(MusicPlayerActivity.class);}

@@ -12,6 +12,9 @@ import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.ImageView;
+import android.widget.SeekBar;
 import androidx.test.platform.app.InstrumentationRegistry;
 import org.json.*;
 import org.junit.Test;
@@ -79,7 +82,19 @@ public class UserPreferencesMusicTest {
             setup(fixture);host=(MusicActivity)instrumentation.startActivitySync(new Intent(context,MusicActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
             await(()->find(host.content,"最近听的")!=null&&find(host.content,"最近常听")!=null);
             screenshot("music-recommended");
-            TvActivity browser=host;
+            TvActivity browser=host;LinearLayout categories=(LinearLayout)field("musicMenu");main(()->categories.getChildAt(1).performClick());await(()->find(host.content,"测试专辑")!=null);
+            GridLayout albums=(GridLayout)field("listing");assertEquals(1,albums.getChildCount());
+            Instrumentation.ActivityMonitor playerMonitor=instrumentation.addMonitor(MusicPlayerActivity.class.getName(),null,false);
+            main(()->albums.getChildAt(0).performClick());
+            MusicPlayerActivity albumPlayer=(MusicPlayerActivity)instrumentation.waitForMonitorWithTimeout(playerMonitor,10000);assertNotNull("点击专辑应直接进入播放页",albumPlayer);host=albumPlayer;
+            MusicPlayback[] albumPlayback={null};await(()->MusicPlayback.active()&&(albumPlayback[0]=MusicPlayback.get(context)).playing()&&albumPlayback[0].queue.items.size()==3);
+            assertEquals("专辑首曲应立即播放","歌曲 1",albumPlayback[0].queue.current().optString("Name"));assertTrue(fixture.albumRequested);
+            await(()->{ListView list=(ListView)fieldUnchecked("queue");View first=list.getChildAt(0);return first!=null&&find(first,"0:08")!=null&&findClass(first,"SpectrumIcon")!=null;});
+            ListView albumQueue=(ListView)field("queue");View firstSong=albumQueue.getChildAt(0);TextView queueTitle=(TextView)field("queueTitle");SeekBar progress=(SeekBar)field("seek");assertNull("歌曲列表外层不保留大卡片底板",((View)albumQueue.getParent()).getBackground());assertNotNull("每首歌保留自己的小卡片",firstSong.getBackground());assertTrue("队列列表裁剪子项，避免卡片盖住标题",albumQueue.getClipChildren()&&albumQueue.getClipToPadding());assertFalse("播放进度条不参与遥控器焦点导航",progress.isFocusable());
+            android.graphics.drawable.StateListDrawable queueSelector=(android.graphics.drawable.StateListDrawable)albumQueue.getSelector();main(()->{assertFalse("播放焦点在左侧时队列不能显示聚焦框",albumQueue.hasFocus());assertTrue(queueSelector.getCurrent() instanceof android.graphics.drawable.ColorDrawable);});
+            main(albumQueue::requestFocus);await(albumQueue::hasFocus);main(()->{assertTrue(queueSelector.getCurrent() instanceof FocusPulse);Rect heading=new Rect(),row=new Rect();assertTrue(queueTitle.getGlobalVisibleRect(heading));assertTrue(firstSong.getGlobalVisibleRect(row));assertTrue("播放列表卡片必须位于标题下方",row.top>=heading.bottom);});screenshot("music-queue-focused");main(()->((View)fieldUnchecked("pause")).requestFocus());await(()->!albumQueue.hasFocus()&&queueSelector.getCurrent() instanceof android.graphics.drawable.ColorDrawable);screenshot("music-queue-unfocused");
+            LinearLayout playbackControls=(LinearLayout)field("controls");assertEquals("移除音量按钮",5,playbackControls.getChildCount());for(int i=0;i<playbackControls.getChildCount();i++)assertNotEquals("音量",playbackControls.getChildAt(i).getContentDescription());
+            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);await(()->albumPlayer.isFinishing()&&!MusicPlayback.active());host=browser;instrumentation.removeMonitor(playerMonitor);
             List<JSONObject> tracks=List.of(fixture.track(1),fixture.track(2));
             MusicPlayback[] playback={null};main(()->{playback[0]=MusicPlayback.get(context);playback[0].play(tracks,tracks.get(0),"/api/tv/Users/fixture/Music?Tab=songs",3);});
             host=(MusicPlayerActivity)instrumentation.startActivitySync(new Intent(context,MusicPlayerActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -88,12 +103,13 @@ public class UserPreferencesMusicTest {
             View pause=(View)field("pause"),mode=(View)field("mode");Rect rect=new Rect();
             assertTrue(pause.getGlobalVisibleRect(rect));assertEquals(pause.getHeight(),rect.height());
             assertTrue(mode.getGlobalVisibleRect(rect));assertEquals("播放选项必须完整可见",mode.getHeight(),rect.height());
-            main(()->assertIconButtons(host.root));
+            main(()->assertIconButtons(host.root));main(()->playback[0].mode(2));screenshot("music-mode-all");main(()->playback[0].mode(3));screenshot("music-mode-one");main(()->playback[0].mode(0));
             main(pause::requestFocus);instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_CENTER);
             await(()->!playback[0].playing());instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_CENTER);
             await(()->playback[0].playing());
             screenshot("music-player");
             main(()->playback[0].toggle());await(()->!playback[0].playing());
+            await(()->findClass(((ListView)fieldUnchecked("queue")).getChildAt(0),"SpectrumIcon")==null);
             fixture.preferences.put("mode","light");await(()->!host.appearanceDark());main(()->assertIconButtons(host.root));screenshot("music-player-light");
             fixture.preferences.put("mode","dark");await(()->host.appearanceDark());
             main(()->playback[0].toggle());await(()->playback[0].playing());
@@ -135,6 +151,12 @@ public class UserPreferencesMusicTest {
             screenshot("music-menu-scrolled");
         }finally{close();}
     }
+    @Test public void loginBrandUsesEtknLogoAndMediaServerName()throws Exception{
+        try(Fixture fixture=new Fixture()){
+            setup(fixture);host=(SetupActivity)instrumentation.startActivitySync(new Intent(context,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->find(host.root,"音乐库测试服")!=null);screenshot("music-login-brand");ViewGroup brand=(ViewGroup)host.root.getChildAt(0);assertTrue(brand.getChildAt(0) instanceof ImageView);ImageView logo=(ImageView)brand.getChildAt(0);assertNotNull(logo.getDrawable());assertEquals("ETKN",logo.getContentDescription());
+        }finally{close();}
+    }
     void assertIconButtons(View view){if(view instanceof Button){Button button=(Button)view;assertEquals("播放页按钮不显示文字","",button.getText().toString());assertNotNull(button.getCompoundDrawables()[0]);assertNotNull(button.getContentDescription());assertIconColor(button.getCompoundDrawables()[0]);}if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)assertIconButtons(group.getChildAt(i));}}
     void assertIconColor(android.graphics.drawable.Drawable drawable){
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(24,24,android.graphics.Bitmap.Config.ARGB_8888);Rect bounds=new Rect(drawable.getBounds());
@@ -144,11 +166,13 @@ public class UserPreferencesMusicTest {
         }finally{drawable.setBounds(bounds);bitmap.recycle();}
     }
     TextView find(View view,String text){if(view instanceof TextView&&text.contentEquals(((TextView)view).getText()))return (TextView)view;if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView result=find(group.getChildAt(i),text);if(result!=null)return result;}}return null;}
+    View findClass(View view,String name){if(view==null)return null;if(view.getClass().getSimpleName().equals(name))return view;if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){View result=findClass(group.getChildAt(i),name);if(result!=null)return result;}}return null;}
+    Object fieldUnchecked(String name){try{return field(name);}catch(Exception error){throw new RuntimeException(error);}}
 
     static final class Fixture implements AutoCloseable {
         final ServerSocket socket=new ServerSocket(0,20,InetAddress.getByName("127.0.0.1"));
         final ExecutorService workers=Executors.newCachedThreadPool();
-        volatile boolean running=true,remember=true;volatile int audioRequests,completed,stops;volatile String lockedHeader="";
+        volatile boolean running=true,remember=true,albumRequested;volatile int audioRequests,completed,stops;volatile String lockedHeader="";
         final JSONObject preferences=new JSONObject("{\"revision\":\"fixture\",\"configured\":true,\"mode\":\"dark\",\"theme_color\":\"#55c7b0\",\"shadow_color\":\"#000000\",\"shadow_strength\":1,\"background_blur\":0,\"glass_opacity\":0.7,\"background_url\":\"\",\"card_size\":2,\"show_home_libraries\":true,\"home_carousel\":true,\"skip_mode\":0,\"playback_preferences\":{\"preferences\":{\"audio_lang_priority\":[\"jpn\"],\"subtitle_priority\":[\"chs\"]},\"global_preferences\":{},\"effective_preferences\":{\"audio_lang_priority\":[\"jpn\"],\"subtitle_priority\":[\"chs\"]},\"hide_watched_latest\":true}}");
         final byte[] audio=tone();
         Fixture()throws Exception{workers.execute(()->{while(running)try{Socket client=socket.accept();workers.execute(()->serve(client));}catch(IOException ignored){}});}
@@ -159,12 +183,13 @@ public class UserPreferencesMusicTest {
             String body=new String(input.readNBytes(length),StandardCharsets.UTF_8);JSONObject result=new JSONObject();byte[] data;String type="application/json";int status=200,start=0,end=audio.length-1;
             if(path.startsWith("/audio.wav")){audioRequests++;type="audio/wav";for(String header:headers.split("\r\n"))if(header.toLowerCase(Locale.ROOT).startsWith("range:")){String[] range=header.split("=",2)[1].trim().split("-",-1);start=Integer.parseInt(range[0]);if(!range[1].isEmpty())end=Math.min(end,Integer.parseInt(range[1]));status=206;}data=Arrays.copyOfRange(audio,start,end+1);}
             else{
-                if(path.startsWith("/api/tv/Users/Me/ClientPreferences")){if(method.equals("PUT")){JSONObject update=new JSONObject(body);Iterator<String> keys=update.keys();while(keys.hasNext()){String key=keys.next();preferences.put(key,update.get(key));}}result=new JSONObject(preferences.toString());}
+                if(path.equals("/api/tv/System/Info/Public"))result.put("ProductName","ETKN").put("ServerName","音乐库测试服");
+                else if(path.startsWith("/api/tv/Users/Me/ClientPreferences")){if(method.equals("PUT")){JSONObject update=new JSONObject(body);Iterator<String> keys=update.keys();while(keys.hasNext()){String key=keys.next();preferences.put(key,update.get(key));}}result=new JSONObject(preferences.toString());}
                 else if(path.startsWith("/api/tv/Users/Me/AccountPreferences")){if(method.equals("PUT"))remember=new JSONObject(body).getBoolean("remember_admin_account");result.put("remember_admin_account",remember);}
                 else if(path.equals("/api/tv/Users/Me"))result.put("Id","fixture").put("Name","音乐测试").put("Policy",new JSONObject().put("IsAdministrator",true));
                 else if(path.contains("PlaybackInfo"))result.put("MediaSources",new JSONArray().put(new JSONObject().put("Id","version-1").put("DirectStreamUrl","/audio.wav").put("Container","wav"))).put("PlaySessionId",UUID.randomUUID().toString());
                 else if(path.contains("/Sessions/Playing")){if(path.endsWith("/Stopped")){stops++;if(new JSONObject(body).optBoolean("PlayedToCompletion"))completed++;}}
-                else if(path.contains("/Music?")){if(path.contains("Tab=recommended")){JSONArray latest=new JSONArray();for(int i=1;i<=12;i++)latest.put(new JSONObject().put("Name","最新专辑 "+i).put("Key","album-"+i).put("Kind","albums").put("Count",8));result.put("Latest",latest).put("Recent",new JSONArray().put(track(1))).put("Frequent",new JSONArray().put(track(2)));}else result.put("Items",new JSONArray().put(track(3))).put("TotalRecordCount",3);}
+                else if(path.contains("/Music?")){if(path.contains("Tab=recommended")){JSONArray latest=new JSONArray();for(int i=1;i<=12;i++)latest.put(new JSONObject().put("Name","最新专辑 "+i).put("Key","album-"+i).put("Kind","albums").put("Count",8));result.put("Latest",latest).put("Recent",new JSONArray().put(track(1))).put("Frequent",new JSONArray().put(track(2)));}else if(path.contains("Tab=albums")&&!path.contains("Key=album-")){result.put("Items",new JSONArray().put(new JSONObject().put("Id","album-1").put("Name","测试专辑").put("Kind","albums").put("Key","album-1").put("Count",3))).put("TotalRecordCount",1);}else if(path.contains("Tab=albums")&&path.contains("Key=album-1")){albumRequested=true;int offset=0;for(String part:path.split("&"))if(part.startsWith("StartIndex="))offset=Integer.parseInt(part.substring("StartIndex=".length()));JSONArray songs=new JSONArray();if(offset<2)songs.put(track(1)).put(track(2));else if(offset==2)songs.put(track(3));result.put("Items",songs).put("Title","测试专辑").put("TotalRecordCount",3);}else result.put("Items",new JSONArray().put(track(3))).put("TotalRecordCount",3);}
                 else if(path.contains("/Images/")){status=404;}
                 data=result.toString().getBytes(StandardCharsets.UTF_8);
             }

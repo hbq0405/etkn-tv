@@ -77,7 +77,10 @@ public final class HomeActivity extends TvActivity {
     private boolean hideWatchedLatest;
     private final List<JSONObject> carouselItems=new java.util.ArrayList<>();
     private int carouselIndex;
-    private ImageView carouselPrefetch;
+    private ImageView carouselPrefetch,carouselLogo;
+    private String carouselSeed="",carouselCursor="";
+    private boolean carouselLoading,carouselEnded;
+    private int carouselTicket;
     private final Runnable carouselRotate=new Runnable(){@Override public void run(){if(!carouselActive||!"home".equals(mode))return;if(!homeBackdrop.actionView().hasFocus())showCarouselItem(carouselIndex+1);homeTimer.postDelayed(this,8000);}};
     private static boolean updateChecked;
     private Updater.Release pendingUpdate;
@@ -87,12 +90,8 @@ public final class HomeActivity extends TvActivity {
         super.onCreate(state);
         homeCache=new HomeCache(this,api);
         FrameLayout stage=new FrameLayout(this);stage.setBackgroundColor(INK);homeBackdrop=new FocusBackdrop(this);stage.addView(homeBackdrop,new FrameLayout.LayoutParams(-1,-1));
-        homeBackdrop.actionView().setOnKeyListener((view,key,event)->{
-            if(!carouselActive)return false;
-            if(key!=KeyEvent.KEYCODE_DPAD_LEFT&&key!=KeyEvent.KEYCODE_DPAD_RIGHT)return false;
-            if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){showCarouselItem(carouselIndex+(key==KeyEvent.KEYCODE_DPAD_RIGHT?1:-1));homeTimer.removeCallbacks(carouselRotate);homeTimer.postDelayed(carouselRotate,8000);}
-            return true;
-        });
+        carouselPrefetch=new ImageView(this);carouselPrefetch.setVisibility(View.GONE);stage.addView(carouselPrefetch,new FrameLayout.LayoutParams(0,0));
+        carouselLogo=new ImageView(this);carouselLogo.setVisibility(View.GONE);stage.addView(carouselLogo,new FrameLayout.LayoutParams(0,0));
         homeScroll=new FocusScroll.Vertical(this);homeScroll.setFillViewport(true);homeScroll.setClipToPadding(false);
         content=column();homeScroll.addView(content);stage.addView(homeScroll,new FrameLayout.LayoutParams(-1,-1));
         homeScroll.setOnScrollChangeListener((View view,int x,int y,int oldX,int oldY)->{maybeLoadPosterPage();});
@@ -138,7 +137,7 @@ public final class HomeActivity extends TvActivity {
         if("home".equals(mode)&&(homePreferences.smartCarousel()!=carouselEnabled||homePreferences.showHomeLibraries()!=showHomeLibraries||hideWatchedSetting()!=hideWatchedLatest))loadHome();
         else if(!createdHome)refreshCurrent();
         createdHome=false;
-        if(carouselActive&&"home".equals(mode)){homeTimer.removeCallbacks(carouselRotate);showCarouselItem(carouselIndex);if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);}
+        if(carouselActive&&"home".equals(mode)){homeTimer.removeCallbacks(carouselRotate);showCarouselItem(0);homeTimer.postDelayed(carouselRotate,8000);}
         homeTimer.postDelayed(fallbackRefresh,60000);
         showUpdatePrompt();
         if(installing){installing=false;if(Build.VERSION.SDK_INT<26||getPackageManager().canRequestPackageInstalls())installUpdate();else status.setText("尚未允许安装更新，可授权后重试。");}
@@ -196,9 +195,9 @@ public final class HomeActivity extends TvActivity {
         loadShelf(resume,api.userPath()+"/Items/Resume?Limit="+homeShelfLimit(192),request,true,false,true,"暂无继续观看记录");
         loadShelf(libraries,api.userPath()+"/Views",request,true,true,false,"暂无可访问媒体库");
         if(carouselEnabled){
-            String carouselPath=api.userPath()+"/Items/PersonalRecommendations?Limit=12&Fields=Overview";
-            homeReloads.put(carouselPath,()->loadCarousel(carouselPath,request));
-            loadCarousel(carouselPath,request);
+            carouselSeed=java.util.UUID.randomUUID().toString();
+            homeReloads.put("carousel",()->refreshCarousel(request));
+            loadCarousel(request,false);
         }
     }
     private void loadLatestByLibrary(LinearLayout target,int request,List<JSONObject> libraries){
@@ -286,27 +285,48 @@ public final class HomeActivity extends TvActivity {
         if(resumeShelf&&!carouselActive)homeBackdrop.show(item,library,true);
         if(resumeShelf)homeScroll.post(()->{if(resumeCards.contains(getCurrentFocus()))homeScroll.scrollTo(0,0);});
     }
-    private void loadCarousel(String path,int request){
-        homeRequest(path,request,result->{if(request!=revision)return;startCarousel(EtknApi.rows(result));});
+    private boolean carouselBackdrop(JSONObject item){
+        org.json.JSONArray tags=item.optJSONArray("BackdropImageTags"),parent=item.optJSONArray("ParentBackdropImageTags");
+        return tags!=null&&tags.length()>0&&!tags.optString(0).isEmpty()||!item.optString("BackdropImageTag").isEmpty()||parent!=null&&parent.length()>0&&!parent.optString(0).isEmpty();
     }
-    private void startCarousel(List<JSONObject> items){
-        carouselItems.clear();carouselItems.addAll(items);carouselIndex=0;
-        carouselActive=carouselEnabled&&"home".equals(mode)&&!carouselItems.isEmpty();
-        homeTimer.removeCallbacks(carouselRotate);
-        homeBackdrop.actionVisible(carouselActive);homeBackdrop.actionView().setFocusable(initialFocusChosen);updateHomeBackdropFocus();
-        if(!carouselActive)return;
-        showCarouselItem(0);
-        if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);
+    private void loadCarousel(int request,boolean wrapped){
+        if(request!=revision||!carouselEnabled||!"home".equals(mode)||carouselLoading||carouselItems.size()>1)return;
+        if(carouselEnded){if(wrapped||carouselItems.isEmpty())return;carouselSeed=java.util.UUID.randomUUID().toString();carouselCursor="";carouselEnded=false;wrapped=true;}
+        final boolean cycleWrapped=wrapped;int ticket=++carouselTicket;carouselLoading=true;
+        String path=api.userPath()+"/Items/PersonalRecommendations?Stream=true&Limit=1&Fields=Overview&ShuffleSeed="+carouselSeed+"&Cursor="+carouselCursor;
+        async(()->{try{return api.get(path);}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("unavailable",true);}},result->{
+            if(request!=revision||ticket!=carouselTicket)return;
+            if(result.optBoolean("unavailable")){carouselLoading=false;return;}
+            carouselEnded=result.isNull("NextCursor")||!result.has("NextCursor");carouselCursor=result.optString("NextCursor","");
+            List<JSONObject> items=EtknApi.rows(result);if(items.isEmpty()){carouselLoading=false;return;}JSONObject item=items.get(0);
+            if(!carouselBackdrop(item)||!carouselItems.isEmpty()&&item.optString("Id").equals(carouselItems.get(0).optString("Id"))){carouselLoading=false;loadCarousel(request,cycleWrapped);return;}
+            Images.backdrop(api,api.artwork(item,"Backdrop",1280),carouselPrefetch,ready->{
+                if(request!=revision||ticket!=carouselTicket)return;
+                if(!ready){carouselLoading=false;loadCarousel(request,cycleWrapped);return;}
+                Runnable prepared=()->{
+                    if(request!=revision||ticket!=carouselTicket)return;
+                    carouselLoading=false;carouselItems.add(item);
+                    if(carouselItems.size()==1){carouselActive=true;carouselIndex=0;homeBackdrop.actionVisible(true);homeBackdrop.actionView().setFocusable(initialFocusChosen);updateHomeBackdropFocus();showCarouselItem(0);homeTimer.removeCallbacks(carouselRotate);if(foreground)homeTimer.postDelayed(carouselRotate,8000);}
+                };
+                JSONObject tags=item.optJSONObject("ImageTags");boolean logo=tags!=null&&!tags.optString("Logo").isEmpty()||!item.optString("ParentLogoImageTag").isEmpty();
+                if(!logo){prepared.run();return;}
+                Images.backdrop(api,api.artwork(item,"Logo",600),carouselLogo,ignored->prepared.run());
+            });
+        });
     }
-    private void stopCarousel(){carouselActive=false;carouselItems.clear();homeTimer.removeCallbacks(carouselRotate);homeBackdrop.actionVisible(false);}
+    private void refreshCarousel(int request){
+        if(carouselItems.isEmpty()){loadCarousel(request,false);return;}JSONObject selected=carouselItems.get(0);
+        async(()->{try{return api.get(api.userPath()+"/Items/"+EtknApi.encode(selected.optString("Id"))+"?Fields=Overview");}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject();}},item->{
+            if(request!=revision||carouselItems.isEmpty()||carouselItems.get(0)!=selected||!selected.optString("Id").equals(item.optString("Id"))||!carouselBackdrop(item))return;
+            carouselItems.set(0,item);homeBackdrop.show(item,false,true);
+        });
+    }
+    private void stopCarousel(){carouselTicket++;carouselActive=false;carouselLoading=false;carouselEnded=false;carouselCursor="";carouselItems.clear();homeTimer.removeCallbacks(carouselRotate);if(carouselPrefetch!=null){carouselPrefetch.setTag(null);carouselPrefetch.setImageDrawable(null);}if(carouselLogo!=null){carouselLogo.setTag(null);carouselLogo.setImageDrawable(null);}homeBackdrop.actionVisible(false);}
     private void showCarouselItem(int target){
         if(carouselItems.isEmpty())return;
-        carouselIndex=(target%carouselItems.size()+carouselItems.size())%carouselItems.size();
-        homeBackdrop.show(carouselItems.get(carouselIndex),false,true);
-        if(carouselItems.size()>1){
-            if(carouselPrefetch==null)carouselPrefetch=new ImageView(this);
-            Images.backdrop(api,api.artwork(carouselItems.get((carouselIndex+1)%carouselItems.size()),"Backdrop",1280),carouselPrefetch,success->{});
-        }
+        if(target>0&&carouselItems.size()<2){loadCarousel(revision,false);return;}
+        if(target>0&&carouselItems.size()>1)carouselItems.remove(0);
+        carouselIndex=0;homeBackdrop.show(carouselItems.get(0),false,true);loadCarousel(revision,false);
     }
     private void onHomeShelfLoaded(boolean resumeShelf,View first){
         if(resumeShelf){resumeFirst=first;resumeReady=true;}else{libraryFirst=first;libraryReady=true;}
@@ -477,7 +497,7 @@ public final class HomeActivity extends TvActivity {
         async(()->{try{return state?(current?api.delete(path):api.post(path,new JSONObject())):action.equals("delete")?api.delete(path):api.post(path+(action.equals("hide")?"":action.equals("scan")?"/Scan":"/Refresh?Action="+action),new JSONObject());}
             finally{runOnUiThread(()->mediaActionBusy=false);}},result->{if(state){JSONObject updated=item.optJSONObject("UserData");if(updated==null)updated=new JSONObject();for(java.util.Iterator<String> keys=result.keys();keys.hasNext();){String key=keys.next();try{updated.put(key,result.get(key));}catch(Exception ignored){}}try{item.put("UserData",updated);}catch(Exception ignored){}}status.setText(state?"状态已更新":action.equals("hide")?"已从继续观看中移除":action.equals("scan")?"媒体库扫描任务已提交":action.equals("delete")?"删除任务已提交":"");if(!state&&!action.equals("hide")&&!action.equals("scan")&&!action.equals("delete"))refreshSubmitted(item.optString("Id"),result);refreshCurrent();});
     }
-    @Override protected void onDestroy(){if(itemMenu!=null)itemMenu.dismiss();super.onDestroy();}
+    @Override protected void onDestroy(){stopCarousel();if(itemMenu!=null)itemMenu.dismiss();super.onDestroy();}
     private String posterQuery(int limit,int start){
         if(folderMode)return folderQuery(limit,start,false);
         if(selectedLibrary!=null&&"favorites".equals(selectedLibrary.optString("SourceType")))return api.userPath()+"/Browse?Filters=IsFavorite&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder;

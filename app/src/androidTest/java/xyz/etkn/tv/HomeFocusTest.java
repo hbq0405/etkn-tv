@@ -226,6 +226,33 @@ public class HomeFocusTest {
         }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
     }
 
+    @Test public void recommendationStreamPreparesOnlyOneSuccessorAndSkipsMissingPictures()throws Exception{
+        try(Fixture server=new Fixture()){
+            server.streamMissing=true;server.holdStreamImage=true;
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"stream-fixture","推荐流测试","loopback-only");
+            new TvPreferences(instrumentation.getTargetContext(),new EtknApi(instrumentation.getTargetContext())).setSmartCarousel(true);
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->Boolean.TRUE.equals(field(HomeActivity.class,"carouselActive"))&&server.streamPaths.size()==4);
+            FocusBackdrop hero=(FocusBackdrop)field(HomeActivity.class,"homeBackdrop");
+            await(()->((View)field(HomeActivity.class,"resumeFirst"))!=null);instrumentation.runOnMainSync(()->hero.actionView().requestFocus());
+            assertEquals("缺图和404条目都应跳过","stream-2",((JSONObject)backdropField(hero,"current")).optString("Id"));
+            Runnable rotate=(Runnable)field(HomeActivity.class,"carouselRotate");
+            instrumentation.runOnMainSync(()->{((View)field(HomeActivity.class,"resumeFirst")).requestFocus();rotate.run();});
+            assertEquals("下一项图片未就绪不能切换","stream-2",((JSONObject)backdropField(hero,"current")).optString("Id"));
+            assertEquals(4,server.streamPaths.size());server.streamImageGate.countDown();
+            await(()->((List<?>)field(HomeActivity.class,"carouselItems")).size()==2&&!Boolean.TRUE.equals(field(HomeActivity.class,"carouselLoading")));
+            int requests=server.streamPaths.size();call("refreshHome",new Class<?>[]{});Thread.sleep(600);
+            assertEquals("后台刷新不能重启推荐流",requests,server.streamPaths.size());
+            instrumentation.runOnMainSync(rotate);await(()->"stream-3".equals(((JSONObject)backdropField(hero,"current")).optString("Id"))&&server.streamPaths.size()==requests+1);
+            assertTrue(((List<?>)field(HomeActivity.class,"carouselItems")).size()<=2);
+            String seed=android.net.Uri.parse(server.streamPaths.get(0)).getQueryParameter("ShuffleSeed");
+            for(String path:server.streamPaths){android.net.Uri uri=android.net.Uri.parse(path);assertEquals("1",uri.getQueryParameter("Limit"));assertEquals(seed,uri.getQueryParameter("ShuffleSeed"));}
+            for(String key:instrumentation.getTargetContext().getSharedPreferences("home-"+Images.digest(server.origin()+"\nstream-fixture"),0).getAll().keySet())assertFalse("推荐流不能持久化为无限缓存键",key.contains("PersonalRecommendations"));
+            int before=server.streamPaths.size();call("loadHome",new Class<?>[]{});await(()->server.streamPaths.size()>before);
+            assertNotEquals(seed,android.net.Uri.parse(server.streamPaths.get(before)).getQueryParameter("ShuffleSeed"));
+        }finally{if(home!=null)instrumentation.runOnMainSync(()->home.finish());new SessionStore(instrumentation.getTargetContext()).clear();}
+    }
+
     @Test public void resumeAndCarouselDetailsFocusKeepBackdropSharpAndDetailsVisible()throws Exception{
         try(Fixture server=new Fixture()){
             evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"home-backdrop");assertTrue(evidence.isDirectory()||evidence.mkdirs());
@@ -278,7 +305,7 @@ public class HomeFocusTest {
                     assertTrue(shownText(hero,"2026"));assertSame(backdropField(hero,"sharp"),((android.graphics.drawable.BitmapDrawable)image.getDrawable()).getBitmap());assertEquals(1f,copy.getAlpha(),0.01f);
                     instrumentation.runOnMainSync(()->((View)field(HomeActivity.class,"resumeFirst")).requestFocus());settle();
                 }
-                call("showMenu",new Class<?>[]{});settle();assertFalse("菜单聚焦时隐藏简介",shownText(hero,"背景简介"));assertFalse(hero.actionView().isShown());
+                call("showMenu",new Class<?>[]{});settle();assertEquals("保留已有轮播模式菜单背景，普通联动模式隐藏信息",carousel,((View)backdropField(hero,"information")).isShown());assertEquals(carousel,hero.actionView().isShown());
                 call("hideMenu",new Class<?>[]{});settle();assertTrue("菜单退出后恢复简介",((View)backdropField(hero,"information")).isShown()&&((View)backdropField(hero,"overview")).isShown());
                 saveScreenshot("resume-restored-"+carousel+".png");
                 HomeActivity closing=home;instrumentation.runOnMainSync(closing::finish);await(closing::isDestroyed);home=null;
@@ -833,6 +860,9 @@ public class HomeFocusTest {
         final byte[][] logos=new byte[3][];
         volatile boolean admin,canRefresh,favorite,played,deleted,denyMutation,hiddenResume,browseFeatures,facetArt,failFirstFacet,holdFacet,respectLimits;
         volatile String lastResumePath="";
+        volatile boolean streamMissing,holdStreamImage;
+        final java.util.List<String> streamPaths=new java.util.concurrent.CopyOnWriteArrayList<>();
+        final java.util.concurrent.CountDownLatch streamImageGate=new java.util.concurrent.CountDownLatch(1);
         volatile boolean missingFirstLogo,styledBannerTitles;
         volatile boolean nativeGroups;
         final java.util.concurrent.CountDownLatch facetGate=new java.util.concurrent.CountDownLatch(1);
@@ -900,6 +930,9 @@ public class HomeFocusTest {
                 if(holdNextListing&&(path.contains("/Items?")||path.contains("/Browse?"))){listingStarted.countDown();listingGate.await(20,java.util.concurrent.TimeUnit.SECONDS);}
                 if(path.contains("/Items/Latest?"))latestPaths.add(path);
                 if(path.contains("/Items/Resume?"))lastResumePath=path;
+                if(path.contains("/PersonalRecommendations?"))streamPaths.add(path);
+                if(holdStreamImage&&path.contains("/Items/stream-3/Images/Backdrop"))streamImageGate.await(20,java.util.concurrent.TimeUnit.SECONDS);
+                if(streamMissing&&path.contains("/Items/stream-1/Images/Backdrop")){client.getOutputStream().write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));return;}
                 if(missingFirstLogo&&path.contains("/Items/item-0/Images/Logo")){client.getOutputStream().write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));return;}
                 boolean picture=path.contains("/Images/")||path.contains("/FolderCover?")||path.contains("/FacetArtwork?")||path.contains("/Appearance/Background");
                 boolean isLogo=path.contains("/Images/Logo");java.util.regex.Matcher logoId=java.util.regex.Pattern.compile("/Items/item-(\\d+)/").matcher(path);int logoIndex=logoId.find()?Integer.parseInt(logoId.group(1))%logos.length:0;
@@ -909,6 +942,12 @@ public class HomeFocusTest {
         }
         JSONObject response(String path)throws Exception{
             if(path.equals("/api/tv/System/Appearance"))return appearance;
+            if(path.contains("/PersonalRecommendations?")){
+                String cursor=android.net.Uri.parse(path).getQueryParameter("Cursor");int index=cursor==null||cursor.isEmpty()?0:Integer.parseInt(cursor);
+                JSONObject item=new JSONObject().put("Id","stream-"+index).put("Name","推荐影片 "+index).put("Type","Movie").put("Overview","背景简介").put("ProductionYear",2026);
+                if(!streamMissing||index!=0)item.put("BackdropImageTags",new JSONArray().put("stream-"+index));
+                return new JSONObject().put("Items",new JSONArray().put(item)).put("NextCursor",index<19?String.valueOf(index+1):JSONObject.NULL);
+            }
             String limitText=android.net.Uri.parse(path).getQueryParameter("Limit");int limit=respectLimits&&limitText!=null?Integer.parseInt(limitText):60;
             if(nativeGroups&&path.contains("/Items?ParentId=library-group-7")){
                 JSONArray rows=new JSONArray();for(int i=1;i<=2;i++)rows.put(new JSONObject().put("Id","library-"+i).put("Name",i==1?"分组电影":"分组榜单").put("Type","CollectionFolder").put("CollectionType","movies").put("SourceType",i==1?"path":"filter").put("ParentId","library-group-7"));return new JSONObject().put("Items",rows).put("TotalRecordCount",2);
@@ -945,6 +984,6 @@ public class HomeFocusTest {
             for(int i=0;i<items.length();i++)items.getJSONObject(i).getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);
             return new JSONObject().put("Items",items);
         }
-        @Override public void close()throws IOException{closed=true;heroGate.countDown();latestGate.countDown();resumeGate.countDown();cardGate.countDown();updateGate.countDown();listingGate.countDown();socket.close();}
+        @Override public void close()throws IOException{closed=true;streamImageGate.countDown();heroGate.countDown();latestGate.countDown();resumeGate.countDown();cardGate.countDown();updateGate.countDown();listingGate.countDown();socket.close();}
     }
 }

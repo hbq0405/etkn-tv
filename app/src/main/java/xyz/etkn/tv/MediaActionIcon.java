@@ -18,8 +18,7 @@ final class MediaActionIcon extends Drawable {
             case "next"->"M19 5 V19 M5 5 L15 12 L5 19 Z";
             case "sequence"->"M4 6 H20 M4 12 H16 M4 18 H12";
             case "shuffle"->"M3 6 H6 C10 6 14 18 18 18 H21 M18 15 L21 18 L18 21 M3 18 H6 C10 18 14 6 18 6 H21 M18 3 L21 6 L18 9";
-            case "repeat","repeat_one"->"M4 10 V7 H20 L17 4 M20 14 V17 H4 L7 20 M20 7 V10 M4 17 V14";
-            case "volume"->"M3 9 H7 L12 5 V19 L7 15 H3 Z M16 8 Q21 12 16 16 M19 5 Q26 12 19 19";
+            case "repeat","repeat_one"->"M4 9 V7 Q4 5 6 5 H18 L15 2 M18 5 L15 8 M20 15 V17 Q20 19 18 19 H6 L9 22 M6 19 L9 16";
             case "playlist"->"M3 5 H16 M3 10 H16 M3 15 H11 M17 13 V21 M13 17 H21";
             case "load"->"M5 4 H19 M12 8 V21 M7 16 L12 21 L17 16";
             case "restart"->"M4 10 A8 8 0 1 1 5 18 M4 4 V10 H10 M10 8 L16 12 L10 16 Z";
@@ -35,7 +34,7 @@ final class MediaActionIcon extends Drawable {
         paint.setStyle(Paint.Style.STROKE);
         if(name.equals("resume"))canvas.drawLine(4,6,4,18,paint);
         if(name.equals("played"))canvas.drawCircle(12,12,9,paint);
-        if(name.equals("repeat_one")){paint.setStyle(Paint.Style.FILL);paint.setTextSize(7);paint.setTextAlign(Paint.Align.CENTER);canvas.drawText("1",12,14.5f,paint);}
+        if(name.equals("repeat")||name.equals("repeat_one")){paint.setStyle(Paint.Style.FILL);paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);paint.setTextSize(name.equals("repeat")?5.2f:8f);paint.setTextAlign(Paint.Align.CENTER);canvas.drawText(name.equals("repeat")?"ALL":"1",12,14.5f,paint);}
         canvas.restoreToCount(saved);
     }
     @Override public void setAlpha(int alpha){this.alpha=alpha;invalidateSelf();}
