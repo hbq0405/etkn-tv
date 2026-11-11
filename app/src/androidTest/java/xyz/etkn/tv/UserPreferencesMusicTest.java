@@ -154,8 +154,19 @@ public class UserPreferencesMusicTest {
     @Test public void loginBrandUsesEtknLogoAndMediaServerName()throws Exception{
         try(Fixture fixture=new Fixture()){
             setup(fixture);host=(SetupActivity)instrumentation.startActivitySync(new Intent(context,SetupActivity.class).putExtra(SetupActivity.EXTRA_ADD_ACCOUNT,true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
-            await(()->find(host.root,"音乐库测试服")!=null);screenshot("music-login-brand");ViewGroup brand=(ViewGroup)host.root.getChildAt(0);assertTrue(brand.getChildAt(0) instanceof ImageView);ImageView logo=(ImageView)brand.getChildAt(0);assertNotNull(logo.getDrawable());assertEquals("ETKN",logo.getContentDescription());
+            await(()->find(host.root,"音乐库测试服")!=null&&"#55c7b0".equals(TvAppearance.current.optString("theme_color")));main(this::assertBrandColor);
+            fixture.preferences.put("theme_color","#bf395d");await(()->"#bf395d".equals(TvAppearance.current.optString("theme_color")));main(this::assertBrandColor);screenshot("login-brand-dark");
+            fixture.preferences.put("mode","light");await(()->!host.appearanceDark());main(this::assertBrandColor);screenshot("login-brand-light");
+            call("showPicker",new Class<?>[]{});await(()->find(host.root,"音乐库测试服")!=null);main(this::assertBrandColor);
         }finally{close();}
+    }
+    void assertBrandColor(){
+        ViewGroup brand=(ViewGroup)host.root.getChildAt(0);assertTrue(brand.getChildAt(0) instanceof ImageView);ImageView logo=(ImageView)brand.getChildAt(0);assertNotNull(logo.getDrawable());assertEquals("ETKN",logo.getContentDescription());
+        android.graphics.Bitmap frame=android.graphics.Bitmap.createBitmap(logo.getWidth(),logo.getHeight(),android.graphics.Bitmap.Config.ARGB_8888);
+        try{logo.draw(new android.graphics.Canvas(frame));int pixel=0;for(int y=0;y<frame.getHeight();y++)for(int x=0;x<frame.getWidth();x++)if(android.graphics.Color.alpha(frame.getPixel(x,y))>android.graphics.Color.alpha(pixel))pixel=frame.getPixel(x,y);
+            assertTrue("Logo必须实际绘制",android.graphics.Color.alpha(pixel)>200);assertEquals("Logo实际颜色必须跟随当前主题",host.resolveColor(TvActivity.ACCENT)&0xffffff,pixel&0xffffff);
+            assertEquals("Logo内圈空白必须保持透明",0,android.graphics.Color.alpha(frame.getPixel(frame.getWidth()/2,frame.getHeight()/4)));
+        }finally{frame.recycle();}
     }
     void assertIconButtons(View view){if(view instanceof Button){Button button=(Button)view;assertEquals("播放页按钮不显示文字","",button.getText().toString());assertNotNull(button.getCompoundDrawables()[0]);assertNotNull(button.getContentDescription());assertIconColor(button.getCompoundDrawables()[0]);}if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)assertIconButtons(group.getChildAt(i));}}
     void assertIconColor(android.graphics.drawable.Drawable drawable){

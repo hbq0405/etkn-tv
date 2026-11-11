@@ -13,6 +13,7 @@ public final class SetupActivity extends TvActivity {
     private EditText server,username,password;
     private LinearLayout servers,savedUsers,loginPanel;
     private TextView serverBrand;
+    private ImageView serverLogo;
     private int serverBrandGeneration;
     private int scanRevision;
     private final Set<String> discovered=new HashSet<>();
@@ -63,10 +64,11 @@ public final class SetupActivity extends TvActivity {
     private void installServerBrand(){
         if(root.getChildCount()>0)root.removeViewAt(0);
         LinearLayout brand=row();brand.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.etkn_logo);logo.setContentDescription("ETKN");brand.addView(logo,new LinearLayout.LayoutParams(dp(32),dp(32)));
+        serverLogo=new ImageView(this);serverLogo.setImageResource(R.drawable.etkn_logo_tint);serverLogo.setContentDescription("ETKN");brand.addView(serverLogo,new LinearLayout.LayoutParams(dp(32),dp(32)));
         serverBrand=text("ETKN 媒体服务器",14,ACCENT);serverBrand.setTypeface(null,android.graphics.Typeface.BOLD);serverBrand.setSingleLine(true);serverBrand.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams label=new LinearLayout.LayoutParams(-2,dp(32));label.setMargins(dp(10),0,0,0);brand.addView(serverBrand,label);
-        root.addView(brand,0,new LinearLayout.LayoutParams(-1,dp(38)));
+        root.addView(brand,0,new LinearLayout.LayoutParams(-1,dp(38)));appearanceChanged();
     }
+    @Override void appearanceChanged(){if(serverLogo!=null)serverLogo.setImageTintList(android.content.res.ColorStateList.valueOf(resolveColor(ACCENT)));}
     private void loadServerBrand(String address){
         int generation=++serverBrandGeneration;if(serverBrand==null)return;
         String value=address==null?"":address.trim();if(value.isEmpty()){serverBrand.setText("ETKN 媒体服务器");return;}
