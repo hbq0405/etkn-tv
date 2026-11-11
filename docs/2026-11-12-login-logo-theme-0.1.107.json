@@ -1,0 +1,43 @@
+{
+  "date": "2026-11-12",
+  "source_commit": "12ccfbd5822865cb17006b2de0a42d96e64938e2",
+  "pushed": false,
+  "github_release_published": false,
+  "certificate_sha256": "e02d42443875c3631be48199e0df419b0570fcc421be7ff2b620f4c643e67bd7",
+  "package_verification": {
+    "version": "0.1.107",
+    "code": 108,
+    "sha256": "88087d9075a209dc57f52e13643a7534bb2d9616f99290d0c86535ab25a3c15b",
+    "package": "xyz.etkn.tv",
+    "unit_tests": {
+      "tests": 113,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "lint_errors": 0,
+    "unchanged_native_libraries": 20,
+    "launcher_logo_unchanged": true,
+    "login_mask_packaged": true,
+    "instrumentation_tests": 1,
+    "actual_pixels_checked": true,
+    "transparent_inner_ring_checked": true,
+    "baseline_fixed_color_reproduced": true
+  },
+  "device_verification": {
+    "device": "192.168.31.188:5555",
+    "version": "0.1.107",
+    "code": 108,
+    "installed_sha256": "88087d9075a209dc57f52e13643a7534bb2d9616f99290d0c86535ab25a3c15b",
+    "data_preserved": true,
+    "launch": "SetupActivity Status: ok",
+    "crash_markers_in_sample": 0
+  },
+  "real_tv_brand_screenshot_checked": true,
+  "real_tv_logo_and_server_name_theme": "current yellow",
+  "emulator_test_packages_removed": true,
+  "emulator_closed": true,
+  "temporary_directory_removed": true,
+  "outputs": "D:/work/ETKN-TV/outputs/login-logo-20261112",
+  "user_acceptance": false
+}
