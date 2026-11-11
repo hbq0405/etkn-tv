@@ -33,27 +33,31 @@ abstract class TvActivity extends Activity {
     private final android.os.Handler appNoticeHandler=new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable appNoticeHide;
     private boolean appearanceForeground,appearanceLoading;
+    private boolean accountPreferenceLoading;
     private final java.util.ArrayList<java.lang.ref.WeakReference<TextView>> themedTexts=new java.util.ArrayList<>();
     private final java.util.ArrayList<java.lang.ref.WeakReference<android.app.AlertDialog>> themedDialogs=new java.util.ArrayList<>();
-    private final Runnable appearancePoll=new Runnable(){@Override public void run(){refreshAppearance();noticeTimer.postDelayed(this,3000);}};
+    private final Runnable appearancePoll=new Runnable(){@Override public void run(){refreshAppearance();refreshAccountPreference();noticeTimer.postDelayed(this,3000);}};
+    private void refreshAccountPreference(){if(!appearanceForeground||accountPreferenceLoading||api.token.isEmpty())return;accountPreferenceLoading=true;IO.execute(()->{boolean changed=false;try{changed=api.syncAccountPreference();}catch(Exception ignored){}boolean result=changed;runOnUiThread(()->{accountPreferenceLoading=false;if(!isDestroyed()&&appearanceForeground&&result)accountPreferencesChanged();});});}
+    void accountPreferencesChanged(){}
     @Override public void setContentView(View view){
         if(this instanceof PlayerActivity||this instanceof DetailActivity){super.setContentView(view);return;}
         FrameLayout stage=new FrameLayout(this);serverBackground=new AppearanceBackground(this);stage.addView(serverBackground,new FrameLayout.LayoutParams(-1,-1));view.setBackgroundColor(Color.TRANSPARENT);stage.addView(view,new FrameLayout.LayoutParams(-1,-1));super.setContentView(stage);
         updateAppearanceViews();
     }
     private void refreshAppearance(){
-        if(!appearanceForeground||appearanceLoading||api.token.isEmpty()||TvAppearance.locked(this,api.server))return;
-        appearanceLoading=true;
-        IO.execute(()->{org.json.JSONObject value=null;try{value=api.get("/api/tv/System/Appearance");}catch(Exception ignored){}org.json.JSONObject result=value;runOnUiThread(()->{
-            appearanceLoading=false;if(!appearanceForeground||isDestroyed()||!api.server.equals(api.session.server())||!api.token.equals(api.session.token())||result==null||TvAppearance.locked(this,api.server))return;
-            if(!result.toString().equals(TvAppearance.current.toString())){TvAppearance.save(this,api.server,result);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();appearanceChanged();}
+        if(!appearanceForeground||appearanceLoading||TvAppearance.saving||api.token.isEmpty()||TvAppearance.locked(this,api.server))return;
+        appearanceLoading=true;final int generation=TvAppearance.generation;final String user=api.session.userId();
+        IO.execute(()->{org.json.JSONObject value=null;try{value=api.get("/api/tv/Users/Me/ClientPreferences");}catch(Exception ignored){}org.json.JSONObject result=value;runOnUiThread(()->{
+            appearanceLoading=false;if(!appearanceForeground||isDestroyed()||generation!=TvAppearance.generation||TvAppearance.saving||!TvAppearance.sameSession(api,user)||result==null||TvAppearance.locked(this,api.server))return;
+            if(!result.toString().equals(TvAppearance.current.toString())){TvAppearance.save(this,api.server,result);reloadAppearance();}
         });});
     }
     private boolean forceDarkAppearance(){return this instanceof PlayerActivity||this instanceof DetailActivity;}
     boolean appearanceDark(){return forceDarkAppearance()||TvAppearance.dark();}
     int resolveColor(int color){return TvAppearance.resolve(color,forceDarkAppearance());}
     void appearanceChanged(){}
-    void reloadAppearance(){TvAppearance.load(this,api.server);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();appearanceChanged();refreshAppearance();}
+    void reloadAppearance(){TvAppearance.load(this,api.server);setTheme(appearanceDark()?R.style.AppThemeDark:R.style.AppTheme);updateAppearanceViews();checkImageSize();appearanceChanged();}
+    void syncAppearance(){refreshAppearance();}
     void themeText(TextView view,int color){view.setTag(R.id.appearance_text,color);view.setTextColor(resolveColor(color));themedTexts.add(new java.lang.ref.WeakReference<>(view));}
     private void updateAppearanceViews(){
         getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(TvAppearance.background(appearanceDark())));
@@ -92,7 +96,7 @@ abstract class TvActivity extends Activity {
     /** 前台 Activity 计数：归零表示应用整体退到后台，按登录方式配置重置门禁。 */
     private static int foregroundActivities;
     @Override protected void onStart(){super.onStart();foregroundActivities++;}
-    @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
+    @Override protected void onStop(){if(api.session.persist()!=SessionStore.PERSIST_FULL)getWindow().getDecorView().setVisibility(View.INVISIBLE);if(--foregroundActivities==0&&!isChangingConfigurations()){MusicPlayback.stop();if(api.session.persist()==SessionStore.PERSIST_NONE)IngestNotifications.logout(this);LoginGate.reset();SessionStore.endTemporarySession();}super.onStop();}
     @Override protected void onResume(){super.onResume();if(!(this instanceof SetupActivity)&&(!LoginGate.isSatisfied()&&(api.session.persist()!=SessionStore.PERSIST_FULL||!api.token.isEmpty())||LoginGate.requiresPicker(this,api))){LoginGate.enter(this);return;}getWindow().getDecorView().setVisibility(View.VISIBLE);appearanceForeground=true;updateAppearanceViews();noticeTimer.removeCallbacks(appearancePoll);noticeTimer.post(appearancePoll);if(LoginGate.isSatisfied()){int size=preferences.imageSize();boolean changed=appliedImageSize>=0&&appliedImageSize!=size;appliedImageSize=size;if(changed){applyImageSizeNow();imageSizeChanged();}IngestNotifications.resumed(this);noticeTimer.post(noticePoll);refreshForeground=true;noticeTimer.post(refreshPoll);}}
     @Override protected void onPause(){appearanceForeground=false;noticeTimer.removeCallbacks(appearancePoll);refreshForeground=false;noticeTimer.removeCallbacks(refreshPoll);noticeTimer.removeCallbacks(noticePoll);IngestNotifications.paused(this);super.onPause();}
     int imageSize(){return preferences.imageSize();}
@@ -111,6 +115,7 @@ abstract class TvActivity extends Activity {
 
     void imageSizeUpdater(View view,Runnable updater){view.setTag(R.id.image_size_updater,updater);}
     void imageSizeChanged(){}
+    private void checkImageSize(){int size=preferences.imageSize();boolean changed=appliedImageSize>=0&&appliedImageSize!=size;appliedImageSize=size;if(changed){applyImageSizeNow();imageSizeChanged();}}
     int availableWidth(int insetDp){return Math.max(1,getResources().getDisplayMetrics().widthPixels-dp(insetDp));}
     int cardColumns(int width,int cardWidthDp,int gapDp){return CardGeometry.columns(Math.round(width/getResources().getDisplayMetrics().density),cardWidthDp,gapDp,imageSize());}
     int gridCapacity(GridLayout grid,ScrollView viewport,float aspect,int captionHeightDp,int rowGapDp){

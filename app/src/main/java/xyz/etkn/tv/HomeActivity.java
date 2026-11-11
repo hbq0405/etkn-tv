@@ -73,7 +73,8 @@ public final class HomeActivity extends TvActivity {
     private final List<View> resumeCards=new java.util.ArrayList<>();
     private final java.util.Map<String,View> libraryCards=new java.util.HashMap<>();
     private String libraryOrigin="home",pendingLibraryFocus="";
-    private boolean carouselEnabled,carouselActive;
+    private boolean carouselEnabled,carouselActive,showHomeLibraries=true;
+    private boolean hideWatchedLatest;
     private final List<JSONObject> carouselItems=new java.util.ArrayList<>();
     private int carouselIndex;
     private ImageView carouselPrefetch;
@@ -133,8 +134,8 @@ public final class HomeActivity extends TvActivity {
     }
     @Override protected void onResume(){
         super.onResume();if(isFinishing())return;foreground=true;
-        boolean carouselSetting=new TvPreferences(this,api).smartCarousel();
-        if("home".equals(mode)&&carouselSetting!=carouselEnabled)loadHome();
+        TvPreferences homePreferences=new TvPreferences(this,api);
+        if("home".equals(mode)&&(homePreferences.smartCarousel()!=carouselEnabled||homePreferences.showHomeLibraries()!=showHomeLibraries||hideWatchedSetting()!=hideWatchedLatest))loadHome();
         else if(!createdHome)refreshCurrent();
         createdHome=false;
         if(carouselActive&&"home".equals(mode)){homeTimer.removeCallbacks(carouselRotate);showCarouselItem(carouselIndex);if(carouselItems.size()>1)homeTimer.postDelayed(carouselRotate,8000);}
@@ -149,7 +150,8 @@ public final class HomeActivity extends TvActivity {
         async(()->api.get("/api/tv/auth/check_status"),result->{JSONObject user=result.optJSONObject("user");boolean allowed=user!=null&&user.optBoolean("can_access_discovery");if(canDiscover!=allowed){canDiscover=allowed;refreshNavigation();}});
     }
     @Override protected void onPause(){foreground=false;homeTimer.removeCallbacksAndMessages(null);if(homeUpdates!=null){homeUpdates.close();homeUpdates=null;}super.onPause();}
-    @Override void appearanceChanged(){if(menu!=null)menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));}
+    @Override void appearanceChanged(){if(menu!=null)menu.setBackground(capsuleSurface(TvAppearance.surface(appearanceDark())));if(homeCache!=null&&"home".equals(mode)){TvPreferences prefs=new TvPreferences(this,api);if(prefs.smartCarousel()!=carouselEnabled||prefs.showHomeLibraries()!=showHomeLibraries||hideWatchedSetting()!=hideWatchedLatest)loadHome();}}
+    private boolean hideWatchedSetting(){JSONObject playback=TvAppearance.current.optJSONObject("playback_preferences");return playback!=null&&playback.optBoolean("hide_watched_latest");}
     @Override void imageSizeChanged(){if("home".equals(mode))loadHome();else if("search".equals(mode)||"resume".equals(mode)){offset=0;listingLimit=0;loadItems();}else if("items".equals(mode))refreshPosters();else if("group".equals(mode))refreshLibraryGroup();}
     private int homeShelfLimit(int cardWidthDp){return shelfCapacity(cardWidthDp,12,74)+1;}
     private int posterPageSize(){
@@ -178,16 +180,17 @@ public final class HomeActivity extends TvActivity {
         ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(avatar,dp(19));
         FrameLayout.LayoutParams image=new FrameLayout.LayoutParams(dp(38),dp(38),Gravity.CENTER);account.addView(avatar,image);
         LinearLayout.LayoutParams face=new LinearLayout.LayoutParams(dp(52),dp(44));face.setMargins(0,0,dp(8),0);nav.addView(account,face);account.setOnClickListener(view->{hideMenu();showAccounts();});loadAvatar(avatar);
-        nav("首页",this::loadHome);nav("媒体库",this::loadLibraries);nav("收藏",this::openFavorites);nav("搜索",this::search);if(canDiscover)nav("影视探索",()->open(DiscoveryActivity.class));nav("设置",()->open(SettingsActivity.class));
+        nav("首页",this::loadHome);nav("媒体库",this::loadLibraries);nav("音乐",()->MusicActivity.open(this,"","recommended","","音乐"));nav("收藏",this::openFavorites);nav("搜索",this::search);if(canDiscover)nav("影视探索",()->open(DiscoveryActivity.class));nav("设置",()->open(SettingsActivity.class));
     }
     private void loadHome(){
         mode="home";selectedGroup=null;selectedLibrary=null;posterGrid=null;loadingMore=false;int request=++revision;homeReloads.clear();renderedShelves.clear();pendingShelves.clear();content.removeAllViews();content.setPadding(0,0,0,dp(24));homeScroll.scrollTo(0,0);status.setText("");
         homeBackdrop.clear();resumeFirst=null;libraryFirst=null;resumeReady=false;libraryReady=false;initialFocusChosen=false;homeCards.clear();libraryCards.clear();
         resumeCards.clear();actionItems.clear();latestLibraries="";
-        stopCarousel();carouselEnabled=new TvPreferences(this,api).smartCarousel();
+        stopCarousel();TvPreferences preferences=new TvPreferences(this,api);carouselEnabled=preferences.smartCarousel();showHomeLibraries=preferences.showHomeLibraries();hideWatchedLatest=hideWatchedSetting();
         int heroHeight=Math.round(getResources().getConfiguration().screenHeightDp*0.55f);
         heroSpacer=new View(this);heroSpacer.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->homeScroll.post(this::restoreHomeFocusPosition));content.addView(heroSpacer,new LinearLayout.LayoutParams(-1,dp(heroHeight)));
         LinearLayout resume=section("继续观看"),libraries=section("我的媒体库"),latest=column();latestSections=latest;
+        libraries.setVisibility(showHomeLibraries?View.VISIBLE:View.GONE);
         resumeArea=resume;resume.setPadding(dp(28),dp(8),dp(22),dp(2));resume.addOnLayoutChangeListener((view,l,t,r,b,ol,ot,or,ob)->positionResumeRow());
         latest.setPadding(0,dp(4),0,dp(8));content.addView(latest);
         loadShelf(resume,api.userPath()+"/Items/Resume?Limit="+homeShelfLimit(192),request,true,false,true,"暂无继续观看记录");
@@ -203,10 +206,10 @@ public final class HomeActivity extends TvActivity {
         org.json.JSONArray identity=new org.json.JSONArray();for(JSONObject library:libraries)identity.put(new org.json.JSONArray().put(library.optString("Id")).put(EtknApi.title(library)));
         if(identity.toString().equals(latestLibraries))return;latestLibraries=identity.toString();
         forgetCards(target);target.removeAllViews();
-        homeReloads.keySet().removeIf(path->path.contains("/Items/Latest?"));
-        renderedShelves.keySet().removeIf(path->path.contains("/Items/Latest?"));
-        pendingShelves.removeIf(path->path.contains("/Items/Latest?"));
-        shelfTickets.keySet().removeIf(path->path.contains("/Items/Latest?"));
+        homeReloads.keySet().removeIf(path->(path.contains("/Items/Latest?")||path.contains("/Music?Tab=albums&SortBy=DateCreated")));
+        renderedShelves.keySet().removeIf(path->(path.contains("/Items/Latest?")||path.contains("/Music?Tab=albums&SortBy=DateCreated")));
+        pendingShelves.removeIf(path->(path.contains("/Items/Latest?")||path.contains("/Music?Tab=albums&SortBy=DateCreated")));
+        shelfTickets.keySet().removeIf(path->(path.contains("/Items/Latest?")||path.contains("/Music?Tab=albums&SortBy=DateCreated")));
         List<LinearLayout> areas=new java.util.ArrayList<>();
         for(JSONObject library:libraries)areas.add(section("最新"+EtknApi.title(library),target));
         // Keep library order while rendering each completed shelf immediately, with at most two requests.
@@ -214,7 +217,8 @@ public final class HomeActivity extends TvActivity {
     }
     private void loadLatestSection(List<JSONObject> libraries,List<LinearLayout> areas,int index,int request){
         if(request!=revision||index>=libraries.size())return;
-        String path=api.userPath()+"/Items/Latest?ParentId="+EtknApi.encode(libraries.get(index).optString("Id"))+"&Limit="+homeShelfLimit(132)+"&IncludeItemTypes="+EtknApi.encode(libraryIncludeTypes(libraries.get(index)));
+        JSONObject library=libraries.get(index);boolean music="music".equals(library.optString("CollectionType"));
+        String path=api.userPath()+(music?"/Music?Tab=albums&SortBy=DateCreated&SortOrder=Descending":"/Items/Latest?IncludeItemTypes="+EtknApi.encode(libraryIncludeTypes(library)))+"&ParentId="+EtknApi.encode(library.optString("Id"))+"&Limit="+homeShelfLimit(132);
         homeReloads.put(path,()->loadLatestSection(libraries,areas,index,request));
         homeRequest(path,request,result->{
             if(request!=revision)return;
@@ -223,7 +227,7 @@ public final class HomeActivity extends TvActivity {
             if(items.isEmpty()){if(result.optBoolean("unavailable"))area.addView(text("暂时无法加载，请稍后返回首页重试。",14,MUTED));else area.setVisibility(View.GONE);}
             else{
                 HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
-                for(JSONObject item:items){View card=mediaCard(shelf,item,()->detail(item),false,false,view->onHomeCardFocused(view,item,false,false));registerHomeCard(card);bindActions(card,item);card.setTag(item.optString("Id"));if(item.optString("Id").equals(focused))card.requestFocus();}
+                for(JSONObject item:items){View card=music?MusicViews.card(this,shelf,item,()->MusicActivity.open(this,library.optString("Id"),"albums",item.optString("Key"),item.optString("Name")),false):mediaCard(shelf,item,()->detail(item),false,false,view->onHomeCardFocused(view,item,false,false));registerHomeCard(card);if(!music)bindActions(card,item);card.setTag(music?item.optString("Key"):item.optString("Id"));if(card.getTag().equals(focused))card.requestFocus();}
             }
             loadLatestSection(libraries,areas,index+2,request);
         });
@@ -238,6 +242,7 @@ public final class HomeActivity extends TvActivity {
         homeRequest(path,request,result->{
             if(request!=revision)return;boolean focusFirst=resumeShelf&&resumeCards.contains(getCurrentFocus());String focused=forgetCards(area);if(resumeShelf)resumeCards.clear();if(libraries)libraryCards.clear();while(area.getChildCount()>1)area.removeViewAt(1);List<JSONObject> items=EtknApi.rows(result);
             if(libraries)loadLatestByLibrary(latestSections,request,items);
+            if(libraries&&!showHomeLibraries){onHomeShelfLoaded(false,null);return;}
             if(items.isEmpty()){area.addView(text(result.optBoolean("unavailable")?"暂时无法加载，请稍后返回首页重试。":empty,14,MUTED));onHomeShelfLoaded(resumeShelf,null);if(!focused.isEmpty()&&libraryFirst!=null&&libraryFirst.isShown())libraryFirst.requestFocus();return;}
             HorizontalScrollView scroll=new FocusScroll.Row(this);scroll.setHorizontalScrollBarEnabled(false);scroll.setClipToPadding(false);scroll.setPadding(dp(12),dp(12),dp(12),dp(12));GridLayout shelf=new GridLayout(this);shelf.setClipChildren(false);shelf.setClipToPadding(false);shelf.setRowCount(1);shelf.setColumnCount(items.size());scroll.addView(shelf);area.addView(scroll);
             View first=null;
@@ -313,7 +318,7 @@ public final class HomeActivity extends TvActivity {
         View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null)target=resumeFirst!=null?resumeFirst:libraryFirst;if(target!=null)target.requestFocus();else content.requestFocus(View.FOCUS_DOWN);
     }
     private void search(){EditText field=input("搜索片库",false);new AlertDialog.Builder(this).setTitle("搜索片库").setView(field).setPositiveButton("搜索",(dialog,which)->{query=field.getText().toString();parent="";selectedLibrary=null;offset=0;listingLimit=0;mode="search";loadItems();}).setNegativeButton("取消",null).show();}
-    private void openLibrary(JSONObject item){if("group".equals(item.optString("SourceType"))){groupOrigin=mode;selectedGroup=item;loadLibraryGroup();return;}libraryOrigin=mode;selectedLibrary=item;activeCollection=null;folderMode=false;folderId="";folderTitle="";folderTrail.clear();restorePosterId="";restorePosterCount=0;parent=item.optString("Id");TvPreferences prefs=new TvPreferences(this,api);String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);folderMode=physicalLibrary()&&prefs.libraryFolders(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadItems();}
+    private void openLibrary(JSONObject item){if("music".equals(item.optString("CollectionType"))){MusicActivity.open(this,item.optString("Id"),"recommended","",item.optString("Name"));return;}if("group".equals(item.optString("SourceType"))){groupOrigin=mode;selectedGroup=item;loadLibraryGroup();return;}libraryOrigin=mode;selectedLibrary=item;activeCollection=null;folderMode=false;folderId="";folderTitle="";folderTrail.clear();restorePosterId="";restorePosterCount=0;parent=item.optString("Id");TvPreferences prefs=new TvPreferences(this,api);String[] sorting=prefs.librarySort(parent);sortBy=sorting[0];sortOrder=sorting[1];viewMode=prefs.libraryView(parent);playMode=prefs.libraryPlayMode(parent);folderMode=physicalLibrary()&&prefs.libraryFolders(parent);typeFilter="";typeKind="";favoriteOnly=false;mode="items";offset=0;loadItems();}
     private void loadLibraries(){mode="library";selectedGroup=null;selectedLibrary=null;posterGrid=null;hasMore=false;loadingMore=false;stopCarousel();homeBackdrop.clear();libraryCards.clear();homeScroll.scrollTo(0,0);int request=++revision;status.setText("正在读取媒体库…");async(()->api.get(api.userPath()+"/Views"),result->{if(request!=revision)return;content.removeAllViews();content.setPadding(dp(28),dp(24),dp(28),dp(18));List<JSONObject> items=EtknApi.rows(result);status.setText(items.isEmpty()?"暂无可访问媒体库":"选择媒体库");GridLayout grid=grid(content,192,12,56);for(JSONObject item:items){View card=mediaCard(grid,item,()->openLibrary(item));libraryCards.put(item.optString("Id"),card);}View target=libraryCards.get(pendingLibraryFocus);pendingLibraryFocus="";if(target==null&&grid.getChildCount()>0)target=grid.getChildAt(0);if(target!=null)target.requestFocus();});}
     private void refreshLibraryGroup(){
         View focused=getCurrentFocus();for(java.util.Map.Entry<String,View> entry:libraryCards.entrySet())if(entry.getValue()==focused){pendingLibraryFocus=entry.getKey();break;}loadLibraryGroup();

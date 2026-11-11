@@ -15,12 +15,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class EtknApi {
+    static volatile int accountPreferenceGeneration;
     static final String USER_AGENT="ETKN TV/"+BuildConfig.VERSION_NAME+" (Android)";
     final SessionStore session;
     final String server;
     final String token;
+    final String userId;
     final java.io.File cacheDir;
-    EtknApi(Context context) { session = new SessionStore(context); server = session.server(); token = session.token(); cacheDir=new java.io.File(context.getCacheDir(),"artwork"); }
+    private final Context context;
+    EtknApi(Context context) { this.context=context.getApplicationContext();session = new SessionStore(context); server = session.server(); token = session.token(); userId=session.userId(); cacheDir=new java.io.File(context.getCacheDir(),"artwork"); }
     static String encode(Object value) { try { return URLEncoder.encode(String.valueOf(value), "UTF-8"); } catch(java.io.UnsupportedEncodingException impossible) { throw new AssertionError(impossible); } }
     static String tmdbImage(String path, String size) { return path == null || path.isEmpty() ? "" : "https://image.tmdb.org/t/p/" + size + path; }
     static String normalizeServer(String input) throws Exception {
@@ -35,6 +38,8 @@ final class EtknApi {
     JSONObject get(String path) throws Exception { return request(server, token, "GET", path, null); }
     JSONObject get(String path, android.os.CancellationSignal cancellation) throws Exception { return request(server, token, "GET", path, null, cancellation); }
     JSONObject post(String path, JSONObject body) throws Exception { return request(server, token, "POST", path, body); }
+    JSONObject post(String path,JSONObject body,android.os.CancellationSignal cancellation)throws Exception{return request(server,token,"POST",path,body,cancellation);}
+    JSONObject put(String path, JSONObject body) throws Exception { return request(server, token, "PUT", path, body); }
     JSONObject delete(String path) throws Exception { return request(server, token, "DELETE", path, null); }
     JSONObject request(String origin, String access, String method, String path, JSONObject body) throws Exception {
         return request(origin,access,method,path,body,null);
@@ -48,6 +53,10 @@ final class EtknApi {
         conn.setRequestProperty("User-Agent", USER_AGENT);
         conn.setRequestProperty("X-Emby-Authorization", "MediaBrowser Client=\"ETKN TV\", Device=\"" + Build.MODEL.replace("\"", "") + "\", DeviceId=\"" + session.deviceId() + "\", Version=\"" + BuildConfig.VERSION_NAME + "\"");
         if (!access.isEmpty()) { conn.setRequestProperty("X-Emby-Token", access); conn.setRequestProperty("Cookie", "etkn_session=" + access); }
+        if(context!=null&&origin.equals(server)&&access.equals(token)&&TvAppearance.sameSession(this,userId)&&path.startsWith("/api/tv/")&&TvAppearance.locked(context,server)){
+            JSONObject snapshot=TvAppearance.account(context,server,userId).optJSONObject("playback_preferences");
+            if(snapshot!=null){JSONObject effective=snapshot.optJSONObject("effective_preferences");if(effective!=null){JSONObject frozen=new JSONObject(effective.toString());frozen.put("hide_watched_latest",snapshot.optBoolean("hide_watched_latest"));conn.setRequestProperty("X-ETKN-Locked-Preferences",frozen.toString());}}
+        }
         if(cancellation!=null)cancellation.setOnCancelListener(conn::disconnect);
         try {
             if(cancellation!=null)cancellation.throwIfCanceled();
@@ -85,9 +94,11 @@ final class EtknApi {
         String access = result.getString("AccessToken"); JSONObject user = result.getJSONObject("User");
         JSONObject policy=user.optJSONObject("Policy");
         boolean isAdmin=policy!=null&&policy.optBoolean("IsAdministrator");
-        int persist=SessionStore.persistPolicy(result.optBoolean("PrivateAccount"),isAdmin,session.rememberAdmin(address,user.getString("Id")));
+        boolean remember=isAdmin&&!result.optBoolean("PrivateAccount")&&readRememberAdministrator(address,access,user.getString("Id"));
+        int persist=SessionStore.persistPolicy(result.optBoolean("PrivateAccount"),isAdmin,remember);
         if(persist!=SessionStore.PERSIST_FULL&&password.isEmpty())throw new Exception("请先为该账号设置密码，再输入密码登录");
         if(generation!=LoginGate.generation())throw new Exception("应用已离开前台，请重新登录");
+        if(isAdmin)session.setRememberAdmin(address,user.getString("Id"),remember);
         session.saveSession(address, user.getString("Id"), user.optString("Name"), access, persist);
         if(generation!=LoginGate.generation()){SessionStore.endTemporarySession();throw new Exception("应用已离开前台，请重新登录");}
     }
@@ -98,7 +109,10 @@ final class EtknApi {
         JSONObject user=request(session.server(),access,"GET","/api/tv/Users/Me",null);
         if(!userId.equals(user.optString("Id")))throw new Exception("已保存账号身份不一致，请重新登录");
         JSONObject policy=user.optJSONObject("Policy");
-        int persist=SessionStore.persistPolicy(user.optBoolean("PrivateAccount"),policy!=null&&policy.optBoolean("IsAdministrator"),session.rememberAdmin(session.server(),userId));
+        boolean admin=policy!=null&&policy.optBoolean("IsAdministrator");
+        boolean remember=admin&&!user.optBoolean("PrivateAccount")&&readRememberAdministrator(session.server(),access,userId);
+        int persist=SessionStore.persistPolicy(user.optBoolean("PrivateAccount"),admin,remember);
+        if(admin)session.setRememberAdmin(session.server(),userId,remember);
         if(persist!=SessionStore.PERSIST_FULL)session.restrictSavedAccount(userId,persist);
         return persist;
     }
@@ -108,9 +122,28 @@ final class EtknApi {
         if(!session.userId().equals(user.optString("Id"))||policy==null||!policy.optBoolean("IsAdministrator"))throw new Exception("只有管理员可以设置记住登录");
         if(user.optBoolean("PrivateAccount"))throw new Exception("私密账号不保存登录状态");
         if(generation!=LoginGate.generation())throw new Exception("应用已离开前台，请重新设置记住登录");
+        put("/api/tv/Users/Me/AccountPreferences",new JSONObject().put("remember_admin_account",enabled));
+        if(generation!=LoginGate.generation()||!TvAppearance.sameSession(this,user.getString("Id")))throw new Exception("会话已变化，请重新设置");
         session.saveSession(server,user.getString("Id"),user.optString("Name"),token,enabled?SessionStore.PERSIST_FULL:SessionStore.PERSIST_ACCOUNT);
         session.setRememberAdmin(server,user.getString("Id"),enabled);
         if(generation!=LoginGate.generation()){session.restrictSavedAccount(user.getString("Id"),SessionStore.PERSIST_ACCOUNT);throw new Exception("应用已离开前台，请重新登录");}
+    }
+    private boolean readRememberAdministrator(String address,String access,String id)throws Exception{
+        JSONObject value=request(address,access,"GET","/api/tv/Users/Me/AccountPreferences",null);
+        if(value.isNull("remember_admin_account"))value=request(address,access,"PUT","/api/tv/Users/Me/AccountPreferences",new JSONObject().put("remember_admin_account",session.rememberAdmin(address,id)).put("initialize_only",true));
+        return value.optBoolean("remember_admin_account");
+    }
+    boolean syncAccountPreference()throws Exception{
+        int generation=LoginGate.generation(),revision=accountPreferenceGeneration;
+        JSONObject user=get("/api/tv/Users/Me"),policy=user.optJSONObject("Policy");
+        if(policy==null||!policy.optBoolean("IsAdministrator")||user.optBoolean("PrivateAccount"))return false;
+        boolean previous=session.rememberAdmin(server,userId),enabled=readRememberAdministrator(server,token,userId);
+        if(generation!=LoginGate.generation()||revision!=accountPreferenceGeneration||!TvAppearance.sameSession(this,userId))return false;
+        session.setRememberAdmin(server,userId,enabled);
+        int persist=enabled?SessionStore.PERSIST_FULL:SessionStore.PERSIST_ACCOUNT;
+        if(session.persist()!=persist)session.saveSession(server,userId,user.optString("Name"),token,persist);
+        if(generation!=LoginGate.generation()){session.restrictSavedAccount(userId,SessionStore.PERSIST_ACCOUNT);return false;}
+        return previous!=enabled;
     }
     void refreshSavedAccounts()throws Exception{
         for(SavedAccounts.Account account:session.accounts()){

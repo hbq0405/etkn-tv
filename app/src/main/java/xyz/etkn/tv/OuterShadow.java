@@ -50,7 +50,7 @@ final class OuterShadow extends Drawable implements View.OnAttachStateChangeList
     private void build(){
         radius=Math.min(12*view.getResources().getDisplayMetrics().density,Math.min(width,height)/2f);
         float spread=Math.max(1,elevation*1.25f),drop=elevation*.6f,reach=radius+spread;
-        color=(dark?0x000000:0x1f332e)|(Math.round((dark?.28f:.20f)*strength*255)<<24);
+        color=(TvAppearance.shadowColor(dark)&0xffffff)|(Math.round((dark?.28f:.20f)*strength*255)<<24);
         body.set(0,drop,width,height+drop);hole.reset();hole.addRoundRect(new RectF(0,0,width,height),radius,radius,Path.Direction.CW);
         float[] x={radius,width-radius,width-radius,radius},y={drop+radius,drop+radius,height+drop-radius,height+drop-radius};
         areas[0].set(-spread,drop-spread,radius,drop+radius);areas[1].set(width-radius,drop-spread,width+spread,drop+radius);

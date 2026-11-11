@@ -12,7 +12,10 @@ final class TvPreferences {
     static final String[] IMAGE_SIZE_LABELS={"极小","小","中","大","极大"};
     private final SharedPreferences prefs;
     private final String scope;
+    private final Context context;
+    private final EtknApi api;
     TvPreferences(Context context,EtknApi api){
+        this.context=context;this.api=api;
         prefs=context.getSharedPreferences("tv_preferences",Context.MODE_PRIVATE);
         scope=new JSONArray().put(api.server).put(api.session.userId()).toString()+"/";
     }
@@ -23,7 +26,7 @@ final class TvPreferences {
     void saveDanmaku(org.json.JSONObject settings){prefs.edit().putString(scope+"danmaku",settings.toString()).apply();}
     int bitrateLimit(){return prefs.getInt(scope+"bitrate-limit",0);}
     void setBitrateLimit(int value){prefs.edit().putInt(scope+"bitrate-limit",value).apply();}
-    int skipMode(){int value=prefs.getInt(scope+"skip",SKIP_BUTTON);return value>=0&&value<SKIP_LABELS.length?value:SKIP_BUTTON;}
+    int skipMode(){int value=shared().optInt("skip_mode",prefs.getInt(scope+"skip",SKIP_BUTTON));return value>=0&&value<SKIP_LABELS.length?value:SKIP_BUTTON;}
     void setSkipMode(int value){prefs.edit().putInt(scope+"skip",value).apply();}
     int seasonAudio(String season){return season==null||season.isEmpty()?-1:prefs.getInt(scope+"season-audio/"+season,-1);}
     void saveSeasonAudio(String season,int ordinal){if(season==null||season.isEmpty())return;SharedPreferences.Editor edit=prefs.edit();String key=scope+"season-audio/"+season;if(ordinal<0)edit.remove(key);else edit.putInt(key,ordinal);edit.apply();}
@@ -35,9 +38,12 @@ final class TvPreferences {
     void saveLibraryPlayMode(String id,String mode){prefs.edit().putString(scope+id+"/playmode",mode).apply();}
     boolean libraryFolders(String id){return prefs.getBoolean(scope+id+"/folders",false);}
     void saveLibraryFolders(String id,boolean folders){prefs.edit().putBoolean(scope+id+"/folders",folders).apply();}
-    boolean smartCarousel(){return prefs.getBoolean(scope+"smart-carousel",false);}
+    private org.json.JSONObject shared(){return TvAppearance.account(context,api.server,api.session.userId());}
+    boolean showHomeLibraries(){return shared().optBoolean("show_home_libraries",true);}
+    boolean smartCarousel(){return shared().optBoolean("home_carousel",prefs.getBoolean(scope+"smart-carousel",false));}
     void setSmartCarousel(boolean on){prefs.edit().putBoolean(scope+"smart-carousel",on).apply();}
     int imageSize(){
+        if(shared().has("card_size")){int size=shared().optInt("card_size",IMAGE_MEDIUM);return Math.max(0,Math.min(4,size));}
         String migratedKey=scope+"image-size-five-level";
         if(!prefs.getBoolean(migratedKey,false)){
             int legacy=prefs.getInt(scope+"image-size",1);

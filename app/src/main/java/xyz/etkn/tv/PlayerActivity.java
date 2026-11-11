@@ -115,7 +115,7 @@ public final class PlayerActivity extends TvActivity {
     }};
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);itemId=getIntent().getStringExtra("id");playbackTiming=new PlaybackTiming(itemId);seasonKey=getIntent().getStringExtra("seasonKey");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
+        super.onCreate(state);MusicPlayback.stop();itemId=getIntent().getStringExtra("id");playbackTiming=new PlaybackTiming(itemId);seasonKey=getIntent().getStringExtra("seasonKey");position=state==null?getIntent().getLongExtra("position",0):state.getLong("position");
         audioIndex=state==null?getIntent().getIntExtra("audioIndex",PlaybackSelection.AUTO):state.getInt("audioIndex",PlaybackSelection.AUTO);subtitleIndex=state==null?getIntent().getIntExtra("subtitleIndex",PlaybackSelection.AUTO):state.getInt("subtitleIndex",PlaybackSelection.AUTO);
         playbackSpeed=state==null?getIntent().getFloatExtra("speed",1f):state.getFloat("speed",1f);
         softwareVideo=state!=null&&state.getBoolean("softwareVideo");hardwareSurfaceRetry=state!=null&&state.getBoolean("hardwareSurfaceRetry");
