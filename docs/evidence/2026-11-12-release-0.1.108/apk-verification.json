@@ -1,0 +1,11 @@
+{
+  "apkSha256": "1f138495c9003d305d12ef9909c5d3a8411899ceb2a6aded9a965c63b88ce617",
+  "certificateSha256": "e02d42443875c3631be48199e0df419b0570fcc421be7ff2b620f4c643e67bd7",
+  "packageName": "xyz.etkn.tv",
+  "versionName": "0.1.108",
+  "versionCode": 109,
+  "minSdk": 24,
+  "targetSdk": 35,
+  "size": 62996466,
+  "signatureVerified": true
+}

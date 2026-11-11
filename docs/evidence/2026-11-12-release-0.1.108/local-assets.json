@@ -1,0 +1,22 @@
+[
+  {
+    "name": "etkn-tv-0.1.108.apk",
+    "sha256": "1f138495c9003d305d12ef9909c5d3a8411899ceb2a6aded9a965c63b88ce617",
+    "size": 62996466
+  },
+  {
+    "name": "update.json",
+    "sha256": "22f7c7b86feb8db1a60b0356858e458a5e04e5832cec671413f8431593d6f885",
+    "size": 518
+  },
+  {
+    "name": "RELEASE_NOTES.md",
+    "sha256": "8e36663d10af012197ade8f13cabef72ee7c5a9698dba4c93d0d49a47a211327",
+    "size": 1246
+  },
+  {
+    "name": "SHA256SUMS.txt",
+    "sha256": "6baa3a518181886ac4c15c397acfe7d0cbdf276ea6681abcf03a42bd948ac89c",
+    "size": 250
+  }
+]
