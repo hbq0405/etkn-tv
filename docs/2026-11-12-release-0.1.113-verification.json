@@ -1,0 +1,51 @@
+{
+  "release_id": 442942001,
+  "url": "https://github.com/hbq0405/etkn-tv/releases/tag/v0.1.113",
+  "published_at": "2026-11-12T12:51:27Z",
+  "tag": "v0.1.113",
+  "is_draft": false,
+  "is_prerelease": false,
+  "latest_verified": true,
+  "latest_update_manifest_anonymous_match": true,
+  "source_commit": "bd73b14194e45cb3a0406bd683344dd929abbd8c",
+  "assets": [
+    {
+      "name": "etkn-tv-0.1.113.apk",
+      "size": 62400930,
+      "sha256": "a7b6843705333e355d9244da85cde10b55fde13175690feccf94558000edf1ab",
+      "anonymous_download_verified": true
+    },
+    {
+      "name": "update.json",
+      "size": 454,
+      "sha256": "04bd81508742b1ecf3e3a6a9f6d5a77f05685c3743656f1e0cef13841492a88b",
+      "anonymous_download_verified": true
+    },
+    {
+      "name": "RELEASE_NOTES.md",
+      "size": 1239,
+      "sha256": "b996d117b113615fd220feab28f459b673b068f126a4fb4e9c9583f8cceef985",
+      "anonymous_download_verified": true
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 250,
+      "sha256": "0597c5729240d41763a05e09ffce62d1c6d4f7e5d8e1edf32aa6496c3db5a2d2",
+      "anonymous_download_verified": true
+    }
+  ],
+  "telegram": {
+    "workflow_run": 43221763567,
+    "head_sha": "bd73b14194e45cb3a0406bd683344dd929abbd8c",
+    "conclusion": "success",
+    "actual_delivery_receipt_count": 1,
+    "message_id": 64818,
+    "rerun": false
+  },
+  "version_code": 114,
+  "certificate_sha256": "e02d42443875c3631be48199e0df419b0570fcc421be7ff2b620f4c643e67bd7",
+  "published_at_shanghai": "2026-11-12T20:51:27+08:00",
+  "build_unit_tests": 116,
+  "build_unit_failures": 0,
+  "lint_errors": 0
+}
