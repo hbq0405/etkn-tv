@@ -1,0 +1,3 @@
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/boot_startup_description"
+    android:canRetrieveWindowContent="false" />

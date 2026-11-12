@@ -1,0 +1,4 @@
+<resources>
+    <string name="boot_startup_name">ETKN TV 开机启动</string>
+    <string name="boot_startup_description">用于受系统限制的电视接收开机事件。需同时开启应用内的开机启动开关。不监听窗口或读取屏幕；Home 键仍返回电视原生桌面。</string>
+</resources>

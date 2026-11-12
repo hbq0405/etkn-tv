@@ -82,6 +82,7 @@ public final class SettingsActivity extends TvActivity {
         login.addView(note("“最后登录用户”启动后直接进入上次用户的首页；“选择登录用户”每次启动或从后台返回时先显示用户选择框，可点选已登录用户或登录新用户。按本设备保存，对全部用户生效。"));
         LinearLayout app=section("应用");
         app.addView(switchRow("开机自动进入 ETKN TV","仅在本电视开机时打开；Home 键仍返回原厂桌面。",StartupReceiver.enabled(this),on->StartupReceiver.setEnabled(this,on)));
+        if ("L055FCN".equals(Build.MODEL)) app.addView(note("本电视还需启用“ETKN TV 开机启动”辅助服务以接收开机事件；该服务不监听窗口，Home 键仍返回原厂桌面。"));
         Button update=settingRow(TEXT);update.setText(rowText("检查更新","当前版本 "+BuildConfig.VERSION_NAME));update.setOnClickListener(view->checkUpdate());app.addView(update);
         Button licenses=settingRow(TEXT);licenses.setText(rowText("开源许可","GPL-3.0 及第三方组件"));licenses.setOnClickListener(view->showLicenses());app.addView(licenses);
         app.addView(note("更新通过 GitHub Releases 获取；安装需要系统确认。"));

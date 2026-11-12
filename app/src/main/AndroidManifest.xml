@@ -20,6 +20,10 @@
         <activity android:name=".MusicActivity" android:exported="false" android:screenOrientation="landscape" />
         <activity android:name=".MusicPlayerActivity" android:exported="false" android:screenOrientation="landscape" />
         <service android:name=".IngestJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
+        <service android:name=".BootStartupService" android:label="@string/boot_startup_name" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/boot_startup" />
+        </service>
         <receiver android:name=".StartupReceiver" android:enabled="false" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>

@@ -32,10 +32,12 @@
 ## FengOS 仅开机启动、Home 返回原厂（2026-11-12）
 
 - L055FCN / Android 9 会过滤第三方 HOME 候选。用户反馈开机后焦点迟钝，启动日志确认旧无障碍接管与开机接收器在同次启动中多次拉起并清空任务；按用户后续要求移除 Home 接管，只保留开机启动。不得再启用旧 LauncherTakeoverService。
-- `StartupReceiver` 默认 `enabled=false`；通过设置→应用→“开机自动进入 ETKN TV”由应用自身调用 PackageManager 启用/关闭。L055FCN 实测拒绝 shell 的 `pm enable` 单个组件操作，不重试或提权；使用应用内本机开关。状态跨重启保留，不依赖无障碍设置，不改变正常账号登录门禁。
-- 升级时从 secure `enabled_accessibility_services` 仅移除旧 ETKN 接管组件，保留其他无障碍服务；只有服务列表为空时才将 `accessibility_enabled` 恢复为 0。不能直接覆盖其他服务配置。
-- 开机只处理 BOOT_COMPLETED，使用 MAIN/LAUNCHER 正常入口和 NEW_TASK/RESET_TASK_IF_NEEDED，禁止 CLEAR_TASK 重建正在初始化的页面。Home 必须停留原厂桌面，不能被迟到启动拉回。
-- 安装回读版本后，从实际应用按 Home 并等待，确认原厂桌面保持前台；重启后检查开机接收器 enabled 状态和 ETKN 入口启动次数，分别记录实际前台及焦点响应。此机存在的系统设置入口是 `com.droidlogic.tv.settings/.MainSettings`，标准 `android.settings.SETTINGS` 不可用。
+- `StartupReceiver` 默认 `enabled=false`；通过设置→应用→“开机自动进入 ETKN TV”由应用自身调用 PackageManager 启用/关闭。L055FCN 实测拒绝 shell 的 `pm enable` 单个组件操作，不重试或提权；使用应用内本机开关。状态跨重启保留，不改变正常账号登录门禁。
+- 本机固件 `BroadcastQueue.processNextBroadcastLocked` 在接收进程不存在时，按 `isDataApp` 丢弃第三方应用广播，故 0.1.110 的单一接收器不能可靠冷启动。0.1.111 增加 `BootStartupService`，通过系统辅助服务绑定使进程接收开机事件；XML 不订阅窗口事件，实机 `eventTypes=0`、`capabilities=0`。只允许开机用途，不得恢复窗口/Home 监听。服务和应用内开关均须在目标设备启用，系统服务启用状态不会随 APK 安装自动复制。
+- 修改 secure `enabled_accessibility_services` 时只增删明确的 ETKN 开机/旧接管组件，保留其他服务；只有列表为空时才将 `accessibility_enabled` 恢复为 0，不能直接覆盖其他服务配置。
+- 处理标准 BOOT_COMPLETED 与本固件 `fengos.intent.action.ACTION_FAST_BOOT`，按 boot count 和短时间窗口去重；使用 MAIN/LAUNCHER 正常入口和 NEW_TASK/RESET_TASK_IF_NEEDED，禁止 CLEAR_TASK 重建正在初始化的页面。Home 必须停留原厂桌面，不能被迟到启动拉回。
+- 安装回读版本后，从实际应用按 Home 并至少观察30秒；分别测试真实重启和遥控器关机开机，记录 boot count、进程绑定、唯一入口启动及最终前台，不得将手动启动或注入广播算作开机成功。2026-11-12 的两次真实启动均已自动进入账号选择页，Home 观察超过100秒仍在原厂桌面；本轮遥控器关机开机使 boot count 增加，不能据此宣布同一次系统运行中的待机/快速唤醒也已验证。
+- 已验证设备仅 L055FCN/Android 9，不将该结果扩大到其他电视。普通 Android 开机广播路径仍在，但后台拉起限制、厂商自启管理和辅助服务入口需按机型核实。此机可用系统设置入口为 `com.droidlogic.tv.settings/.MainSettings`；标准 SETTINGS 和 ACCESSIBILITY_SETTINGS 均无可处理入口，不能提供失效跳转按钮。
 
 ## APK 更新签名读取兼容（2026-10-28）
 
