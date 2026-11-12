@@ -83,6 +83,9 @@ public class DetailPresentationTest {
         assertEquals("–",DetailPresentation.tomatoRating(new JSONObject()));
         assertEquals("0%",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating",0)));
         assertEquals("92%",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating",92)));
+        for(double score:new double[]{0,59,59.9})assertTrue(DetailPresentation.rottenTomato(new JSONObject().put("CriticRating",score)));
+        for(double score:new double[]{-1,60,100})assertFalse(DetailPresentation.rottenTomato(new JSONObject().put("CriticRating",score)));
+        assertFalse(DetailPresentation.rottenTomato(new JSONObject()));
         assertEquals("–",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating",101)));
         assertEquals("–",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating","N/A")));
     }

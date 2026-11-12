@@ -326,7 +326,7 @@ abstract class TvActivity extends Activity {
         ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());LinearLayout.LayoutParams tmdbIconSpace=new LinearLayout.LayoutParams(dp(18),dp(18));ratings.addView(star,tmdbIconSpace);
         TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
         String tomato=DetailPresentation.tomatoRating(media);
-        ImageView tomatoIcon=new ImageView(this);tomatoIcon.setImageDrawable(tomatoMark());tomatoIcon.setContentDescription("烂番茄评分");
+        ImageView tomatoIcon=new ImageView(this);tomatoIcon.setImageDrawable(tomatoMark(media));tomatoIcon.setContentDescription("烂番茄评分");
         LinearLayout.LayoutParams tomatoIconSpace=new LinearLayout.LayoutParams(dp(18),dp(18));ratings.addView(tomatoIcon,tomatoIconSpace);
         TextView tomatoScore=text(tomato,11,Color.WHITE);tomatoScore.setPadding(0,0,0,0);tomatoScore.setGravity(android.view.Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams tomatoSpace=new LinearLayout.LayoutParams(-2,-1);ratings.addView(tomatoScore,tomatoSpace);
@@ -401,7 +401,8 @@ abstract class TvActivity extends Activity {
         paint.setColor(Color.rgb(23,23,23));paint.setTypeface(android.graphics.Typeface.create("sans-serif-condensed",android.graphics.Typeface.BOLD));paint.setTextAlign(android.graphics.Paint.Align.CENTER);paint.setTextSize(18);canvas.drawText("IMDb",24,24-(paint.ascent()+paint.descent())/2,paint);
         return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
     }
-    android.graphics.drawable.Drawable tomatoMark(){
+    android.graphics.drawable.Drawable tomatoMark(org.json.JSONObject item){
+        if(DetailPresentation.rottenTomato(item))return getDrawable(R.drawable.rotten_tomato);
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(30,30,android.graphics.Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.rgb(238,66,56));
         canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("M15 8C2 4 1 28 15 28S28 4 15 8Z"),paint);paint.setColor(Color.rgb(64,163,75));canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("m15 11-8-5 7 1 2-6 2 6 6-1-9 5Z"),paint);
