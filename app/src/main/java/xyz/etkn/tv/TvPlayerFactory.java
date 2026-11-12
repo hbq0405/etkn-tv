@@ -46,6 +46,9 @@ final class TvPlayerFactory {
         return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,translation,timing,null);
     }
     static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles,SubtitleTranslation translation,PlaybackTiming timing,PlaybackNetwork network){
+        return create(context,subtitleView,softwareVideo,softwareAudio,enhancedSubtitles,translation,timing,network,null);
+    }
+    static ExoPlayer create(Context context,SubtitleView subtitleView,boolean softwareVideo,boolean softwareAudio,boolean enhancedSubtitles,SubtitleTranslation translation,PlaybackTiming timing,PlaybackNetwork network,SubtitleOffsetClock subtitleClock){
         if(subtitleView!=null)subtitleView.setStyle(new androidx.media3.ui.CaptionStyleCompat(android.graphics.Color.WHITE,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,android.graphics.Color.BLACK,null));
         // Authentication stays in same-origin media URIs; never attach ETKN headers to CDN requests.
         DefaultDataSource.Factory data=new DefaultDataSource.Factory(context,new OkHttpDataSource.Factory(HTTP).setUserAgent(EtknApi.USER_AGENT));
@@ -76,7 +79,13 @@ final class TvPlayerFactory {
         ExtractorsFactory videoExtractors=new TvExtractorsFactory(extractors,translation);
         SubtitleParser.Factory externalParsers=new TvSubtitleParserFactory(delegate);
         DefaultMediaSourceFactory sources=new DefaultMediaSourceFactory(observed,videoExtractors).setSubtitleParserFactory(externalParsers);
-        ExoPlayer player=builder.setRenderersFactory(renderers).setMediaSourceFactory(new BlurayMediaSourceFactory(sources,observed,videoExtractors,externalParsers)).build();
+        RenderersFactory originalRenderers=renderers;
+        RenderersFactory timedRenderers=(handler,videoListener,audioListener,textOutput,metadataOutput)->{
+            androidx.media3.exoplayer.Renderer[] values=originalRenderers.createRenderers(handler,videoListener,audioListener,textOutput,metadataOutput);
+            if(subtitleClock!=null)for(int i=0;i<values.length;i++)values[i]=subtitleClock.wrap(values[i]);
+            return values;
+        };
+        ExoPlayer player=builder.setRenderersFactory(timedRenderers).setMediaSourceFactory(new BlurayMediaSourceFactory(sources,observed,videoExtractors,externalParsers)).build();
         try{
             if(ass!=null){ass.init(player);if(subtitleView!=null)subtitleView.addView(new AssSubtitleView(context,ass));}
             return player;

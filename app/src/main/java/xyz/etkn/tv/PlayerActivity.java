@@ -29,6 +29,7 @@ public final class PlayerActivity extends TvActivity {
     private PlaybackNetwork playbackNetwork;
     private int networkGeneration,automaticNetworkBitrate;
     private SubtitleTranslation translation;
+    private SubtitleOffsetSession subtitleOffsets;
     private DanmakuSession danmaku;
     private FrameLayout playbackStage;
     private PlayerView video;
@@ -320,10 +321,12 @@ public final class PlayerActivity extends TvActivity {
                 source.put("OriginalVideoUrl",PlaybackAddress.resolve(originalAddress,api.server,api.token,api.session.userId()));
             }
             JSONObject translationPlan=source.optJSONObject("SubtitleTranslation");
+            SubtitleOffsetSession.inheritCalibration(source,info.getJSONArray("MediaSources").getJSONObject(selected));
+            subtitleOffsets=new SubtitleOffsetSession(this,api,itemId,source,()->player,this::subtitleOffsetTarget);
             if(translationPlan!=null&&subtitleIndex==PlaybackSelection.AUTO)
-                translation=new SubtitleTranslation(api,itemId,source.optString("Id"),translationPlan,video,()->player,()->subtitleIndex==PlaybackSelection.AUTO);
-            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation,playbackTiming,playbackNetwork);}
-            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation,playbackTiming,playbackNetwork);TvNotice.show(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG);}
+                translation=new SubtitleTranslation(api,itemId,source.optString("Id"),translationPlan,video,()->player,()->subtitleIndex==PlaybackSelection.AUTO,()->subtitleOffsets==null?0:subtitleOffsets.clock.milliseconds);
+            try{player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,enhancedSubtitles,translation,playbackTiming,playbackNetwork,subtitleOffsets.clock);}
+            catch(RuntimeException|LinkageError failure){if(!enhancedSubtitles)throw failure;enhancedSubtitles=false;TvPlayerFactory.clearAssView(video.getSubtitleView());player=TvPlayerFactory.create(this,video.getSubtitleView(),softwareVideo,softwareAudio,false,translation,playbackTiming,playbackNetwork,subtitleOffsets.clock);TvNotice.show(this,"特效字幕初始化失败，已切换兼容字幕",Toast.LENGTH_LONG);}
             playbackTiming.event("player_created");
             video.setPlayer(player);player.setPlaybackSpeed(playbackSpeed);
             List<MediaItem.SubtitleConfiguration> subtitles=new ArrayList<>();JSONArray streams=source.optJSONArray("MediaStreams");
@@ -359,7 +362,7 @@ public final class PlayerActivity extends TvActivity {
                 @Override public void onRenderedFirstFrame(){playbackTiming.event("first_frame");videoFrameSeen=true;videoReadySince=0;updatePlaybackOverlay();updateVideoInfo();}
                 @Override public void onPositionDiscontinuity(Player.PositionInfo oldPosition,Player.PositionInfo newPosition,int reason){if((reason==Player.DISCONTINUITY_REASON_SEEK||reason==Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)&&playbackNetwork!=null)playbackNetwork.afterSeek(android.os.SystemClock.elapsedRealtime());}
                 @Override public void onVideoSizeChanged(VideoSize size){applyVideoRotation(size);}
-                @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);updateTrackButtons();}
+                @Override public void onTracksChanged(Tracks tracks){applyInitialTrack(C.TRACK_TYPE_AUDIO);applyInitialTrack(C.TRACK_TYPE_TEXT);if(subtitleOffsets!=null)subtitleOffsets.selectedChanged();updateTrackButtons();}
                 @Override public void onPlaybackStateChanged(int state){playbackTiming.event("state_"+state,"position_ms="+(player==null?-1:player.getCurrentPosition())+" buffered_ms="+(player==null?-1:player.getTotalBufferedDuration()));if(state==Player.STATE_READY&&!reportedStart){reportedStart=true;report("Started");timer.postDelayed(progress,10000);hideLoading();status.setVisibility(View.GONE);updateTrackButtons();if(introSkippedAtStart){introSkippedAtStart=false;showSkipNotice("已跳过片头",2200);}if(autoTranscodeNoticePending){autoTranscodeNoticePending=false;autoTranscodeNoticeUntil=android.os.SystemClock.elapsedRealtime()+4000;showUnifiedNotice("已自动转码",4000);}}if(state==Player.STATE_ENDED)advanceQueue();}
                 @Override public void onPlayerError(PlaybackException error){handlePlayerError(error);}
             });
@@ -519,10 +522,13 @@ public final class PlayerActivity extends TvActivity {
             boolean active=source.optBoolean("IsTranscoding")?(subtitles?source.optInt("TranscodeSubtitleStreamIndex",-1):source.optInt("TranscodeAudioStreamIndex",-1))==stream.optInt("Index"):(ref!=null&&ref.group.isTrackSelected(ref.index));
             labels.add((subtitles?"":"第 "+(PlaybackSelection.audioOrdinal(source,stream.optInt("Index"))+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream,!subtitles)+(source.optBoolean("IsTranscoding")?"":ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持")+(active?" ✓":""));
         }
+        if(subtitles&&subtitleOffsets!=null){indices.add(Integer.MIN_VALUE+1);labels.add("字幕偏移 · "+SubtitleOffsetSession.label(subtitleOffsets.clock.milliseconds));}
         int selectedIndex=indices.indexOf(subtitles?subtitleIndex:audioIndex);
         video.setControllerShowTimeoutMs(0);
         trackDialog=PlayerChoiceDialog.create(this,subtitles?"字幕":"音轨",labels.toArray(new String[0]),selectedIndex,(dialog,index)->{
-            if(player==null)return;int wanted=indices.get(index),resolved=wanted==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,subtitles):wanted;
+            if(player==null)return;int wanted=indices.get(index);
+            if(wanted==Integer.MIN_VALUE+1){dialog.dismiss();timer.post(()->{if(subtitleOffsets!=null){video.hideController();controls.setVisibility(View.GONE);subtitleOffsets.show();}});return;}
+            int resolved=wanted==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,subtitles):wanted;
             JSONObject stream=PlaybackSelection.stream(source,resolved,subtitles);TrackRef ref=stream==null?null:findTrack(stream,type);
             if(!source.optBoolean("IsTranscoding")&&resolved>=0&&(ref==null||!ref.supported())){TvNotice.show(this,ref==null?"该轨道尚未解析，不能确认对应关系":"当前解码模式不支持该轨道",Toast.LENGTH_LONG);return;}
             if(subtitles){subtitleIndex=wanted;subtitlePending=true;}else{audioIndex=wanted;audioPending=true;new TvPreferences(this,api).saveSeasonAudio(seasonKey,PlaybackSelection.audioOrdinal(source,wanted));}
@@ -533,6 +539,12 @@ public final class PlayerActivity extends TvActivity {
             updateTrackButtons();dialog.dismiss();
         });
         trackDialog.setOnDismissListener(dialog->{video.setControllerShowTimeoutMs(5000);showControls();});trackDialog.show();
+    }
+    private JSONObject subtitleOffsetTarget(){
+        if(source==null||subtitleIndex==-1)return null;
+        if(subtitleIndex==PlaybackSelection.AUTO&&source.optJSONObject("SubtitleTranslation")!=null)return source.optJSONObject("SubtitleTranslation");
+        JSONObject active=player==null?null:selectedStream(true);
+        return active!=null?active:PlaybackSelection.stream(source,subtitleIndex==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,true):subtitleIndex,true);
     }
     private String currentTrackTitle(boolean subtitles){
         int type=subtitles?C.TRACK_TYPE_TEXT:C.TRACK_TYPE_AUDIO;
@@ -694,7 +706,7 @@ public final class PlayerActivity extends TvActivity {
         Intent update=new Intent(DetailActivity.ACTION_PLAYBACK_PROGRESS).setPackage(getPackageName()).putExtra("itemId",payload.optString("ItemId")).putExtra("positionTicks",payload.optLong("PositionTicks")).putExtra("runtimeTicks",payload.optLong("RunTimeTicks")).putExtra("completed",payload.optBoolean("PlayedToCompletion")).putExtra("synced",synced);sendBroadcast(update);
     }
     private void stopPlayer(){stopPlayer(true);}
-    private void stopPlayer(boolean releaseAssistance){cancelConfirm();if(danmakuDialog!=null)danmakuDialog.dismiss();danmakuSaving=false;danmakuRevision++;if(danmaku!=null){danmaku.close();danmaku=null;}if(translation!=null){translation.close();translation=null;}cancelCreditsCountdown();creditsSkipCancelled=false;hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();if(releaseAssistance||transcodeSession.isEmpty())report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}if(releaseAssistance)clearAssistance();updatePlaybackOverlay();}
+    private void stopPlayer(boolean releaseAssistance){if(subtitleOffsets!=null){subtitleOffsets.close();subtitleOffsets=null;}cancelConfirm();if(danmakuDialog!=null)danmakuDialog.dismiss();danmakuSaving=false;danmakuRevision++;if(danmaku!=null){danmaku.close();danmaku=null;}if(translation!=null){translation.close();translation=null;}cancelCreditsCountdown();creditsSkipCancelled=false;hideSeekProgress();timer.removeCallbacks(progress);timer.removeCallbacks(skipCheck);timer.removeCallbacks(videoCheck);if(skipButton!=null)skipButton.setVisibility(View.GONE);if(player!=null){position=Math.max(0,player.getCurrentPosition());playWhenReady=player.getPlayWhenReady();if(releaseAssistance||transcodeSession.isEmpty())report("Stopped");video.setPlayer(null);player.release();player=null;TvPlayerFactory.clearAssView(video.getSubtitleView());}if(releaseAssistance)clearAssistance();updatePlaybackOverlay();}
     @Override protected void onStart(){super.onStart();if(!LoginGate.isSatisfied()&&api.session.persist()!=SessionStore.PERSIST_FULL)return;foreground=true;if(info!=null&&player==null)startSource();}
     private void cancelConfirm(){timer.removeCallbacks(confirmLongPress);confirmPress=null;confirmLongPressed=false;}
     @Override protected void onPause(){cancelConfirm();cancelCreditsCountdown();hideSeekProgress();super.onPause();}

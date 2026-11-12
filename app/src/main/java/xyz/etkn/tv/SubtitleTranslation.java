@@ -27,6 +27,7 @@ final class SubtitleTranslation implements TranslationTrackOutput.Sink {
     final String label;
     private final Supplier<ExoPlayer> player;
     private final BooleanSupplier enabled;
+    private final java.util.function.IntSupplier offsetMs;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService network=Executors.newSingleThreadExecutor();
     private final LinkedHashMap<String,JSONObject> pending=new LinkedHashMap<>();
@@ -39,7 +40,10 @@ final class SubtitleTranslation implements TranslationTrackOutput.Sink {
     private volatile long lastPosition=-1;
     private final Runnable tick=this::update;
     SubtitleTranslation(EtknApi api,String itemId,String sourceId,JSONObject plan,PlayerView parent,Supplier<ExoPlayer> player,BooleanSupplier enabled){
-        this.api=api;this.player=player;this.enabled=enabled;key=plan.optString("Key");
+        this(api,itemId,sourceId,plan,parent,player,enabled,()->0);
+    }
+    SubtitleTranslation(EtknApi api,String itemId,String sourceId,JSONObject plan,PlayerView parent,Supplier<ExoPlayer> player,BooleanSupplier enabled,java.util.function.IntSupplier offsetMs){
+        this.api=api;this.player=player;this.enabled=enabled;this.offsetMs=offsetMs;key=plan.optString("Key");
         original=parent.getSubtitleView();
         if(original!=null)original.setVisibility(View.INVISIBLE);
         sourceIndex=plan.optInt("SourceIndex",-1);sourceOrdinal=plan.optInt("SourceOrdinal",-1);
@@ -72,12 +76,13 @@ final class SubtitleTranslation implements TranslationTrackOutput.Sink {
         boolean active=current!=null&&enabled.getAsBoolean();
         overlay.setVisibility(active?View.VISIBLE:View.GONE);
         if(active){
-            long position=current.getCurrentPosition();
+            long subtitlePosition=current.getCurrentPosition()-offsetMs.getAsInt();
+            long position=Math.max(0,subtitlePosition);
             boolean jumped=lastPosition>=0&&Math.abs(position-lastPosition)>5000;
             if(jumped){generation++;translated=new ArrayList<>();lastRequest=0;}
             lastPosition=position;
             StringBuilder text=new StringBuilder();
-            for(JSONObject cue:translated)if(cue.optLong("start")<=position&&cue.optLong("end")>position){if(text.length()>0)text.append('\n');text.append(cue.optString("text"));}
+            for(JSONObject cue:translated)if(cue.optLong("start")<=subtitlePosition&&cue.optLong("end")>subtitlePosition){if(text.length()>0)text.append('\n');text.append(cue.optString("text"));}
             overlay.setText(text.toString());
             // The server's translated text already contains both lines in bilingual mode.
             // Keep capturing the source track, but never reveal it while waiting for a translation.
