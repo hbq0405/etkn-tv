@@ -29,13 +29,13 @@
 - 2026-10-29：0.1.12 发布后的 `build/verify-release-0.1.12` 匿名下载核验目录被同类递归删除命令拦截；已只读确认路径和仓库状态，未换 shell 绕过，目录保留作为可复核现场。
 - `mergeDexRelease` 若因 `classes.dex` 被占用失败，先检查相关进程与 `gradlew --status`；只有确认没有活动构建且唯一相关 Gradle daemon 为 IDLE 时，才用 `gradlew --stop` 优雅停止后重跑完整发行检查。本轮重跑通过，但未能唯一确定文件锁持有者；不得强杀其他进程。
 
-## FengOS 开机与 Home 接管（2026-11-12）
+## FengOS 仅开机启动、Home 返回原厂（2026-11-12）
 
-- L055FCN / Android 9 实测会过滤第三方 HOME 候选，即使 APK 的 MAIN/HOME/DEFAULT 清单有效，也不能据此声称已成为系统默认桌面。此机保留原厂桌面，使用用户确认的无障碍接管方案。
-- 仅在用户选择启用后，将 `包名/xyz.etkn.tv.LauncherTakeoverService` 合并到 secure `enabled_accessibility_services`，保留其他服务，并将 `accessibility_enabled` 设为 1。修改前保存原值；测试包启用后必须还原，禁止正式包和测试包同时接管。
-- 先以 `dumpsys activity services <包名>` 确认服务绑定，再从实际存在的应用按 Home；使用 ActivityManager 的启动时间与调用 UID、最终前台 Activity 证明接管。此机已确认设置入口为 `com.droidlogic.tv.settings/.MainSettings`；标准 `android.settings.SETTINGS` 无匹配 Activity。
-- 只处理 `com.tvfengmi.launcher` 的 `TYPE_WINDOW_STATE_CHANGED`，且类名严格匹配 `com.gala.video.app.epg.HomeActivity`；不申请读取窗口内容。开机接收器只在服务启用时生效，启动仍走 SetupActivity 与现有账号策略。原厂桌面可能短暂出现。
-- 安装回读版本后验证 Home 和重启，分别记录前台页面、绑定与 secure 设置持久化。不能用构建或清单声明代替实机启动验证。关闭时只从服务列表移除此组件；原来无任何服务的设备可恢复 `enabled_accessibility_services=null`、`accessibility_enabled=0`。
+- L055FCN / Android 9 会过滤第三方 HOME 候选。用户反馈开机后焦点迟钝，启动日志确认旧无障碍接管与开机接收器在同次启动中多次拉起并清空任务；按用户后续要求移除 Home 接管，只保留开机启动。不得再启用旧 LauncherTakeoverService。
+- `StartupReceiver` 默认 `enabled=false`；通过设置→应用→“开机自动进入 ETKN TV”由应用自身调用 PackageManager 启用/关闭。L055FCN 实测拒绝 shell 的 `pm enable` 单个组件操作，不重试或提权；使用应用内本机开关。状态跨重启保留，不依赖无障碍设置，不改变正常账号登录门禁。
+- 升级时从 secure `enabled_accessibility_services` 仅移除旧 ETKN 接管组件，保留其他无障碍服务；只有服务列表为空时才将 `accessibility_enabled` 恢复为 0。不能直接覆盖其他服务配置。
+- 开机只处理 BOOT_COMPLETED，使用 MAIN/LAUNCHER 正常入口和 NEW_TASK/RESET_TASK_IF_NEEDED，禁止 CLEAR_TASK 重建正在初始化的页面。Home 必须停留原厂桌面，不能被迟到启动拉回。
+- 安装回读版本后，从实际应用按 Home 并等待，确认原厂桌面保持前台；重启后检查开机接收器 enabled 状态和 ETKN 入口启动次数，分别记录实际前台及焦点响应。此机存在的系统设置入口是 `com.droidlogic.tv.settings/.MainSettings`，标准 `android.settings.SETTINGS` 不可用。
 
 ## APK 更新签名读取兼容（2026-10-28）
 
