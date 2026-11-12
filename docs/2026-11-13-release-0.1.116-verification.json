@@ -1,0 +1,50 @@
+{
+  "phase": "published",
+  "tag": "v0.1.116",
+  "source": "7ab795762a1b0ce4a13326467af6a4d3363d3ddf",
+  "url": "https://github.com/hbq0405/etkn-tv/releases/tag/v0.1.116",
+  "assets": {
+    "etkn-tv-0.1.116.apk": {
+      "size": 62413950,
+      "sha256": "3149ee94ff899e69dfd0a02e58f67093b20f1450474a9969a0ae5cd063728d61"
+    },
+    "update.json": {
+      "size": 421,
+      "sha256": "9374da11fd1e2c2b54e54a588c006d1de2542e34ce5e9b18fe47aa36fe4ad6bc"
+    },
+    "SHA256SUMS.txt": {
+      "size": 247,
+      "sha256": "ddf94a84fe9c2f2c678a5f9ed2e6310e1a8a5b640be925dd43e69f90bdb764c4"
+    },
+    "RELEASE_NOTES.md": {
+      "size": 1267,
+      "sha256": "41d0023bcaa46f124465104f36269e30be3a0cfa4ffd5679c03c97f813b34982"
+    }
+  },
+  "release_id": 443253044,
+  "published_at": "2026-11-12T16:59:57Z",
+  "anonymous_downloads_verified": 4,
+  "latest_update_json_verified": true,
+  "notification": {
+    "run_id": 43264706376,
+    "conclusion": "success",
+    "headSha": "7ab795762a1b0ce4a13326467af6a4d3363d3ddf",
+    "status": "completed",
+    "url": "https://github.com/hbq0405/etkn-tv/actions/runs/43264706376",
+    "receipt_count": 1,
+    "message_id": 64981
+  },
+  "installed_device": "192.168.31.188:5555",
+  "installed_version": "0.1.116",
+  "installed_version_code": 117,
+  "installed_apk_sha256": "3149ee94ff899e69dfd0a02e58f67093b20f1450474a9969a0ae5cd063728d61",
+  "native_libraries_identical_to_0_1_114": 20,
+  "licenses_identical_to_0_1_114": 24,
+  "unit_tests": {
+    "tests": 121,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "real_playback_acceptance": "not performed"
+}
