@@ -137,10 +137,10 @@ public final class DetailActivity extends TvActivity {
         LinearLayout metadata=row();metadata.setGravity(Gravity.CENTER_VERTICAL);
         ImageView douban=new ImageView(this);douban.setImageDrawable(doubanMark());douban.setPadding(dp(3),dp(3),dp(3),dp(3));douban.setBackground(shape(Color.rgb(0,119,34),0));metadata.addView(douban,new LinearLayout.LayoutParams(dp(21),dp(21)));
         detailDouban=meta("",Color.WHITE);metadata.addView(detailDouban);
-        ImageView tmdb=new ImageView(this);tmdb.setImageDrawable(tmdbMark());metadata.addView(tmdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
-        detailTmdb=meta("",Color.rgb(255,205,75));metadata.addView(detailTmdb);
         ImageView imdb=new ImageView(this);imdb.setImageDrawable(imdbMark());imdb.setContentDescription("IMDb评分");metadata.addView(imdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
         detailImdb=meta("",Color.WHITE);metadata.addView(detailImdb);
+        ImageView tmdb=new ImageView(this);tmdb.setImageDrawable(tmdbMark());metadata.addView(tmdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
+        detailTmdb=meta("",Color.rgb(255,205,75));metadata.addView(detailTmdb);
         detailTomatoIcon=new ImageView(this);detailTomatoIcon.setImageDrawable(tomatoMark());detailTomatoIcon.setContentDescription("烂番茄评分");metadata.addView(detailTomatoIcon,new LinearLayout.LayoutParams(dp(21),dp(21)));
         detailTomatoes=meta("",Color.WHITE);metadata.addView(detailTomatoes);
         detailYear=meta("",MUTED);metadata.addView(detailYear);detailDuration=meta("",MUTED);metadata.addView(detailDuration);

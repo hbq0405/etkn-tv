@@ -38,6 +38,7 @@ public class HomeFocusTest {
 
     @Test public void imdbScoresFitBothCardViewsAndSortThroughTvApi()throws Exception{
         try(Fixture server=new Fixture()){
+            server.tomatoScores=true;
             new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"imdb-fixture","评分测试","loopback-only");
             evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"imdb-cards");assertTrue(evidence.isDirectory()||evidence.mkdirs());
             EtknApi api=new EtknApi(instrumentation.getTargetContext());TvPreferences preferences=new TvPreferences(instrumentation.getTargetContext(),api);preferences.saveLibraryView("library-0","portrait");
@@ -50,18 +51,27 @@ public class HomeFocusTest {
                     await(()->posterGrid()!=null&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
                     instrumentation.runOnMainSync(()->{
                         ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0),ratings=(ViewGroup)art.getChildAt(1);
-                        View last=ratings.getChildAt(ratings.getChildCount()-1);assertTrue(last instanceof android.widget.TextView);assertEquals("7.9",((android.widget.TextView)last).getText().toString());
-                        assertTrue("三项评分必须完整位于卡片内",last.getRight()<=ratings.getWidth());assertTrue(ratings.getChildAt(0).getLeft()>=0);
-                        android.widget.TextView imdb=(android.widget.TextView)last,tmdb=(android.widget.TextView)ratings.getChildAt(ratings.getChildCount()-3);
-                        assertEquals("IMDb与其他评分基线对齐",tmdb.getBaseline(),imdb.getBaseline());
-                        assertTrue("小卡片评分文字不能被上下裁切",imdb.getLayout().getHeight()<=imdb.getHeight()-imdb.getCompoundPaddingTop()-imdb.getCompoundPaddingBottom());
+                        assertEquals(view.equals("landscape")?9:8,ratings.getChildCount());
+                        int first=view.equals("landscape")?1:0;String[] expected={"8.1","7.9","7.1","100%"};
+                        int baseline=-1;
+                        for(int part=0;part<4;part++){
+                            android.widget.TextView score=(android.widget.TextView)ratings.getChildAt(first+part*2+1);
+                            assertEquals(expected[part],score.getText().toString());
+                            assertEquals(1,score.getLineCount());
+                            assertTrue("All four scores must fit",score.getRight()<=ratings.getWidth()&&ratings.getChildAt(first+part*2).getLeft()>=0);
+                            int current=score.getTop()+score.getBaseline();if(baseline<0)baseline=current;else assertEquals("Shared score baseline",baseline,current);
+                            assertTrue(score.getLayout().getHeight()<=score.getHeight()-score.getCompoundPaddingTop()-score.getCompoundPaddingBottom());
+                        }
+                        assertEquals(art.getHeight(),ratings.getBottom());
+                        assertEquals("No separate tomato badge",view.equals("landscape")?4:3,art.getChildCount());
                     });
                     if(size==0||size==2||size==4)saveScreenshot("imdb-"+view+"-"+size+".png");
                 }
             }
             call("setSort",new Class<?>[]{String.class,String.class},"IMDbRating","Descending");await(()->server.lastListingPath.contains("SortBy=IMDbRating")&&server.lastListingPath.contains("SortOrder=Descending"));
-            assertTrue(server.lastListingPath.contains("IMDbRating,ProductionYear"));
+            assertTrue(server.lastListingPath.contains("IMDbRating,CriticRating,ProductionYear"));
             call("setSort",new Class<?>[]{String.class,String.class},"IMDbRating","Ascending");await(()->server.lastListingPath.contains("SortBy=IMDbRating")&&server.lastListingPath.contains("SortOrder=Ascending"));
+            call("setSort",new Class<?>[]{String.class,String.class},"CriticRating","Descending");await(()->server.lastListingPath.contains("SortBy=CriticRating"));
             java.lang.reflect.Field sorts=HomeActivity.class.getDeclaredField("FACET_SORTS");sorts.setAccessible(true);assertTrue(java.util.Arrays.stream((String[][])sorts.get(null)).anyMatch(row->row[0].equals("IMDb评分")&&row[1].equals("IMDbRating")));
         }finally{if(home!=null)instrumentation.runOnMainSync(home::finish);}
     }
@@ -893,7 +903,7 @@ public class HomeFocusTest {
         volatile boolean streamMissing,holdStreamImage;
         final java.util.List<String> streamPaths=new java.util.concurrent.CopyOnWriteArrayList<>();
         final java.util.concurrent.CountDownLatch streamImageGate=new java.util.concurrent.CountDownLatch(1);
-        volatile boolean missingFirstLogo,styledBannerTitles;
+        volatile boolean missingFirstLogo,styledBannerTitles,tomatoScores;
         volatile boolean nativeGroups;
         final java.util.concurrent.CountDownLatch facetGate=new java.util.concurrent.CountDownLatch(1);
         final java.util.List<String> latestPaths=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
@@ -1002,7 +1012,7 @@ public class HomeFocusTest {
                 limit=Math.min(limit,listingPageCap);
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
                 JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,nativeGroups?3:120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name",styledBannerTitles?new String[]{"长安三万里","The Grand Budapest Hotel","这个杀手不太冷：导演剪辑特别版","宇宙探索编辑部"}[i%4]:"海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("IMDbRating",7.9).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
-                for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
+                for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(tomatoScores)row.put("CriticRating",100);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
                 if(deleted&&start==0)page.remove(0);
                 return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:nativeGroups?3:120).put("EpisodeCountMode","unplayed");
             }

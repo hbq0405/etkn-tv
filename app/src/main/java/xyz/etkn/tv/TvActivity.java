@@ -321,28 +321,38 @@ abstract class TvActivity extends Activity {
         }
         ImageView doubanIcon=new ImageView(this);doubanIcon.setImageDrawable(doubanMark());doubanIcon.setBackground(shape(Color.rgb(0,119,34),0));doubanIcon.setPadding(dp(3),dp(3),dp(3),dp(3));ratings.addView(doubanIcon,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView douban=text(rating(media,"DoubanRating"),11,Color.WHITE);douban.setGravity(android.view.Gravity.CENTER_VERTICAL);douban.setPadding(0,0,0,0);LinearLayout.LayoutParams scoreSpace=new LinearLayout.LayoutParams(-2,-1);scoreSpace.leftMargin=dp(3);scoreSpace.rightMargin=dp(8);ratings.addView(douban,scoreSpace);
-        ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());ratings.addView(star,new LinearLayout.LayoutParams(dp(18),dp(18)));
-        TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
         ImageView imdbIcon=new ImageView(this);imdbIcon.setImageDrawable(imdbMark());imdbIcon.setContentDescription("IMDb评分");LinearLayout.LayoutParams imdbIconSpace=new LinearLayout.LayoutParams(dp(18),dp(18));imdbIconSpace.leftMargin=dp(8);ratings.addView(imdbIcon,imdbIconSpace);
         TextView imdb=text(rating(media,"IMDbRating"),11,Color.WHITE);imdb.setGravity(android.view.Gravity.CENTER_VERTICAL);imdb.setPadding(0,0,0,0);LinearLayout.LayoutParams imdbSpace=new LinearLayout.LayoutParams(-2,-1);imdbSpace.leftMargin=dp(3);ratings.addView(imdb,imdbSpace);
+        ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());LinearLayout.LayoutParams tmdbIconSpace=new LinearLayout.LayoutParams(dp(18),dp(18));ratings.addView(star,tmdbIconSpace);
+        TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
+        String tomato=DetailPresentation.tomatoRating(media);
+        ImageView tomatoIcon=new ImageView(this);tomatoIcon.setImageDrawable(tomatoMark());tomatoIcon.setContentDescription("烂番茄评分");
+        LinearLayout.LayoutParams tomatoIconSpace=new LinearLayout.LayoutParams(dp(18),dp(18));ratings.addView(tomatoIcon,tomatoIconSpace);
+        TextView tomatoScore=text(tomato,11,Color.WHITE);tomatoScore.setPadding(0,0,0,0);tomatoScore.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams tomatoSpace=new LinearLayout.LayoutParams(-2,-1);ratings.addView(tomatoScore,tomatoSpace);
+        tomatoIcon.setVisibility(tomato.equals("–")?View.GONE:View.VISIBLE);tomatoScore.setVisibility(tomatoIcon.getVisibility());
+        TextView[] scoreTexts={douban,tmdb,imdb,tomatoScore};ImageView[] scoreIcons={doubanIcon,star,imdbIcon,tomatoIcon};
+        for(TextView value:scoreTexts)value.setSingleLine(true);
+        if(ratingYear!=null)ratingYear.setSingleLine(true);
+        ratings.setBaselineAligned(false);
         Runnable resizeRatings=()->{
             float scale=artworkScale(artwork,scaleBaseWidthDp);
-            ratingBounds.height=Math.round(42*scale);ratings.setLayoutParams(ratingBounds);ratings.setPadding(0,Math.round(17*scale),0,Math.round(3*scale));
-            for(TextView value:new TextView[]{ratingYear,douban,tmdb,imdb})if(value!=null)value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scale);
-            if(ratingYear!=null)ratingYear.setPadding(0,0,Math.round(8*scale),0);
-            for(ImageView icon:new ImageView[]{doubanIcon,star,imdbIcon}){LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)icon.getLayoutParams();bounds.width=bounds.height=Math.round(18*scale);icon.setLayoutParams(bounds);}
-            int padding=Math.round(3*scale);doubanIcon.setPadding(padding,padding,padding,padding);
-            scoreSpace.leftMargin=Math.round(3*scale);scoreSpace.rightMargin=Math.round(8*scale);douban.setLayoutParams(scoreSpace);tmdbSpace.leftMargin=Math.round(3*scale);tmdb.setLayoutParams(tmdbSpace);imdbIconSpace.leftMargin=Math.round(8*scale);imdbIcon.setLayoutParams(imdbIconSpace);imdbSpace.leftMargin=Math.round(3*scale);imdb.setLayoutParams(imdbSpace);
+            ratingBounds.height=Math.round(42*scale);ratings.setLayoutParams(ratingBounds);ratings.setPadding(Math.round(4*scale),Math.round(17*scale),Math.round(4*scale),Math.round(3*scale));
+            float width=0;int count=0;
+            for(TextView value:scoreTexts)if(value.getVisibility()!=View.GONE){value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scale);width+=18*scale+3*scale+value.getPaint().measureText(value.getText().toString());count++;}
+            width+=Math.max(0,count-1)*8*scale;
+            if(ratingYear!=null&&ratingYear.getVisibility()!=View.GONE){ratingYear.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scale);width+=ratingYear.getPaint().measureText(ratingYear.getText().toString())+8*scale;}
+            float scoreScale=scale*Math.min(1,(scaleBaseWidthDp*scale-10*scale)/Math.max(1,width));
+            for(TextView value:scoreTexts)value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scoreScale);
+            if(ratingYear!=null){ratingYear.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scoreScale);ratingYear.setPadding(0,0,Math.round(8*scoreScale),0);}
+            for(ImageView icon:scoreIcons){LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)icon.getLayoutParams();bounds.width=bounds.height=Math.round(18*scoreScale);icon.setLayoutParams(bounds);}
+            int padding=Math.round(3*scoreScale);doubanIcon.setPadding(padding,padding,padding,padding);
+            scoreSpace.leftMargin=Math.round(3*scoreScale);scoreSpace.rightMargin=Math.round(8*scoreScale);douban.setLayoutParams(scoreSpace);
+            tmdbSpace.leftMargin=Math.round(3*scoreScale);tmdb.setLayoutParams(tmdbSpace);
+            imdbIconSpace.leftMargin=0;tmdbIconSpace.leftMargin=Math.round(8*scoreScale);star.setLayoutParams(tmdbIconSpace);imdbIcon.setLayoutParams(imdbIconSpace);imdbSpace.leftMargin=Math.round(3*scoreScale);imdb.setLayoutParams(imdbSpace);
+            tomatoIconSpace.leftMargin=Math.round(8*scoreScale);tomatoIcon.setLayoutParams(tomatoIconSpace);tomatoSpace.leftMargin=Math.round(3*scoreScale);tomatoScore.setLayoutParams(tomatoSpace);
         };
         artworkScaleUpdates.add(resizeRatings);
-        String tomato=DetailPresentation.tomatoRating(media);
-        if(!tomato.equals("–")){
-            LinearLayout tomatoBadge=row();tomatoBadge.setGravity(android.view.Gravity.CENTER_VERTICAL);tomatoBadge.setBackground(shape(Color.argb(195,0,0,0),0));tomatoBadge.setContentDescription("烂番茄评分 "+tomato);
-            ImageView tomatoIcon=new ImageView(this);tomatoIcon.setImageDrawable(tomatoMark());tomatoBadge.addView(tomatoIcon,new LinearLayout.LayoutParams(dp(14),dp(14)));
-            TextView tomatoScore=text(tomato,10,Color.WHITE);tomatoBadge.addView(tomatoScore);
-            FrameLayout.LayoutParams tomatoBounds=new FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM|android.view.Gravity.START);artwork.addView(tomatoBadge,tomatoBounds);
-            artworkScaleUpdates.add(()->{float scale=artworkScale(artwork,scaleBaseWidthDp);tomatoScore.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,10*scale);tomatoBadge.setPadding(Math.round(5*scale),Math.round(2*scale),Math.round(5*scale),Math.round(2*scale));tomatoScore.setPadding(Math.round(3*scale),0,0,0);LinearLayout.LayoutParams iconBounds=(LinearLayout.LayoutParams)tomatoIcon.getLayoutParams();iconBounds.width=iconBounds.height=Math.round(14*scale);tomatoIcon.setLayoutParams(iconBounds);tomatoBounds.leftMargin=Math.round(6*scale);tomatoBounds.bottomMargin=Math.round(28*scale);tomatoBadge.setLayoutParams(tomatoBounds);});
-        }
         TextView badge=null;org.json.JSONObject userData=media.optJSONObject("UserData");
         if("Series".equalsIgnoreCase(media.optString("Type"))&&userData!=null){
             int count=episodeCountMode.equals("total")?media.optInt("RecursiveItemCount",userData.optInt("UnplayedItemCount")):userData.optInt("UnplayedItemCount");
@@ -398,11 +408,7 @@ abstract class TvActivity extends Activity {
         return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
     }
     android.graphics.drawable.Drawable tmdbMark(){
-        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(24,24,android.graphics.Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.rgb(255,205,75));
-        canvas.scale(24f/22f,24f/21.2f);canvas.translate(-1,-1);
-        canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("M12 1 15.4 8.2 23 9.2 17.5 14.6 18.8 22.2 12 18.6 5.2 22.2 6.5 14.6 1 9.2 8.6 8.2Z"),paint);
-        return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
+        return getDrawable(R.drawable.tmdb_rating);
     }
     android.graphics.drawable.Drawable focusOutline(){return new FocusPulse(dp(9),dp(3),ACCENT,forceDarkAppearance());}
     GridLayout grid() { return grid(content); }

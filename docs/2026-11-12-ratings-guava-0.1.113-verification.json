@@ -1,0 +1,22 @@
+{
+  "version": "0.1.113",
+  "code": 114,
+  "sha256": "c885abdf162da28bf71b4d8d7a72b5c86563cc89d81160587bc91a36c44d17cc",
+  "old_guava_type_refs": 0,
+  "private_guava_type_refs": 3886,
+  "native_libraries_unchanged": 20,
+  "app_media3_source_class_names_unchanged": true,
+  "unit_tests": 116,
+  "unit_failures": 0,
+  "instrumentation_tests": 3,
+  "certificate_sha256": "e02d42443875c3631be48199e0df419b0570fcc421be7ff2b620f4c643e67bd7",
+  "installed_version": "0.1.113",
+  "installed_code": 114,
+  "installed_sha256": "c885abdf162da28bf71b4d8d7a72b5c86563cc89d81160587bc91a36c44d17cc",
+  "adb_install": "Success",
+  "launch": "SetupActivity Status ok",
+  "device": "L055FCN",
+  "fault_device_retest": false,
+  "lint_errors": 0,
+  "lint_warnings": 105
+}
