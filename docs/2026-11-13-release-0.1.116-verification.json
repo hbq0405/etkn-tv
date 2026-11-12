@@ -46,5 +46,11 @@
     "errors": 0,
     "skipped": 0
   },
-  "real_playback_acceptance": "not performed"
+  "real_playback_acceptance": "not performed",
+  "cleanup": {
+    "server_temp": "removed",
+    "production_backups": "retained",
+    "local_temp": "D:/ETKvNext-agent-tmp/20261113-subtitle-offset",
+    "local_temp_removal": "blocked by policy before process start; retained; no bypass"
+  }
 }
