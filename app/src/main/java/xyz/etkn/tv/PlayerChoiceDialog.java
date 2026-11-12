@@ -19,8 +19,12 @@ final class PlayerChoiceDialog {
         return create(host,title,labels,selected,choice,600);
     }
     static AlertDialog create(TvActivity host,String title,String[] labels,int selected,DialogInterface.OnClickListener choice,int maximumWidthDp){
+        return create(host,title,labels,selected,choice,maximumWidthDp,null,null);
+    }
+    static AlertDialog create(TvActivity host,String title,String[] labels,int selected,DialogInterface.OnClickListener choice,int maximumWidthDp,String actionLabel,Runnable action){
         LinearLayout heading=host.column();heading.setPadding(host.dp(26),host.dp(18),host.dp(26),host.dp(10));
         heading.addView(host.text(title,23,TvActivity.TEXT));heading.addView(host.text("方向键选择 · 确认键应用",12,TvActivity.MUTED));
+        Button topAction=action==null?null:host.button(actionLabel,action);if(topAction!=null)heading.addView(topAction);
         BaseAdapter adapter=new BaseAdapter(){
             @Override public int getCount(){return labels.length;}
             @Override public Object getItem(int position){return labels[position];}
@@ -40,6 +44,7 @@ final class PlayerChoiceDialog {
             ListView list=dialog.getListView();list.setDivider(new ColorDrawable(Color.TRANSPARENT));list.setDividerHeight(host.dp(8));list.setPadding(host.dp(20),host.dp(4),host.dp(20),host.dp(4));list.setSelector(new ColorDrawable(Color.TRANSPARENT));list.setClipToPadding(false);
             Button back=dialog.getButton(DialogInterface.BUTTON_NEGATIVE);back.setAllCaps(false);back.setTextSize(14);host.themeText(back,TvActivity.MUTED);back.setBackground(host.selectionBackground());back.setPadding(host.dp(24),0,host.dp(24),0);
             list.requestFocus();list.setSelection(Math.max(0,selected));
+            if(topAction!=null)topAction.requestFocus();
         });
         return dialog;
     }

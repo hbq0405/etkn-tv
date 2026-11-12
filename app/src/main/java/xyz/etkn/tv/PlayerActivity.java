@@ -522,12 +522,10 @@ public final class PlayerActivity extends TvActivity {
             boolean active=source.optBoolean("IsTranscoding")?(subtitles?source.optInt("TranscodeSubtitleStreamIndex",-1):source.optInt("TranscodeAudioStreamIndex",-1))==stream.optInt("Index"):(ref!=null&&ref.group.isTrackSelected(ref.index));
             labels.add((subtitles?"":"第 "+(PlaybackSelection.audioOrdinal(source,stream.optInt("Index"))+1)+" 音轨 · ")+PlaybackSelection.streamLabel(stream,!subtitles)+(source.optBoolean("IsTranscoding")?"":ref==null?"  ·  尚未解析":ref.supported()?"":"  ·  解码不支持")+(active?" ✓":""));
         }
-        if(subtitles&&subtitleOffsets!=null){indices.add(Integer.MIN_VALUE+1);labels.add("字幕偏移 · "+SubtitleOffsetSession.label(subtitleOffsets.clock.milliseconds));}
         int selectedIndex=indices.indexOf(subtitles?subtitleIndex:audioIndex);
         video.setControllerShowTimeoutMs(0);
         trackDialog=PlayerChoiceDialog.create(this,subtitles?"字幕":"音轨",labels.toArray(new String[0]),selectedIndex,(dialog,index)->{
             if(player==null)return;int wanted=indices.get(index);
-            if(wanted==Integer.MIN_VALUE+1){dialog.dismiss();timer.post(()->{if(subtitleOffsets!=null){video.hideController();controls.setVisibility(View.GONE);subtitleOffsets.show();}});return;}
             int resolved=wanted==PlaybackSelection.AUTO?PlaybackSelection.defaultIndex(source,subtitles):wanted;
             JSONObject stream=PlaybackSelection.stream(source,resolved,subtitles);TrackRef ref=stream==null?null:findTrack(stream,type);
             if(!source.optBoolean("IsTranscoding")&&resolved>=0&&(ref==null||!ref.supported())){TvNotice.show(this,ref==null?"该轨道尚未解析，不能确认对应关系":"当前解码模式不支持该轨道",Toast.LENGTH_LONG);return;}
@@ -537,7 +535,7 @@ public final class PlayerActivity extends TvActivity {
                 requestAssistance(source.optBoolean("AudioOnly")?"audio_error":"track_switch");
             }else applyInitialTrack(type);
             updateTrackButtons();dialog.dismiss();
-        });
+        },600,subtitles&&subtitleOffsets!=null?"字幕偏移 · "+SubtitleOffsetSession.label(subtitleOffsets.clock.milliseconds):null,subtitles&&subtitleOffsets!=null?()->{trackDialog.dismiss();timer.post(()->{if(subtitleOffsets!=null){video.hideController();controls.setVisibility(View.GONE);subtitleOffsets.show();}});}:null);
         trackDialog.setOnDismissListener(dialog->{video.setControllerShowTimeoutMs(5000);showControls();});trackDialog.show();
     }
     private JSONObject subtitleOffsetTarget(){
