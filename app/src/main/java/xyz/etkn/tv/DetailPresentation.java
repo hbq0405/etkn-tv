@@ -7,6 +7,10 @@ import java.util.*;
 final class DetailPresentation {
     static String contentRating(JSONObject item){String custom=item.isNull("CustomRating")?"":item.optString("CustomRating").trim();return custom.isEmpty()?(item.isNull("OfficialRating")?"":item.optString("OfficialRating").trim()):custom;}
     static String rating(JSONObject item,String field){double value=item.optDouble(field,Double.NaN);return Double.isNaN(value)?"–":String.format(Locale.ROOT,"%.1f",value);}
+    static String tomatoRating(JSONObject item){
+        double value=item.optDouble("CriticRating",Double.NaN);
+        return Double.isNaN(value)||value<0||value>100?"–":String.format(Locale.ROOT,"%.0f%%",value);
+    }
     static String categories(JSONObject item){
         Set<String> values=new LinkedHashSet<>();for(String key:new String[]{"Genres","Tags"}){JSONArray array=item.optJSONArray(key);if(array!=null)for(int i=0;i<array.length();i++){Object raw=array.opt(i);String value=raw instanceof JSONObject?((JSONObject)raw).optString("Name"):raw instanceof String?(String)raw:"";value=value.trim();if(!value.isEmpty())values.add(value);}}
         return String.join(" · ",values);

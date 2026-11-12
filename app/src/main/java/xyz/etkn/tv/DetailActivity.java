@@ -35,7 +35,8 @@ public final class DetailActivity extends TvActivity {
     private LinearLayout episodeArea,preview,castArea,chapterArea;
     private TextView episodeTitle,episodeOverview;
     private ImageView backdrop,episodeImage,detailLogo;
-    private TextView detailTitle,detailDouban,detailTmdb,detailImdb,detailYear,detailDuration,detailRating,detailCategories,detailOverview,detailTagline;
+    private ImageView detailTomatoIcon;
+    private TextView detailTitle,detailDouban,detailTmdb,detailImdb,detailTomatoes,detailYear,detailDuration,detailRating,detailCategories,detailOverview,detailTagline;
     private Button cloudButton,episodesButton;
     private boolean episodePicker;
     private boolean canDiscover,cloudSearching;
@@ -140,6 +141,8 @@ public final class DetailActivity extends TvActivity {
         detailTmdb=meta("",Color.rgb(255,205,75));metadata.addView(detailTmdb);
         ImageView imdb=new ImageView(this);imdb.setImageDrawable(imdbMark());imdb.setContentDescription("IMDb评分");metadata.addView(imdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
         detailImdb=meta("",Color.WHITE);metadata.addView(detailImdb);
+        detailTomatoIcon=new ImageView(this);detailTomatoIcon.setImageDrawable(tomatoMark());detailTomatoIcon.setContentDescription("烂番茄评分");metadata.addView(detailTomatoIcon,new LinearLayout.LayoutParams(dp(21),dp(21)));
+        detailTomatoes=meta("",Color.WHITE);metadata.addView(detailTomatoes);
         detailYear=meta("",MUTED);metadata.addView(detailYear);detailDuration=meta("",MUTED);metadata.addView(detailDuration);
         detailRating=meta("",Color.WHITE);detailRating.setPadding(dp(7),dp(2),dp(7),dp(2));detailRating.setBackground(shape(Color.TRANSPARENT,MUTED));LinearLayout.LayoutParams ratingBounds=new LinearLayout.LayoutParams(-2,-2);ratingBounds.rightMargin=dp(12);metadata.addView(detailRating,ratingBounds);
         seriesButton=compactButton("系列",this::openItemCollection);seriesButton.setContentDescription("所属合集");seriesButton.setVisibility(View.GONE);
@@ -184,6 +187,7 @@ public final class DetailActivity extends TvActivity {
     private void updateMetadata(){
         if(episodePicker){detailTitle.setText(EtknApi.title(item)+" · 选集");return;}
         detailTitle.setText(EtknApi.title(item));detailDouban.setText(" "+DetailPresentation.rating(item,"DoubanRating")+"    ");detailTmdb.setText(" "+DetailPresentation.rating(item,"TMDbRating")+"    ");detailImdb.setText(" "+DetailPresentation.rating(item,"IMDbRating")+"    ");
+        String tomato=DetailPresentation.tomatoRating(item);detailTomatoes.setText(" "+tomato+"    ");detailTomatoes.setVisibility(tomato.equals("–")?View.GONE:View.VISIBLE);detailTomatoIcon.setVisibility(detailTomatoes.getVisibility());
         String year=item.optString("ProductionYear"),duration=DetailPresentation.duration(item.optLong("RunTimeTicks")),rating=DetailPresentation.contentRating(item),categories=DetailPresentation.categories(item);
         detailYear.setText(year+"    ");detailYear.setVisibility(year.isEmpty()?View.GONE:View.VISIBLE);detailDuration.setText(duration+"    ");detailDuration.setVisibility(duration.isEmpty()?View.GONE:View.VISIBLE);
         detailRating.setText(rating);detailRating.setVisibility(rating.isEmpty()?View.GONE:View.VISIBLE);detailCategories.setVisibility(View.GONE);renderFacets();
@@ -242,7 +246,7 @@ public final class DetailActivity extends TvActivity {
         for(JSONObject episode:allEpisodes)if(episode.optString("Id").equals(data.getStringExtra("episodeId"))){setPlayable(episode);int index=PlaybackSelection.sourceIndex(sources,data.getStringExtra("sourceId"));if(index>=0)sourceIndex=index;audio=data.getIntExtra("audioIndex",PlaybackSelection.AUTO);subtitle=data.getIntExtra("subtitleIndex",PlaybackSelection.AUTO);updateChoices();break;}
     }
     private void copyPresentation(JSONObject target,JSONObject value){
-        for(String key:new String[]{"Name","Overview","Tagline","Taglines","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","IMDbRating","Genres","Tags","Networks","Companies","StudioImageTags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType","People","Chapters"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
+        for(String key:new String[]{"Name","Overview","Tagline","Taglines","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","IMDbRating","CriticRating","Genres","Tags","Networks","Companies","StudioImageTags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType","People","Chapters"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
         for(String key:new String[]{"IndexNumber","ParentIndexNumber","SeriesId","SeriesName","SeasonId","ParentId"})if(value.has(key))try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
     }
     private Button compactButton(String title,Runnable click){

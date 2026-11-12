@@ -335,6 +335,14 @@ abstract class TvActivity extends Activity {
             scoreSpace.leftMargin=Math.round(3*scale);scoreSpace.rightMargin=Math.round(8*scale);douban.setLayoutParams(scoreSpace);tmdbSpace.leftMargin=Math.round(3*scale);tmdb.setLayoutParams(tmdbSpace);imdbIconSpace.leftMargin=Math.round(8*scale);imdbIcon.setLayoutParams(imdbIconSpace);imdbSpace.leftMargin=Math.round(3*scale);imdb.setLayoutParams(imdbSpace);
         };
         artworkScaleUpdates.add(resizeRatings);
+        String tomato=DetailPresentation.tomatoRating(media);
+        if(!tomato.equals("–")){
+            LinearLayout tomatoBadge=row();tomatoBadge.setGravity(android.view.Gravity.CENTER_VERTICAL);tomatoBadge.setBackground(shape(Color.argb(195,0,0,0),0));tomatoBadge.setContentDescription("烂番茄评分 "+tomato);
+            ImageView tomatoIcon=new ImageView(this);tomatoIcon.setImageDrawable(tomatoMark());tomatoBadge.addView(tomatoIcon,new LinearLayout.LayoutParams(dp(14),dp(14)));
+            TextView tomatoScore=text(tomato,10,Color.WHITE);tomatoBadge.addView(tomatoScore);
+            FrameLayout.LayoutParams tomatoBounds=new FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM|android.view.Gravity.START);artwork.addView(tomatoBadge,tomatoBounds);
+            artworkScaleUpdates.add(()->{float scale=artworkScale(artwork,scaleBaseWidthDp);tomatoScore.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,10*scale);tomatoBadge.setPadding(Math.round(5*scale),Math.round(2*scale),Math.round(5*scale),Math.round(2*scale));tomatoScore.setPadding(Math.round(3*scale),0,0,0);LinearLayout.LayoutParams iconBounds=(LinearLayout.LayoutParams)tomatoIcon.getLayoutParams();iconBounds.width=iconBounds.height=Math.round(14*scale);tomatoIcon.setLayoutParams(iconBounds);tomatoBounds.leftMargin=Math.round(6*scale);tomatoBounds.bottomMargin=Math.round(28*scale);tomatoBadge.setLayoutParams(tomatoBounds);});
+        }
         TextView badge=null;org.json.JSONObject userData=media.optJSONObject("UserData");
         if("Series".equalsIgnoreCase(media.optString("Type"))&&userData!=null){
             int count=episodeCountMode.equals("total")?media.optInt("RecursiveItemCount",userData.optInt("UnplayedItemCount")):userData.optInt("UnplayedItemCount");
@@ -381,6 +389,12 @@ abstract class TvActivity extends Activity {
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(48,48,android.graphics.Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.rgb(245,197,24));canvas.drawRoundRect(0,0,48,48,7,7,paint);
         paint.setColor(Color.rgb(23,23,23));paint.setTypeface(android.graphics.Typeface.create("sans-serif-condensed",android.graphics.Typeface.BOLD));paint.setTextAlign(android.graphics.Paint.Align.CENTER);paint.setTextSize(18);canvas.drawText("IMDb",24,24-(paint.ascent()+paint.descent())/2,paint);
+        return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
+    }
+    android.graphics.drawable.Drawable tomatoMark(){
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(30,30,android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.rgb(238,66,56));
+        canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("M15 8C2 4 1 28 15 28S28 4 15 8Z"),paint);paint.setColor(Color.rgb(64,163,75));canvas.drawPath(androidx.core.graphics.PathParser.createPathFromPathData("m15 11-8-5 7 1 2-6 2 6 6-1-9 5Z"),paint);
         return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
     }
     android.graphics.drawable.Drawable tmdbMark(){

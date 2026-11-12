@@ -79,6 +79,13 @@ public class DetailPresentationTest {
         assertEquals("1 小时 35 分钟",DetailPresentation.duration(95L*600000000));assertEquals("",DetailPresentation.duration(0));
         assertEquals("–",DetailPresentation.rating(item,"DoubanRating"));
     }
+    @Test public void rottenTomatoesUsesPercentAndKeepsZero()throws Exception{
+        assertEquals("–",DetailPresentation.tomatoRating(new JSONObject()));
+        assertEquals("0%",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating",0)));
+        assertEquals("92%",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating",92)));
+        assertEquals("–",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating",101)));
+        assertEquals("–",DetailPresentation.tomatoRating(new JSONObject().put("CriticRating","N/A")));
+    }
     @Test public void episodeNumberUsesNormalizedIndexAndResumePrefersLatestProgress()throws Exception{
         JSONObject first=new JSONObject().put("IndexNumber",1).put("Name","原始文件名").put("UserData",new JSONObject().put("Played",true));
         JSONObject second=new JSONObject().put("IndexNumber",2).put("UserData",new JSONObject().put("PlaybackPositionTicks",900).put("LastPlayedDate","2026-10-01"));
