@@ -323,14 +323,16 @@ abstract class TvActivity extends Activity {
         TextView douban=text(rating(media,"DoubanRating"),11,Color.WHITE);douban.setGravity(android.view.Gravity.CENTER_VERTICAL);douban.setPadding(0,0,0,0);LinearLayout.LayoutParams scoreSpace=new LinearLayout.LayoutParams(-2,-1);scoreSpace.leftMargin=dp(3);scoreSpace.rightMargin=dp(8);ratings.addView(douban,scoreSpace);
         ImageView star=new ImageView(this);star.setImageDrawable(tmdbMark());ratings.addView(star,new LinearLayout.LayoutParams(dp(18),dp(18)));
         TextView tmdb=text(rating(media,"TMDbRating"),11,Color.WHITE);tmdb.setGravity(android.view.Gravity.CENTER_VERTICAL);tmdb.setPadding(0,0,0,0);LinearLayout.LayoutParams tmdbSpace=new LinearLayout.LayoutParams(-2,-1);tmdbSpace.leftMargin=dp(3);ratings.addView(tmdb,tmdbSpace);
+        ImageView imdbIcon=new ImageView(this);imdbIcon.setImageDrawable(imdbMark());imdbIcon.setContentDescription("IMDb评分");LinearLayout.LayoutParams imdbIconSpace=new LinearLayout.LayoutParams(dp(18),dp(18));imdbIconSpace.leftMargin=dp(8);ratings.addView(imdbIcon,imdbIconSpace);
+        TextView imdb=text(rating(media,"IMDbRating"),11,Color.WHITE);imdb.setGravity(android.view.Gravity.CENTER_VERTICAL);imdb.setPadding(0,0,0,0);LinearLayout.LayoutParams imdbSpace=new LinearLayout.LayoutParams(-2,-1);imdbSpace.leftMargin=dp(3);ratings.addView(imdb,imdbSpace);
         Runnable resizeRatings=()->{
             float scale=artworkScale(artwork,scaleBaseWidthDp);
             ratingBounds.height=Math.round(42*scale);ratings.setLayoutParams(ratingBounds);ratings.setPadding(0,Math.round(17*scale),0,Math.round(3*scale));
-            for(TextView value:new TextView[]{ratingYear,douban,tmdb})if(value!=null)value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scale);
+            for(TextView value:new TextView[]{ratingYear,douban,tmdb,imdb})if(value!=null)value.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,11*scale);
             if(ratingYear!=null)ratingYear.setPadding(0,0,Math.round(8*scale),0);
-            for(ImageView icon:new ImageView[]{doubanIcon,star}){LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)icon.getLayoutParams();bounds.width=bounds.height=Math.round(18*scale);icon.setLayoutParams(bounds);}
+            for(ImageView icon:new ImageView[]{doubanIcon,star,imdbIcon}){LinearLayout.LayoutParams bounds=(LinearLayout.LayoutParams)icon.getLayoutParams();bounds.width=bounds.height=Math.round(18*scale);icon.setLayoutParams(bounds);}
             int padding=Math.round(3*scale);doubanIcon.setPadding(padding,padding,padding,padding);
-            scoreSpace.leftMargin=Math.round(3*scale);scoreSpace.rightMargin=Math.round(8*scale);douban.setLayoutParams(scoreSpace);tmdbSpace.leftMargin=Math.round(3*scale);tmdb.setLayoutParams(tmdbSpace);
+            scoreSpace.leftMargin=Math.round(3*scale);scoreSpace.rightMargin=Math.round(8*scale);douban.setLayoutParams(scoreSpace);tmdbSpace.leftMargin=Math.round(3*scale);tmdb.setLayoutParams(tmdbSpace);imdbIconSpace.leftMargin=Math.round(8*scale);imdbIcon.setLayoutParams(imdbIconSpace);imdbSpace.leftMargin=Math.round(3*scale);imdb.setLayoutParams(imdbSpace);
         };
         artworkScaleUpdates.add(resizeRatings);
         TextView badge=null;org.json.JSONObject userData=media.optJSONObject("UserData");
@@ -373,6 +375,12 @@ abstract class TvActivity extends Activity {
         android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(24,24,android.graphics.Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.WHITE);
         android.graphics.Path path=androidx.core.graphics.PathParser.createPathFromPathData("M.51 3.06h22.98V.755H.51V3.06Zm20.976 2.537v9.608h-2.137l-1.669 5.76H24v2.28H0v-2.28h6.32l-1.67-5.76H2.515V5.597h18.972Zm-5.066 9.608H7.58l1.67 5.76h5.501l1.67-5.76ZM18.367 7.9H5.634v5.025h12.733V7.9Z");canvas.drawPath(path,paint);
+        return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
+    }
+    android.graphics.drawable.Drawable imdbMark(){
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(48,48,android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.rgb(245,197,24));canvas.drawRoundRect(0,0,48,48,7,7,paint);
+        paint.setColor(Color.rgb(23,23,23));paint.setTypeface(android.graphics.Typeface.create("sans-serif-condensed",android.graphics.Typeface.BOLD));paint.setTextAlign(android.graphics.Paint.Align.CENTER);paint.setTextSize(18);canvas.drawText("IMDb",24,24-(paint.ascent()+paint.descent())/2,paint);
         return new android.graphics.drawable.BitmapDrawable(getResources(),bitmap);
     }
     android.graphics.drawable.Drawable tmdbMark(){

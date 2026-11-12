@@ -39,11 +39,11 @@ public final class HomeActivity extends TvActivity {
         {"最近修改","DateModified"},{"最近内容更新","DateLastContentAdded"},{"最近媒体更新","DateLastMediaAdded"},
         {"最近内容首播","LastContentPremiereDate"},{"首播日期","PremiereDate"},{"年份","ProductionYear"},
         {"文件大小","Size"},{"最近播放","DatePlayed"},{"播放次数","PlayCount"},{"TMDb评分","TMDbRating"},
-        {"豆瓣评分","DoubanRating"},{"影评评分","CriticRating"},{"IMDb评分","ImdbRating"},
+        {"豆瓣评分","DoubanRating"},{"影评评分","CriticRating"},{"IMDb评分","IMDbRating"},
         {"分级","OfficialRating"},{"时长","Runtime"},{"时长刻度","RunTimeTicks"},
         {"集数","IndexNumber"},{"季数","ParentIndexNumber"},{"随机","Random"}
     };
-    private static final String[][] FACET_SORTS={{"名称","SortName"},{"最近添加","DateAdded"},{"首播日期","PremiereDate"},{"年份","ProductionYear"},{"TMDb评分","TMDbRating"},{"豆瓣评分","DoubanRating"},{"随机","Random"}};
+    private static final String[][] FACET_SORTS={{"名称","SortName"},{"最近添加","DateAdded"},{"首播日期","PremiereDate"},{"年份","ProductionYear"},{"TMDb评分","TMDbRating"},{"豆瓣评分","DoubanRating"},{"IMDb评分","IMDbRating"},{"随机","Random"}};
     private boolean canDiscover;
     private HorizontalScrollView menu;
     private ScrollView homeScroll;
@@ -503,7 +503,7 @@ public final class HomeActivity extends TvActivity {
         if(selectedLibrary!=null&&"favorites".equals(selectedLibrary.optString("SourceType")))return api.userPath()+"/Browse?Filters=IsFavorite&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder;
         if(selectedLibrary!=null&&"facet".equals(selectedLibrary.optString("SourceType")))return api.userPath()+"/Browse?Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&ParentId="+EtknApi.encode(getIntent().hasExtra("facetParent")?getIntent().getStringExtra("facetParent"):"")+"&"+getIntent().getStringExtra("facetKind")+"="+EtknApi.encode(getIntent().getStringExtra("facetValue"));
         String includeTypes=activeCollection!=null?"Movie":collectionLibrary()?"BoxSet":libraryIncludeTypes(selectedLibrary);
-        return api.userPath()+"/Items?Recursive=true&ParentId="+EtknApi.encode(parent)+"&IncludeItemTypes="+EtknApi.encode(includeTypes)+"&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&Fields=PrimaryImageAspectRatio,Overview,CommunityRating,TMDbRating,DoubanRating,ProductionYear,RecursiveItemCount,UserData"+(typeKind.isEmpty()?"":"&"+typeKind+"="+EtknApi.encode(typeFilter))+(favoriteOnly?"&Filters=IsFavorite":"");
+        return api.userPath()+"/Items?Recursive=true&ParentId="+EtknApi.encode(parent)+"&IncludeItemTypes="+EtknApi.encode(includeTypes)+"&Limit="+limit+"&StartIndex="+start+"&SortBy="+EtknApi.encode(sortBy)+"&SortOrder="+sortOrder+"&Fields=PrimaryImageAspectRatio,Overview,CommunityRating,TMDbRating,DoubanRating,IMDbRating,ProductionYear,RecursiveItemCount,UserData"+(typeKind.isEmpty()?"":"&"+typeKind+"="+EtknApi.encode(typeFilter))+(favoriteOnly?"&Filters=IsFavorite":"");
     }
     private String folderQuery(int limit,int start,boolean recursive){return api.userPath()+"/Libraries/"+EtknApi.encode(selectedLibrary.optString("Id"))+"/Folders?FolderId="+EtknApi.encode(folderId)+"&Limit="+limit+"&StartIndex="+start+(recursive?"&Recursive=true":"")+(typeKind.isEmpty()?"":"&"+typeKind+"="+EtknApi.encode(typeFilter))+(favoriteOnly?"&Filters=IsFavorite":"");}
     private String libraryMetaLabel(int total){

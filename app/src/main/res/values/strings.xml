@@ -1,0 +1,4 @@
+<resources>
+    <string name="launcher_takeover_name">ETKN TV 开机与 Home 接管</string>
+    <string name="launcher_takeover_description">启用后，开机或返回 FengOS 原厂桌面时自动打开 ETKN TV。仅监听桌面窗口切换，不读取屏幕内容。关闭此服务即可恢复原厂桌面行为。</string>
+</resources>

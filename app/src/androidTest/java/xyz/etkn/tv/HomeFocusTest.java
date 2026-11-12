@@ -36,6 +36,36 @@ public class HomeFocusTest {
     private void call(String name,Class<?>[] types,Object... args){instrumentation.runOnMainSync(()->{try{java.lang.reflect.Method method=HomeActivity.class.getDeclaredMethod(name,types);method.setAccessible(true);method.invoke(home,args);}catch(Exception error){throw new AssertionError(error);}});}
     private int expectedAdaptiveColumns(GridLayout grid,int cardWidthDp,int gapDp,int imageSize){float density=home.getResources().getDisplayMetrics().density;int availableDp=Math.max(1,Math.round((grid.getWidth()-grid.getPaddingLeft()-grid.getPaddingRight())/density));int medium=Math.max(1,(availableDp+2*gapDp)/(cardWidthDp+2*gapDp));return Math.max(1,medium+TvPreferences.IMAGE_MEDIUM-imageSize);}
 
+    @Test public void imdbScoresFitBothCardViewsAndSortThroughTvApi()throws Exception{
+        try(Fixture server=new Fixture()){
+            new SessionStore(instrumentation.getTargetContext()).save(server.origin(),"imdb-fixture","评分测试","loopback-only");
+            evidence=new File(instrumentation.getTargetContext().getExternalFilesDir(null),"imdb-cards");assertTrue(evidence.isDirectory()||evidence.mkdirs());
+            EtknApi api=new EtknApi(instrumentation.getTargetContext());TvPreferences preferences=new TvPreferences(instrumentation.getTargetContext(),api);preferences.saveLibraryView("library-0","portrait");
+            home=(HomeActivity)instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(),HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            await(()->library("library-0")!=null);instrumentation.runOnMainSync(()->library("library-0").performClick());await(()->posterGrid()!=null&&posterGrid().getChildCount()>0);
+            for(String view:new String[]{"portrait","landscape"}){
+                preferences.saveLibraryView("library-0",view);call("openLibrary",new Class<?>[]{JSONObject.class},field(HomeActivity.class,"selectedLibrary"));
+                for(int size=0;size<5;size++){
+                    final int level=size;instrumentation.runOnMainSync(()->{preferences.setImageSize(level);home.onResume();});
+                    await(()->posterGrid()!=null&&posterGrid().getChildCount()>0&&!Boolean.TRUE.equals(field(HomeActivity.class,"refreshingPosters")));
+                    instrumentation.runOnMainSync(()->{
+                        ViewGroup art=(ViewGroup)((ViewGroup)posterGrid().getChildAt(0)).getChildAt(0),ratings=(ViewGroup)art.getChildAt(1);
+                        View last=ratings.getChildAt(ratings.getChildCount()-1);assertTrue(last instanceof android.widget.TextView);assertEquals("7.9",((android.widget.TextView)last).getText().toString());
+                        assertTrue("三项评分必须完整位于卡片内",last.getRight()<=ratings.getWidth());assertTrue(ratings.getChildAt(0).getLeft()>=0);
+                        android.widget.TextView imdb=(android.widget.TextView)last,tmdb=(android.widget.TextView)ratings.getChildAt(ratings.getChildCount()-3);
+                        assertEquals("IMDb与其他评分基线对齐",tmdb.getBaseline(),imdb.getBaseline());
+                        assertTrue("小卡片评分文字不能被上下裁切",imdb.getLayout().getHeight()<=imdb.getHeight()-imdb.getCompoundPaddingTop()-imdb.getCompoundPaddingBottom());
+                    });
+                    if(size==0||size==2||size==4)saveScreenshot("imdb-"+view+"-"+size+".png");
+                }
+            }
+            call("setSort",new Class<?>[]{String.class,String.class},"IMDbRating","Descending");await(()->server.lastListingPath.contains("SortBy=IMDbRating")&&server.lastListingPath.contains("SortOrder=Descending"));
+            assertTrue(server.lastListingPath.contains("IMDbRating,ProductionYear"));
+            call("setSort",new Class<?>[]{String.class,String.class},"IMDbRating","Ascending");await(()->server.lastListingPath.contains("SortBy=IMDbRating")&&server.lastListingPath.contains("SortOrder=Ascending"));
+            java.lang.reflect.Field sorts=HomeActivity.class.getDeclaredField("FACET_SORTS");sorts.setAccessible(true);assertTrue(java.util.Arrays.stream((String[][])sorts.get(null)).anyMatch(row->row[0].equals("IMDb评分")&&row[1].equals("IMDbRating")));
+        }finally{if(home!=null)instrumentation.runOnMainSync(home::finish);}
+    }
+
     @Test public void adaptiveRequestsKeepCardSizesAndBannerMetadataInsideArtwork()throws Exception{
         try(Fixture server=new Fixture()){
             server.respectLimits=true;
@@ -971,7 +1001,7 @@ public class HomeFocusTest {
             if(path.contains("/Users/")&&(path.contains("/Items?")||path.contains("/Browse?"))){
                 limit=Math.min(limit,listingPageCap);
                 int start=0;java.util.regex.Matcher match=java.util.regex.Pattern.compile("[?&]StartIndex=(\\d+)").matcher(path);if(match.find())start=Integer.parseInt(match.group(1));
-                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,nativeGroups?3:120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name",styledBannerTitles?new String[]{"长安三万里","The Grand Budapest Hotel","这个杀手不太冷：导演剪辑特别版","宇宙探索编辑部"}[i%4]:"海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
+                JSONArray page=new JSONArray();for(int i=start;i<Math.min(start+limit,nativeGroups?3:120);i++)page.put(new JSONObject().put("Id","item-"+i).put("Name",styledBannerTitles?new String[]{"长安三万里","The Grand Budapest Hotel","这个杀手不太冷：导演剪辑特别版","宇宙探索编辑部"}[i%4]:"海报影片 "+i).put("Type",i%2==0?"Series":"Movie").put("ProductionYear",2020+i%5).put("RecursiveItemCount",12).put("TMDbRating",7.1+(i%10)/10.0).put("DoubanRating",8.1+(i%10)/10.0).put("IMDbRating",7.9).put("UserData",new JSONObject().put("UnplayedItemCount",3)).put("ImageTags",new JSONObject().put("Primary","poster")));
                 for(int i=0;i<page.length();i++){JSONObject row=page.getJSONObject(i);if(changed)row.put("DoubanRating",9.4).put("TMDbRating",9.0);row.getJSONObject("ImageTags").put("Primary",changed?"poster2":"poster");row.getJSONObject("UserData").put("IsFavorite",favorite).put("Played",played);}
                 if(deleted&&start==0)page.remove(0);
                 return new JSONObject().put("Items",page).put("TotalRecordCount",deleted?119:nativeGroups?3:120).put("EpisodeCountMode","unplayed");

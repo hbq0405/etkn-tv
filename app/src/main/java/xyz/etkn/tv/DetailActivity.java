@@ -35,7 +35,7 @@ public final class DetailActivity extends TvActivity {
     private LinearLayout episodeArea,preview,castArea,chapterArea;
     private TextView episodeTitle,episodeOverview;
     private ImageView backdrop,episodeImage,detailLogo;
-    private TextView detailTitle,detailDouban,detailTmdb,detailYear,detailDuration,detailRating,detailCategories,detailOverview,detailTagline;
+    private TextView detailTitle,detailDouban,detailTmdb,detailImdb,detailYear,detailDuration,detailRating,detailCategories,detailOverview,detailTagline;
     private Button cloudButton,episodesButton;
     private boolean episodePicker;
     private boolean canDiscover,cloudSearching;
@@ -138,6 +138,8 @@ public final class DetailActivity extends TvActivity {
         detailDouban=meta("",Color.WHITE);metadata.addView(detailDouban);
         ImageView tmdb=new ImageView(this);tmdb.setImageDrawable(tmdbMark());metadata.addView(tmdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
         detailTmdb=meta("",Color.rgb(255,205,75));metadata.addView(detailTmdb);
+        ImageView imdb=new ImageView(this);imdb.setImageDrawable(imdbMark());imdb.setContentDescription("IMDb评分");metadata.addView(imdb,new LinearLayout.LayoutParams(dp(21),dp(21)));
+        detailImdb=meta("",Color.WHITE);metadata.addView(detailImdb);
         detailYear=meta("",MUTED);metadata.addView(detailYear);detailDuration=meta("",MUTED);metadata.addView(detailDuration);
         detailRating=meta("",Color.WHITE);detailRating.setPadding(dp(7),dp(2),dp(7),dp(2));detailRating.setBackground(shape(Color.TRANSPARENT,MUTED));LinearLayout.LayoutParams ratingBounds=new LinearLayout.LayoutParams(-2,-2);ratingBounds.rightMargin=dp(12);metadata.addView(detailRating,ratingBounds);
         seriesButton=compactButton("系列",this::openItemCollection);seriesButton.setContentDescription("所属合集");seriesButton.setVisibility(View.GONE);
@@ -181,7 +183,7 @@ public final class DetailActivity extends TvActivity {
     private TextView meta(String value,int color){TextView label=text(value,13,color);label.setGravity(Gravity.CENTER_VERTICAL);return label;}
     private void updateMetadata(){
         if(episodePicker){detailTitle.setText(EtknApi.title(item)+" · 选集");return;}
-        detailTitle.setText(EtknApi.title(item));detailDouban.setText(" "+DetailPresentation.rating(item,"DoubanRating")+"    ");detailTmdb.setText(" "+DetailPresentation.rating(item,"TMDbRating")+"    ");
+        detailTitle.setText(EtknApi.title(item));detailDouban.setText(" "+DetailPresentation.rating(item,"DoubanRating")+"    ");detailTmdb.setText(" "+DetailPresentation.rating(item,"TMDbRating")+"    ");detailImdb.setText(" "+DetailPresentation.rating(item,"IMDbRating")+"    ");
         String year=item.optString("ProductionYear"),duration=DetailPresentation.duration(item.optLong("RunTimeTicks")),rating=DetailPresentation.contentRating(item),categories=DetailPresentation.categories(item);
         detailYear.setText(year+"    ");detailYear.setVisibility(year.isEmpty()?View.GONE:View.VISIBLE);detailDuration.setText(duration+"    ");detailDuration.setVisibility(duration.isEmpty()?View.GONE:View.VISIBLE);
         detailRating.setText(rating);detailRating.setVisibility(rating.isEmpty()?View.GONE:View.VISIBLE);detailCategories.setVisibility(View.GONE);renderFacets();
@@ -191,23 +193,16 @@ public final class DetailActivity extends TvActivity {
         String tagline=item.optString("Tagline").trim();if(tagline.isEmpty()){JSONArray lines=item.optJSONArray("Taglines");if(lines!=null)tagline=lines.optString(0).trim();}detailTagline.setText(tagline);detailTagline.setVisibility(tagline.isEmpty()?View.GONE:View.VISIBLE);
     }
     private void renderFacets(){
-        String identity=String.valueOf(item.optJSONArray("Genres"))+String.valueOf(item.optJSONArray("Tags"))+String.valueOf(item.optJSONArray("Networks"))+String.valueOf(item.optJSONArray("Companies"))+String.valueOf(item.optJSONObject("StudioImageTags"));if(identity.equals(renderedFacets))return;renderedFacets=identity;facetButtons.removeAllViews();
+        String identity=String.valueOf(item.optJSONArray("Genres"))+String.valueOf(item.optJSONArray("Tags"))+String.valueOf(item.optJSONArray("Networks"))+String.valueOf(item.optJSONArray("Companies"));if(identity.equals(renderedFacets))return;renderedFacets=identity;facetButtons.removeAllViews();
         for(LibraryFilters.Entry entry:LibraryFilters.mergeTypes(item)){Button choice=compactButton(entry.label,()->startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",entry.kind).putExtra("facetValue",entry.label)));choice.setContentDescription((entry.kind.equals("Genres")?"题材 · ":"标签 · ")+entry.label);facetButtons.addView(choice);}
         facetButtons.addView(seriesButton);
         studioButtons.removeAllViews();
         for(String kind:new String[]{"Networks","Companies"}){
             JSONArray labels=item.optJSONArray(kind);if(labels==null||labels.length()==0)continue;
-            JSONObject all=item.optJSONObject("StudioImageTags"),images=all==null?null:all.optJSONObject(kind);
             for(int i=0;i<labels.length();i++){
                 String label=labels.optString(i);if(label.isEmpty())continue;
                 Button choice=compactButton(label,()->startActivity(new Intent(this,HomeActivity.class).putExtra("facetKind",kind).putExtra("facetValue",label)));choice.setContentDescription(label);
                 FrameLayout tile=new FrameLayout(this);LinearLayout.LayoutParams bounds=new LinearLayout.LayoutParams(-2,dp(28));bounds.setMargins(0,0,dp(8),0);studioButtons.addView(tile,bounds);tile.addView(choice,new FrameLayout.LayoutParams(-2,-1));
-                String tag=images==null?"":images.optString(label);if(tag.isEmpty())continue;
-                bounds.width=dp(64);tile.setLayoutParams(bounds);choice.setLayoutParams(new FrameLayout.LayoutParams(-1,-1));choice.setStateListAnimator(null);choice.setElevation(0);
-                Images.rounded(tile,dp(9));choice.setOnFocusChangeListener((view,focused)->tile.setForeground(focused?focusOutline():null));
-                ImageView logo=new ImageView(this);logo.setScaleType(ImageView.ScaleType.FIT_CENTER);Images.rounded(logo,dp(9));logo.setVisibility(View.INVISIBLE);logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);tile.addView(logo,new FrameLayout.LayoutParams(-1,-1));
-                String url=api.server+api.userPath()+"/FacetArtwork?ItemId="+EtknApi.encode(item.optString("Id"))+"&Kind="+EtknApi.encode(kind)+"&Value="+EtknApi.encode(label)+"&tag="+EtknApi.encode(tag);
-                Images.thumbnail(api,url,logo,dp(128),dp(56),success->{if(isDestroyed()||isFinishing())return;if(success){choice.setBackground(null);choice.setText("");choice.setMinWidth(dp(64));choice.setMinimumWidth(dp(64));logo.setVisibility(View.VISIBLE);}else{logo.setVisibility(View.GONE);bounds.width=-2;tile.setLayoutParams(bounds);choice.setLayoutParams(new FrameLayout.LayoutParams(-2,-1));}});
             }
         }
     }
@@ -247,7 +242,7 @@ public final class DetailActivity extends TvActivity {
         for(JSONObject episode:allEpisodes)if(episode.optString("Id").equals(data.getStringExtra("episodeId"))){setPlayable(episode);int index=PlaybackSelection.sourceIndex(sources,data.getStringExtra("sourceId"));if(index>=0)sourceIndex=index;audio=data.getIntExtra("audioIndex",PlaybackSelection.AUTO);subtitle=data.getIntExtra("subtitleIndex",PlaybackSelection.AUTO);updateChoices();break;}
     }
     private void copyPresentation(JSONObject target,JSONObject value){
-        for(String key:new String[]{"Name","Overview","Tagline","Taglines","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","Genres","Tags","Networks","Companies","StudioImageTags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType","People","Chapters"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
+        for(String key:new String[]{"Name","Overview","Tagline","Taglines","ProductionYear","RunTimeTicks","OfficialRating","CustomRating","DoubanRating","TMDbRating","IMDbRating","Genres","Tags","Networks","Companies","StudioImageTags","ImageTags","BackdropImageTags","BackdropImageTag","ParentBackdropItemId","ParentBackdropImageTags","ParentLogoItemId","ParentLogoImageTag","PremiereDate","IsMissing","IsUnaired","IsVirtualItem","LocationType","People","Chapters"})try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
         for(String key:new String[]{"IndexNumber","ParentIndexNumber","SeriesId","SeriesName","SeasonId","ParentId"})if(value.has(key))try{target.put(key,value.opt(key));}catch(org.json.JSONException ignored){}
     }
     private Button compactButton(String title,Runnable click){

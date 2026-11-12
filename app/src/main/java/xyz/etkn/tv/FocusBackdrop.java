@@ -55,6 +55,7 @@ final class FocusBackdrop extends FrameLayout {
         pendingTitle=library?EtknApi.title(item):EtknApi.resumeTitle(item);
         String type=library?"媒体库":"Episode".equals(item.optString("Type"))||"Series".equals(item.optString("Type"))?"剧集":"电影";
         String rating=DetailPresentation.contentRating(item),score=item.optDouble("CommunityRating",0)>0?"★ "+item.optString("CommunityRating"):"";
+        if(item.optDouble("IMDbRating",0)>0)score+=(score.isEmpty()?"":"   ")+"IMDb "+DetailPresentation.rating(item,"IMDbRating");
         pendingMetadata=join(type,item.optString("ProductionYear"),rating,score,genres(item));pendingOverview=item.optString("Overview");pendingShowDetails=showDetails;
         pendingLogo.setImageDrawable(null);pendingLogo.setTag("none:"+serial);imageLoader.setImageDrawable(null);
         String image=library?activity.api.artwork(item,"Primary",1280):activity.api.artwork(item,"Backdrop",1280);
