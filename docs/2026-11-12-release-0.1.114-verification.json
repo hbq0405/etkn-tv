@@ -1,0 +1,129 @@
+{
+  "local": {
+    "sourceCommit": "ceff4b949ec80922d922e68dafa7ffd181009581",
+    "version": "0.1.114",
+    "versionCode": 115,
+    "unitTests": 116,
+    "failures": 0,
+    "errors": 0,
+    "certificateSha256": "e02d42443875c3631be48199e0df419b0570fcc421be7ff2b620f4c643e67bd7",
+    "assets": [
+      {
+        "name": "etkn-tv-0.1.114.apk",
+        "size": 62413950,
+        "sha256": "de0decd56dca557af8f1a7fa97fbf567445279c7c6b4ed2577dd2150570fae00"
+      },
+      {
+        "name": "update.json",
+        "size": 415,
+        "sha256": "f919c69a269fbc1cef5236e4afbce086892898548f2ac3dceb7ebbd48badc0b2"
+      },
+      {
+        "name": "RELEASE_NOTES.md",
+        "size": 1062,
+        "sha256": "0965e05c9adc8b4f3fc31a6035090be56328821e4c4c2e7b7714ccdb96a9fa0e"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "size": 247,
+        "sha256": "5658ae19c1389fd77025026007aa8174c24dad01eb1a635c59f54ee13d190616"
+      }
+    ],
+    "lintErrors": 0
+  },
+  "draft": {
+    "releaseId": 443051270,
+    "draft": true,
+    "tag": "v0.1.114",
+    "sourceCommit": "ceff4b949ec80922d922e68dafa7ffd181009581",
+    "bodyMatches": true,
+    "allFourAssetSizesAndDigestsMatch": true,
+    "assets": [
+      {
+        "name": "etkn-tv-0.1.114.apk",
+        "size": 62413950,
+        "sha256": "de0decd56dca557af8f1a7fa97fbf567445279c7c6b4ed2577dd2150570fae00"
+      },
+      {
+        "name": "update.json",
+        "size": 415,
+        "sha256": "f919c69a269fbc1cef5236e4afbce086892898548f2ac3dceb7ebbd48badc0b2"
+      },
+      {
+        "name": "RELEASE_NOTES.md",
+        "size": 1062,
+        "sha256": "0965e05c9adc8b4f3fc31a6035090be56328821e4c4c2e7b7714ccdb96a9fa0e"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "size": 247,
+        "sha256": "5658ae19c1389fd77025026007aa8174c24dad01eb1a635c59f54ee13d190616"
+      }
+    ]
+  },
+  "published": {
+    "releaseId": 443051270,
+    "url": "https://github.com/hbq0405/etkn-tv/releases/tag/v0.1.114",
+    "tag": "v0.1.114",
+    "publishedAt": "2026-11-12T14:23:24Z",
+    "draft": false,
+    "prerelease": false,
+    "latestAnonymous": true,
+    "anonymousAssetHashesMatch": true,
+    "latestManifestMatches": true,
+    "assets": [
+      {
+        "name": "etkn-tv-0.1.114.apk",
+        "size": 62413950,
+        "sha256": "de0decd56dca557af8f1a7fa97fbf567445279c7c6b4ed2577dd2150570fae00"
+      },
+      {
+        "name": "RELEASE_NOTES.md",
+        "size": 1062,
+        "sha256": "0965e05c9adc8b4f3fc31a6035090be56328821e4c4c2e7b7714ccdb96a9fa0e"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "size": 247,
+        "sha256": "5658ae19c1389fd77025026007aa8174c24dad01eb1a635c59f54ee13d190616"
+      },
+      {
+        "name": "update.json",
+        "size": 415,
+        "sha256": "f919c69a269fbc1cef5236e4afbce086892898548f2ac3dceb7ebbd48badc0b2"
+      }
+    ]
+  },
+  "telegram": {
+    "runId": 43236673995,
+    "headSha": "ceff4b949ec80922d922e68dafa7ffd181009581",
+    "event": "release",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/hbq0405/etkn-tv/actions/runs/43236673995",
+    "receiptCount": 1,
+    "messageId": 64856,
+    "rerun": false
+  },
+  "device": {
+    "device": "192.168.31.188:5555",
+    "model": "L055FCN",
+    "packageName": "xyz.etkn.tv",
+    "versionName": "0.1.114",
+    "versionCode": 115,
+    "installReplaceResult": "Success",
+    "installedApkSha256": "de0decd56dca557af8f1a7fa97fbf567445279c7c6b4ed2577dd2150570fae00",
+    "matchesReleasedApk": true,
+    "launchComponent": "xyz.etkn.tv/.SetupActivity",
+    "launchChecked": true,
+    "launchProcessFatalExceptionCount": 0,
+    "visualAndPlaybackAcceptance": false
+  },
+  "cleanup": {
+    "localTemporaryDirectory": "D:\\ETKvNext-agent-tmp\\20261112-rotten-imdb-cache",
+    "localCleanup": "blocked by execution policy before process launch; directory confirmed retained; no bypass attempted",
+    "remoteStagingRemoved": true,
+    "containerProbesRemoved": true,
+    "rollbackBackupRetained": "/tmp/etkn-hotfix-backup/20261112-rotten-imdb-cache"
+  }
+}
