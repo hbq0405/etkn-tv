@@ -12,6 +12,7 @@
 - Windows 新启动的 Gradle 终端如果未设置 `ETKN_TV_SIGNING_PROPERTIES`，单独运行 `assembleRelease` 仍可能成功，但只生成 `app-release-unsigned.apk`。先检查实际产物；设置签名配置后使用 `scripts/Build-Release.ps1`，并确认 `apksigner` 通过。v0.1.3 已验证该流程生成签名包且证书与此前发行版一致；Gradle 成功本身不代表 APK 已签名。
 - GitHub CLI 未认证时使用官方设备授权；账号主人在浏览器确认。授权完成必须通过 API 读取账号确认，再创建仓库/推送/发布；不得把设备码已输入当作登录成功。
 - 只发布本轮校验过的 APK、update.json、校验清单和发行说明；同一仓库保存源码和 Releases。发布后匿名下载比对 SHA-256。
+- 公告编写遵循根目录 AGENTS.md 的正式版本对比规则：先对比上一正式标签，再统一 Release 正文、发行说明和 update.json；不将尚未正式发布功能的中间调试写成修复。
 - 草稿 Release 正文与本地发行说明对比时先统一 CRLF/LF；Windows 文件读取会规范换行，而 GitHub API 可保留 CRLF。仅规范正文换行，资产仍按原始字节、大小和 SHA-256 核对，不因换行差异重新上传。
 - 草稿 Release 的 `releases/tags/<tag>` 查询本轮返回 404，但鉴权后的 `releases` 列表与 `gh release view` 仍能找到草稿。先核对实际草稿 ID、标签、正文和资产，不重建或误发布；按唯一 tag_name 从列表取得 ID，再读取 `releases/<id>` 已通过四资产摘要、正文、main/标签和工作流一致性校验。正式发布后再验匿名 latest 和下载地址。
 - `gh release view --json` 本轮不支持 `isLatest`，字段错误发生在正式发布命令已成功之后。先用支持的 `isDraft,publishedAt,tagName,url` 确认发布状态，再以 `gh api repos/<owner>/<repo>/releases/latest` 验证最新版本；已确认 v0.1.16 为正式 latest、通知成功，未重复发布或重跑通知。发布后的规范补充另行提交，不移动已正式发布的标签或替换已校验资产。
