@@ -47,6 +47,9 @@ public final class DiscoveryActivity extends TvActivity {
     private boolean hideInLibrary;
     private JSONObject appliedFilterPayload;
     private String appliedQuery="";
+    private String searchKind="all";
+    private DiscoverySearch mixedSearch=new DiscoverySearch();
+    private final Set<String> displayedSearchItems=new HashSet<>();
     private AlertDialog filterDialog;
     private AlertDialog multiChoiceDialog;
     private Button filterConfirmButton;
@@ -87,6 +90,9 @@ public final class DiscoveryActivity extends TvActivity {
             if(!directCloudOpened&&getIntent().hasExtra("cloudItem")){
                 try{selected=new JSONObject(getIntent().getStringExtra("cloudItem"));int number=getIntent().getIntExtra("cloudSeason",-1);season=number>=0?number:null;kind=mediaTypeOf(selected,"movie").equals("tv")?"series":"movie";directCloudOpened=true;showCloud();}
                 catch(JSONException error){status.setText("媒体信息无效，请返回详情页重试");}
+            }else if(!directCloudOpened&&getIntent().hasExtra("detailItem")){
+                try{selected=new JSONObject(getIntent().getStringExtra("detailItem"));directCloudOpened=true;showDetail(selected,null);}
+                catch(JSONException error){status.setText("媒体信息无效，请返回搜索重试");}
             }else if(browseView==null&&!directCloudOpened)browse();
         });
     }
@@ -95,6 +101,7 @@ public final class DiscoveryActivity extends TvActivity {
         TextView brand=text("影视探索",14,ACCENT);brand.setPadding(dp(18),0,dp(18),0);
         LinearLayout.LayoutParams brandBounds=new LinearLayout.LayoutParams(-2,dp(44));brandBounds.setMargins(0,dp(6),dp(6),0);
         nav.addView(brand,brandBounds);
+        if(!appliedQuery.trim().isEmpty())nav("全部",()->switchSearchKind("all"));
         nav("电影",()->switchKind("movie"));
         nav("剧集",()->switchKind("series"));
         nav("搜索",this::searchMedia);
@@ -118,6 +125,7 @@ public final class DiscoveryActivity extends TvActivity {
         return super.dispatchKeyEvent(event);
     }
     private void switchKind(String target){
+        if(!appliedQuery.trim().isEmpty()){switchSearchKind(target);return;}
         if(kind.equals(target))return;
         kind=target;query="";sortKey="popularity.desc";includeGenres.clear();excludeGenres.clear();keywordFilters.clear();studioFilters.clear();
         countryValue="";countryLabel="";languageValue="";languageLabel="";ratingIndex=null;ratingLabel="";minVote=null;eraIndex=0;yearFrom=null;yearTo=null;
@@ -134,7 +142,7 @@ public final class DiscoveryActivity extends TvActivity {
         if(browseView==null)buildBrowseView();
         content.removeAllViews();content.addView(browseView,new LinearLayout.LayoutParams(-1,-2));
         status.setText("");
-        if(reload){page=1;hasMore=true;loadingMore=false;loadOptions();screenScroll.scrollTo(0,0);int request=revision;afterLayout(posterGrid,()->{if(request==revision){browseTargetCount=gridCapacity(posterGrid,screenScroll,1.5f,0,10);loadPage(1);}});}
+        if(reload){posterGrid.removeAllViews();ribbons.clear();artworks.clear();ribbonItems.clear();browseFocus=null;posterStatus.setFocusable(false);posterStatus.setOnClickListener(null);mixedSearch=new DiscoverySearch();searchKind="all";displayedSearchItems.clear();navigation();page=1;hasMore=true;loadingMore=false;loadOptions();screenScroll.scrollTo(0,0);int request=revision;afterLayout(posterGrid,()->{if(request==revision){browseTargetCount=gridCapacity(posterGrid,screenScroll,1.5f,0,10);loadPage(1);}});}
         else if(browseFocus!=null){View target=browseFocus;target.post(()->{if(target.isShown())target.requestFocus();});}
     }
     private void buildBrowseView(){
@@ -151,7 +159,7 @@ public final class DiscoveryActivity extends TvActivity {
     }
 
     private String genreNames(JSONObject item){
-        JSONArray ids=item.optJSONArray("genre_ids");JSONObject options=optionsCache.get(kind);
+        JSONArray ids=item.optJSONArray("genre_ids");JSONObject options=optionsCache.get(mediaTypeOf(item,kind).equals("tv")?"series":"movie");
         if(ids==null||options==null)return "";
         Map<String,String> labels=new HashMap<>();JSONArray genres=options.optJSONArray("genres");
         if(genres!=null)for(int i=0;i<genres.length();i++){JSONObject genre=genres.optJSONObject(i);if(genre!=null)labels.put(genre.optString("value"),genre.optString("label"));}
@@ -169,7 +177,7 @@ public final class DiscoveryActivity extends TvActivity {
         LinearLayout caption=column();caption.setBackground(fade);caption.setPadding(imageDp(6),imageDp(24),imageDp(6),imageDp(4));imageSizeUpdater(caption,()->caption.setPadding(imageDp(6),imageDp(24),imageDp(6),imageDp(4)));
         TextView title=text(EtknApi.title(item),13,Color.WHITE);title.setTypeface(null,Typeface.BOLD);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);title.setShadowLayer(3,0,1,Color.BLACK);title.setPadding(0,0,0,0);
         caption.addView(title,new LinearLayout.LayoutParams(-1,dp(20)));scaleImageText(title,13,20);
-        TextView year=text(yearOf(item),11,Color.rgb(207,222,231));year.setMaxLines(1);year.setShadowLayer(3,0,1,Color.BLACK);year.setPadding(0,0,0,0);
+        TextView year=text((mediaTypeOf(item,kind).equals("tv")?"剧集":"电影")+" · "+yearOf(item),11,Color.rgb(207,222,231));year.setMaxLines(1);year.setShadowLayer(3,0,1,Color.BLACK);year.setPadding(0,0,0,0);
         caption.addView(year,new LinearLayout.LayoutParams(-1,dp(16)));scaleImageText(year,11,16);
         artwork.addView(caption,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
         card.addView(artwork,new LinearLayout.LayoutParams(-1,dp(198)));
@@ -179,7 +187,7 @@ public final class DiscoveryActivity extends TvActivity {
             FrameLayout.LayoutParams bounds=new FrameLayout.LayoutParams(-2,dp(24),Gravity.TOP|Gravity.END);bounds.setMargins(0,dp(6),dp(6),0);
             artwork.addView(rating,bounds);
         }
-        String ribbon=statusLabel(item);String id=item.optString("id");
+        String ribbon=statusLabel(item);String id=DiscoverySearch.key(item);
         if(ribbon!=null){
             TextView tag=chipView(ribbon,statusColor(item),Color.WHITE);
             FrameLayout.LayoutParams bounds=new FrameLayout.LayoutParams(-2,dp(24),Gravity.TOP|Gravity.START);bounds.setMargins(dp(6),dp(6),0,0);
@@ -214,11 +222,14 @@ public final class DiscoveryActivity extends TvActivity {
         }else{tag.setText(label);tag.setBackground(shape(statusColor(item),0));}
     }
     private void loadOptions(){
-        if(optionsCache.containsKey(kind))return;
-        final String target=kind;
+        if(!appliedQuery.trim().isEmpty()){loadOptions("movie");loadOptions("series");}else loadOptions(kind);
+    }
+    private void loadOptions(String target){
+        if(optionsCache.containsKey(target))return;
         async(()->api.get("/api/tv/discover/options?media_type="+target),result->{if(!optionsCache.containsKey(target))optionsCache.put(target,result);});
     }
     private void loadPage(int target){
+        if(!appliedQuery.trim().isEmpty()){loadSearchPage();return;}
         if(!allowed||loadingMore||(target>1&&(!hasMore||target<=page)))return;
         boolean append=target>1;
         loadingMore=true;
@@ -240,6 +251,33 @@ public final class DiscoveryActivity extends TvActivity {
             else posterStatus.setText((hasMore?"已加载 "+posterGrid.getChildCount()+" 项，下滚加载更多":"已经到底，共 "+posterGrid.getChildCount()+" 项")+(summary.isEmpty()?"":"  ·  "+summary));
             if(!append&&!rows.isEmpty()){View first=posterGrid.getChildAt(0);if(first!=null)first.requestFocus();}
             if(hasMore&&posterGrid.getChildCount()<browseTargetCount)loadPage(page+1);
+        });
+    }
+    private void switchSearchKind(String target){
+        if(searchKind.equals(target))return;searchKind=target;
+        posterGrid.removeAllViews();ribbons.clear();artworks.clear();ribbonItems.clear();displayedSearchItems.clear();
+        renderSearchPage();if(mixedSearch.items(target).isEmpty()&&mixedSearch.hasMore(target))loadSearchPage();
+    }
+    private void renderSearchPage(){
+        for(JSONObject item:mixedSearch.items(searchKind))if(displayedSearchItems.add(DiscoverySearch.key(item)))discoveryCard(posterGrid,item,()->enterDetail(item));
+        hasMore=mixedSearch.hasMore(searchKind)&&mixedSearch.error(searchKind).isEmpty();
+        String error=mixedSearch.error(searchKind);
+        posterStatus.setText(error.isEmpty()?(posterGrid.getChildCount()==0?"TMDb 暂无匹配结果":"TMDb 已加载 "+posterGrid.getChildCount()+" 项"+(hasMore?"，下滚加载更多":"")):error);
+        posterStatus.setFocusable(!error.isEmpty());posterStatus.setOnClickListener(error.isEmpty()?null:view->loadSearchPage());
+        View focused=getCurrentFocus();
+        if(browseView.getParent()==content&&menu.getVisibility()!=View.VISIBLE&&(focused==null||!focused.isShown())){
+            if(posterGrid.getChildCount()>0)posterGrid.getChildAt(0).requestFocus();else if(!error.isEmpty())posterStatus.requestFocus();
+        }
+    }
+    private void loadSearchPage(){
+        if(!allowed||loadingMore||!mixedSearch.hasMore(searchKind))return;
+        loadingMore=true;int request=++browseRevision;final String type=searchKind,term=appliedQuery;final DiscoverySearch search=mixedSearch;
+        posterStatus.setText("正在搜索 TMDb 电影和剧集…");
+        async(()->{try{return api.post("/api/tv/discover/search",search.request(term,type,appliedFilterPayload.optBoolean("hide_in_library")));}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError","搜索失败，请重试");}},result->{
+            if(request!=browseRevision||search!=mixedSearch)return;loadingMore=false;
+            if(result.has("_loadError")){hasMore=false;posterStatus.setText("搜索失败，请按确认键重试");posterStatus.setFocusable(true);posterStatus.setOnClickListener(view->loadSearchPage());return;}
+            search.accept(result);renderSearchPage();
+            if(posterGrid.getChildCount()<browseTargetCount&&hasMore&&browseView.getParent()!=null)loadSearchPage();
         });
     }
     private JSONObject queryPayload(int targetPage)throws JSONException{
@@ -536,7 +574,7 @@ public final class DiscoveryActivity extends TvActivity {
             JSONObject entry=findSeason(seasonNumber);
             if(entry!=null)setString(entry,"subscription_status","WANTED");
         }
-        refreshRibbon(item.optString("id"));
+        refreshRibbon(DiscoverySearch.key(item));
         showDetail(item,null);
     }
     private void subscribeAllSeasons(){
@@ -566,7 +604,7 @@ public final class DiscoveryActivity extends TvActivity {
                 status.setText("");
                 for(int i=0;i<result.optInt("done",0);i++)setString(missing.get(i),"subscription_status","WANTED");
                 if(result.optString("failure").isEmpty()){
-                    setString(item,"subscription_status","WANTED");refreshRibbon(item.optString("id"));
+                    setString(item,"subscription_status","WANTED");refreshRibbon(DiscoverySearch.key(item));
                     showDetail(item,null);
                     new AlertDialog.Builder(this).setTitle("订阅已提交").setMessage("已按季度写入 "+result.optInt("done",0)+" 条统一需求。").setPositiveButton("知道了",null).show();
                 }else{

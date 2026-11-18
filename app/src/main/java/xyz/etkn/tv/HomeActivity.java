@@ -45,6 +45,12 @@ public final class HomeActivity extends TvActivity {
     };
     private static final String[][] FACET_SORTS={{"名称","SortName"},{"最近添加","DateAdded"},{"首播日期","PremiereDate"},{"年份","ProductionYear"},{"TMDb评分","TMDbRating"},{"豆瓣评分","DoubanRating"},{"IMDb评分","IMDbRating"},{"烂番茄评分","CriticRating"},{"随机","Random"}};
     private boolean canDiscover;
+    private DiscoverySearch remoteSearch;
+    private String remoteSearchKind="all";
+    private boolean remoteSearchLoading;
+    private GridLayout remoteSearchGrid;
+    private Button remoteSearchMore;
+    private final java.util.Set<String> remoteSearchDisplayed=new java.util.HashSet<>();
     private HorizontalScrollView menu;
     private ScrollView homeScroll;
     private View heroSpacer;
@@ -365,7 +371,38 @@ public final class HomeActivity extends TvActivity {
             if(offset==0||listingLimit==0)listingLimit=gridCapacity(grid,homeScroll,1.5f,46,5)+grid.getColumnCount();
             int limit=listingLimit,start=offset;
             String path=mode.equals("resume")?api.userPath()+"/Items/Resume?Limit="+limit:api.userPath()+"/Items?Recursive=true&IncludeItemTypes=Movie,Series&Limit="+limit+"&StartIndex="+start+"&SortBy=SortName&Fields=PrimaryImageAspectRatio,Overview"+(parent.isEmpty()?"":"&ParentId="+EtknApi.encode(parent))+(mode.equals("search")?"&SearchTerm="+EtknApi.encode(query):"");
-            async(()->api.get(path),result->{if(request!=revision)return;List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",items.size());status.setText(items.isEmpty()?"暂无影片":"共 "+total+" 项  ·  第 "+(start/limit+1)+" 页");for(JSONObject item:items)mediaCard(grid,item,()->{if(mode.equals("resume"))resumePlayback(item);else detail(item);});LinearLayout pages=row();if(start>0)pages.addView(button("上一页",()->{offset=Math.max(0,start-limit);loadItems();}));if(!mode.equals("resume")&&start+items.size()<total)pages.addView(button("下一页",()->{offset=start+items.size();loadItems();}));content.addView(pages);});
+            async(()->api.get(path),result->{if(request!=revision)return;List<JSONObject> items=EtknApi.rows(result);int total=result.optInt("TotalRecordCount",items.size());status.setText(items.isEmpty()?"暂无影片":"共 "+total+" 项  ·  第 "+(start/limit+1)+" 页");for(JSONObject item:items)mediaCard(grid,item,()->{if(mode.equals("resume"))resumePlayback(item);else detail(item);});LinearLayout pages=row();if(start>0)pages.addView(button("上一页",()->{offset=Math.max(0,start-limit);loadItems();}));if(!mode.equals("resume")&&start+items.size()<total)pages.addView(button("下一页",()->{offset=start+items.size();loadItems();}));content.addView(pages);if(mode.equals("search")&&canDiscover&&!query.trim().isEmpty()){if(start==0&&total==0)beginRemoteSearch(request);else content.addView(button("搜索更多影视",()->beginRemoteSearch(request)));}});
+        });
+    }
+    private void beginRemoteSearch(int request){
+        if(request!=revision||!mode.equals("search")||!canDiscover)return;
+        if(remoteSearchGrid!=null&&remoteSearchGrid.getParent()==content)return;
+        remoteSearch=new DiscoverySearch();remoteSearchKind="all";remoteSearchLoading=false;remoteSearchDisplayed.clear();
+        content.addView(text("TMDb 影视结果 · "+query,18,TEXT));
+        LinearLayout types=row();for(String[] option:new String[][]{{"all","全部"},{"movie","电影"},{"series","剧集"}})types.addView(button(option[1],()->{
+            remoteSearchKind=option[0];remoteSearchGrid.removeAllViews();remoteSearchDisplayed.clear();renderRemoteSearch();
+            if(remoteSearch.items(remoteSearchKind).isEmpty()&&remoteSearch.hasMore(remoteSearchKind))loadRemoteSearch(request);
+        }));content.addView(types);
+        remoteSearchGrid=grid(content,132,6,46);remoteSearchMore=button("加载更多影视",()->loadRemoteSearch(request));content.addView(remoteSearchMore);
+        loadRemoteSearch(request);
+    }
+    private void renderRemoteSearch(){
+        for(JSONObject item:remoteSearch.items(remoteSearchKind))if(remoteSearchDisplayed.add(DiscoverySearch.key(item))){
+            JSONObject card=new JSONObject();try{card=new JSONObject(item.toString());card.put("Name",EtknApi.title(item)+" · "+(DiscoveryPresentation.mediaTypeOf(item,"movie").equals("tv")?"剧集":"电影")+" "+DiscoveryPresentation.yearOf(item));}catch(org.json.JSONException ignored){}
+            mediaCard(remoteSearchGrid,card,()->startActivity(new Intent(this,DiscoveryActivity.class).putExtra("detailItem",item.toString())));
+        }
+        String error=remoteSearch.error(remoteSearchKind);status.setText(error.isEmpty()?(remoteSearch.items(remoteSearchKind).isEmpty()?"TMDb 暂无匹配结果":"TMDb 已加载 "+remoteSearch.items(remoteSearchKind).size()+" 项"):error);
+        remoteSearchMore.setText(error.isEmpty()?"加载更多影视":"重试搜索");remoteSearchMore.setVisibility(remoteSearch.hasMore(remoteSearchKind)?View.VISIBLE:View.GONE);remoteSearchMore.setEnabled(!remoteSearchLoading);
+    }
+    private void loadRemoteSearch(int request){
+        if(request!=revision||!mode.equals("search")||remoteSearchLoading||!remoteSearch.hasMore(remoteSearchKind))return;
+        remoteSearchLoading=true;remoteSearchMore.setEnabled(false);status.setText("库内搜索已完成，正在搜索 TMDb 电影和剧集…");
+        final DiscoverySearch search=remoteSearch;final String term=query,type=remoteSearchKind;
+        async(()->{try{return api.post("/api/tv/discover/search",search.request(term,type,false));}catch(EtknApi.AuthException error){throw error;}catch(Exception error){return new JSONObject().put("_loadError",true);}},result->{
+            if(request!=revision||remoteSearch!=search||!mode.equals("search"))return;remoteSearchLoading=false;
+            if(result.has("_loadError")){status.setText("TMDb 搜索失败，请重试");remoteSearchMore.setText("重试搜索");remoteSearchMore.setEnabled(true);return;}
+            search.accept(result);renderRemoteSearch();
+            if(search.items(remoteSearchKind).isEmpty()&&search.hasMore(remoteSearchKind)&&search.error(remoteSearchKind).isEmpty())loadRemoteSearch(request);
         });
     }
     private void maybeLoadPosterPage(){
