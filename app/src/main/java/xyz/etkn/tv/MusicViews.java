@@ -22,19 +22,22 @@ final class MusicViews {
         return api.artwork(item,"Primary",width);
     }
     static View card(TvActivity host,GridLayout grid,JSONObject item,Runnable click,boolean flat){
+        boolean video=item.optBoolean("MusicVideo")&&item.optString("Kind").isEmpty();
+        if(video)flat=false;
+        final boolean compact=flat;
         LinearLayout card=flat?host.row():host.column();card.setFocusable(true);card.setClickable(true);card.setOnClickListener(view->click.run());
         if(flat){card.setGravity(Gravity.CENTER_VERTICAL);card.setPadding(host.dp(8),host.dp(8),host.dp(12),host.dp(8));card.setBackground(host.focusBackground());host.shadow(card,4);}
         FrameLayout cover=new FrameLayout(host);cover.setBackground(host.shape(TvActivity.PANEL,0));cover.setClipToOutline(true);cover.setForeground(Images.border(host.dp(12)));host.shadow(cover,flat?0:4);
         TextView placeholder=host.text("♪",flat?24:40,TvActivity.ACCENT);placeholder.setGravity(Gravity.CENTER);cover.addView(placeholder,new FrameLayout.LayoutParams(-1,-1));
         ImageView image=new ImageView(host);image.setScaleType(ImageView.ScaleType.CENTER_CROP);Images.rounded(image,host.dp(10));cover.addView(image,new FrameLayout.LayoutParams(-1,-1));
-        card.addView(cover,new LinearLayout.LayoutParams(flat?host.imageDp(52):-1,flat?host.imageDp(52):host.imageDp(140)));
+        card.addView(cover,new LinearLayout.LayoutParams(flat?host.imageDp(52):-1,flat?host.imageDp(52):host.imageDp(video?169:140)));
         LinearLayout captions=host.column();if(flat)captions.setPadding(host.dp(12),0,0,0);card.addView(captions,new LinearLayout.LayoutParams(flat?0:-1,-2,flat?1:0));
         TextView title=host.text(item.optString("Name","未命名"),14,TvActivity.TEXT);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);captions.addView(title);
-        String subtitle=item.has("Count")?item.optInt("Count")+" 首"+(artists(item).isEmpty()?"":" · "+artists(item)):artists(item);
+        String subtitle=item.has("Count")?(item.optInt("Count")-item.optInt("VideoCount"))+" 首"+(item.optInt("VideoCount")>0?" · "+item.optInt("VideoCount")+" 个 MV":"")+(artists(item).isEmpty()?"":" · "+artists(item)):artists(item)+(video&&!item.optString("Album").isEmpty()?" · "+item.optString("Album"):"");
         TextView detail=host.text(subtitle,12,TvActivity.MUTED);detail.setSingleLine(true);detail.setEllipsize(android.text.TextUtils.TruncateAt.END);captions.addView(detail);
-        if(host.isAdaptiveGrid(grid)){host.addAdaptiveGridItem(grid,card,12,12);if(!flat)host.fitArtworkHeight(card,cover,1);}
-        else{GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=host.imageDp(flat?300:140);bounds.height=host.imageDp(flat?76:198);bounds.setMargins(host.dp(12),host.dp(12),host.dp(12),host.dp(12));grid.addView(card,bounds);}
-        card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?1.04f:1);card.setScaleY(focused?1.04f:1);host.shadow(flat?card:cover,focused?8:4);if(!flat)cover.setForeground(focused?host.focusOutline():Images.border(host.dp(12)));});
+        if(host.isAdaptiveGrid(grid)){host.addAdaptiveGridItem(grid,card,12,12);if(!flat)host.fitArtworkHeight(card,cover,video?9f/16f:1);}
+        else{GridLayout.LayoutParams bounds=new GridLayout.LayoutParams();bounds.width=host.imageDp(flat||video?300:140);bounds.height=host.imageDp(flat?76:video?227:198);bounds.setMargins(host.dp(12),host.dp(12),host.dp(12),host.dp(12));grid.addView(card,bounds);}
+        card.setOnFocusChangeListener((view,focused)->{card.setScaleX(focused?1.04f:1);card.setScaleY(focused?1.04f:1);host.shadow(compact?card:cover,focused?8:4);if(!compact)cover.setForeground(focused?host.focusOutline():Images.border(host.dp(12)));});
         card.setContentDescription(item.optString("Name")+" · "+subtitle);Images.visibleArtwork(host.api,width->artwork(host.api,item,width),image,success->{});
         return card;
     }
