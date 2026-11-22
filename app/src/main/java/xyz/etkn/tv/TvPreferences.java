@@ -8,6 +8,7 @@ import org.json.JSONArray;
 final class TvPreferences {
     static final int SKIP_BUTTON=0,SKIP_AUTO=1,SKIP_OFF=2;
     static final String[] SKIP_LABELS={"显示跳过按钮","自动跳过","关闭"};
+    static final String MUSIC_VIDEO_AUDIO="prefer_music_video_audio";
     static final int IMAGE_EXTREMELY_SMALL=0,IMAGE_SMALL=1,IMAGE_MEDIUM=2,IMAGE_LARGE=3,IMAGE_EXTREMELY_LARGE=4;
     static final String[] IMAGE_SIZE_LABELS={"极小","小","中","大","极大"};
     private final SharedPreferences prefs;
@@ -42,6 +43,7 @@ final class TvPreferences {
     void saveLibraryFolders(String id,boolean folders){prefs.edit().putBoolean(scope+id+"/folders",folders).apply();}
     private org.json.JSONObject shared(){return TvAppearance.account(context,api.server,api.session.userId());}
     boolean showHomeLibraries(){return shared().optBoolean("show_home_libraries",true);}
+    boolean preferMusicVideoAudio(){return shared().optBoolean(MUSIC_VIDEO_AUDIO);}
     boolean smartCarousel(){return shared().optBoolean("home_carousel",prefs.getBoolean(scope+"smart-carousel",false));}
     void setSmartCarousel(boolean on){prefs.edit().putBoolean(scope+"smart-carousel",on).apply();}
     int imageSize(){

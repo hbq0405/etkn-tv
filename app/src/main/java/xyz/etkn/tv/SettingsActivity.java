@@ -59,6 +59,7 @@ public final class SettingsActivity extends TvActivity {
             playback.addView(note("音轨与字幕和个人中心同步：个人配置覆盖全局，未配置时跟随全局；按添加顺序确定优先级。"));
             playback.addView(note("共享偏好按账号保存，与 Web 双向同步；锁定偏好后全部暂停同步并禁止修改。片头片尾只对有标记的影片生效。"));
             TvPreferences preferences=new TvPreferences(this,api);
+            sharedSwitch(playback,TvPreferences.MUSIC_VIDEO_AUDIO,"MV 优先播放音乐原声","有可用的关联歌曲时自动切换音源。",preferences.preferMusicVideoAudio());
             LinearLayout display=section("偏好设置 · 界面外观");
             appearanceRow(display,"mode","显示模式",()->chooseValue("显示模式",new String[]{"明亮","暗黑"},TvAppearance.dark()?1:0,value->saveClient("mode",value==0?"light":"dark")));
             appearanceRow(display,"theme_color","主题色",()->chooseColor("theme_color","主题色",TvAppearance.primary()));
@@ -152,7 +153,11 @@ public final class SettingsActivity extends TvActivity {
                 entry.getValue().setText(rowText((String)entry.getValue().getTag(),summary));
             }
             TvPreferences preferences=new TvPreferences(this,api);showSkipMode();showImageSize(preferences);
-            for(Map.Entry<String,LinearLayout> entry:preferenceSwitches.entrySet())((Switch)entry.getValue().getChildAt(1)).setChecked(entry.getKey().equals("hide_watched_latest")?playback!=null&&playback.optBoolean("hide_watched_latest"):value.optBoolean(entry.getKey(),true));
+            for(Map.Entry<String,LinearLayout> entry:preferenceSwitches.entrySet()){
+                String key=entry.getKey();
+                boolean enabled=key.equals("hide_watched_latest")?playback!=null&&playback.optBoolean(key):value.optBoolean(key,!key.equals(TvPreferences.MUSIC_VIDEO_AUDIO));
+                ((Switch)entry.getValue().getChildAt(1)).setChecked(enabled);
+            }
             for(View control:sharedControls)control.setEnabled(editable()&&!preferenceSaving);
             if(themeLockRow!=null)themeLockRow.setEnabled(!TvAppearance.saving&&!themeLockSaving&&(value.has("card_size")||TvAppearance.locked(this,api.server)));
         }finally{renderingPreferences=false;}
