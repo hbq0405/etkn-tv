@@ -55,7 +55,7 @@ final class IngestNotifications {
                 if(!enabled(context)||!identity.equals(account(context)))return;
                 for(JSONObject item:EtknApi.rows(result)){
                     if(!result.optBoolean("Initial")){
-                        notifyIngest(context,item);
+                        notifyIngest(context,item,true);
                     }
                 }
                 cursor=result.getString("Cursor");prefs(context).edit().putString(identity+".cursor",cursor).apply();
@@ -63,18 +63,31 @@ final class IngestNotifications {
             }
         }finally{checking.set(false);}
     }
-    static synchronized void notifyIngest(Context context,JSONObject item){
+    static void notifyIngest(Context context,JSONObject item){
+        notifyIngest(context,item,false);
+    }
+    private static synchronized void notifyIngest(Context context,JSONObject item,boolean fromIngestFeed){
         if(item==null)return;
         String seen=account(context)+".seen."+item.optString("EventId",item.optString("VersionId"));
         if(prefs(context).getBoolean(seen,false))return;prefs(context).edit().putBoolean(seen,true).apply();
         if(Build.VERSION.SDK_INT>=26)((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"我的入库提醒",NotificationManager.IMPORTANCE_DEFAULT));
-        String result=outcomeLabel(item);
-        String title=item.optString("SeriesName");String message=(title.isEmpty()?"":title+" · ")+item.optString("Name");
-        Activity activity=foreground.get();TvNotice.show(activity,result+"："+message,Toast.LENGTH_LONG);
+        String updateTitle = fromIngestFeed ? followedEpisodeTitle(item) : "";
+        String result = updateTitle.isEmpty() ? outcomeLabel(item) : updateTitle;
+        String series = item.optString("SeriesName");
+        String message = (updateTitle.isEmpty() && !series.isEmpty() ? series + " · " : "") + item.optString("Name");
+        Activity activity = foreground.get();
+        TvNotice.show(activity, updateTitle.isEmpty() ? result + "：" + message : updateTitle, Toast.LENGTH_LONG);
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return;
         Intent open=new Intent(context,DetailActivity.class).putExtra("id",item.optString("Id")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int id=item.optString("Id").hashCode();PendingIntent action=PendingIntent.getActivity(context,id,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         try{NotificationManagerCompat.from(context).notify(id,new NotificationCompat.Builder(context,CHANNEL).setSmallIcon(R.drawable.app_icon).setContentTitle(result).setContentText(message).setStyle(new NotificationCompat.BigTextStyle().bigText(message)).setContentIntent(action).setAutoCancel(true).build());}catch(SecurityException ignored){}
+    }
+    static String followedEpisodeTitle(JSONObject item){
+        String series = item.optString("SeriesName").trim();
+        if (!"Episode".equals(item.optString("Type")) || "replaced".equals(item.optString("Outcome")) || series.isEmpty()) {
+            return "";
+        }
+        return "你观看的《" + series + "》有更新了";
     }
     static String outcomeLabel(JSONObject item){
         String outcome=item.optString("Outcome");
