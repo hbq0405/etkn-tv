@@ -12,6 +12,15 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class PlaybackQueueTest {
+    @Test public void musicVideoQueuePreservesLibraryOrderWhenPlaybackStartsInTheMiddle() throws Exception {
+        JSONObject first = new JSONObject().put("Id", "item-1").put("Name", "First");
+        JSONObject selected = new JSONObject().put("Id", "item-5").put("Name", "Selected");
+        JSONObject following = new JSONObject().put("Id", "item-2").put("Name", "Following");
+        var queue = PlaybackSelection.musicVideoQueue(selected, List.of(first, selected, following, first));
+        assertEquals(List.of("item-1", "item-5", "item-2"), new ArrayList<>(queue.keySet()));
+        assertEquals(List.of("First", "Selected", "Following"), new ArrayList<>(queue.values()));
+    }
+
     private static JSONObject episode(String id,int season,int number,boolean played) throws Exception {
         return new JSONObject().put("Id",id).put("Type","Episode").put("ParentIndexNumber",season).put("IndexNumber",number).put("UserData",new JSONObject().put("Played",played));
     }

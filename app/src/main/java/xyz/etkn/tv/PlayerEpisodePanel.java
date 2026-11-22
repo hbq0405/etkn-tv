@@ -10,6 +10,7 @@ import androidx.media3.exoplayer.ExoPlayer;
 import org.json.JSONObject;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
 /** 播放中的右侧分集卡片：按页取元数据，只加载可见剧照。 */
 final class PlayerEpisodePanel extends LinearLayout {
@@ -30,6 +31,7 @@ final class PlayerEpisodePanel extends LinearLayout {
     private Runnable retryPage;
     private View currentCell;
     private JSONObject currentEpisode;
+    private ListView queueView;
 
     PlayerEpisodePanel(TvActivity host,String currentId,String seriesId,Consumer<JSONObject> select){
         super(host);this.host=host;this.currentId=currentId;this.seriesId=seriesId;this.select=select;
@@ -47,6 +49,29 @@ final class PlayerEpisodePanel extends LinearLayout {
     }
     int panelWidth(){return Math.min(host.imageDp(400),host.dp(host.getResources().getConfiguration().screenWidthDp*3/5));}
     boolean contains(View view){while(view!=null){if(view==this)return true;view=view.getParent() instanceof View?(View)view.getParent():null;}return false;}
+    void openQueue(String[] titles, int current, IntConsumer choose) {
+        if (queueView == null) {
+            heading.setText("播放列表 · " + titles.length + " 个 MV");
+            ListView list = queueView = new ListView(host);
+            list.setChoiceMode(AbsListView.CHOICE_MODE_SINGLE);
+            list.setAdapter(new ArrayAdapter<String>(host, android.R.layout.simple_list_item_1, titles) {
+                @Override public View getView(int index, View recycled, android.view.ViewGroup parent) {
+                    TextView row = (TextView) super.getView(index, recycled, parent);
+                    boolean playing = index == current;
+                    row.setText(playing ? getItem(index) + " · 正在播放" : getItem(index));
+                    row.setTextColor(playing ? TvActivity.ACCENT : TvActivity.TEXT);
+                    row.setMaxLines(2);
+                    row.setEllipsize(TextUtils.TruncateAt.END);
+                    return row;
+                }
+            });
+            list.setOnItemClickListener((parent, row, index, id) -> choose.accept(index));
+            body.addView(list, new LayoutParams(-1, -1));
+        }
+        queueView.requestFocus();
+        queueView.setSelection(current);
+    }
+    boolean showingQueue() { return queueView != null; }
     void open(){
         if(loading)return;
         if(initialized){focus(currentCell==null?cards.getChildAt(0):currentCell);return;}

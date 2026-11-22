@@ -15,6 +15,7 @@ public final class MusicActivity extends TvActivity {
     private String parent="",tab="recommended",key="",title="音乐";
     private String sort="DateCreated",order="Descending",shuffleSeed=UUID.randomUUID().toString();
     private final List<JSONObject> tracks=new ArrayList<>();
+    private final List<JSONObject> displayedVideos = new ArrayList<>();
     private int revision,offset,total;
     private boolean loading,tracksOnly,loaded,pageFailed,albumHasVideos;
     private android.os.CancellationSignal pageRequest;
@@ -74,6 +75,7 @@ public final class MusicActivity extends TvActivity {
     }
     private void load(){
         if(playRequest!=null)playRequest.cancel();playRequest=null;listPlaying=false;
+        displayedVideos.clear();
         revision++;if(pageRequest!=null)pageRequest.cancel();pageRequest=null;offset=0;total=0;tracks.clear();artist=null;loading=false;pageFailed=false;listing=null;more=null;content.removeAllViews();status.setText("正在读取音乐…");
         updateSorting();
         for(int i=0;i<TABS.length;i++){Button choice=(Button)musicMenu.getChildAt(i);themeText(choice,TABS[i].equals(tab)?ACCENT:TEXT);choice.setTypeface(null,TABS[i].equals(tab)?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);}
@@ -112,8 +114,8 @@ public final class MusicActivity extends TvActivity {
             if(start==0){JSONObject info=result.optJSONObject("Artist");artist=info;if(info!=null&&!tracksOnly){LinearLayout header=column();header.setPadding(dp(12),dp(8),dp(12),dp(12));TextView bio=text(info.optString("Overview"),14,MUTED);bio.setMaxLines(4);header.addView(bio);header.addView(button("播放歌手全部歌曲",()->{tracksOnly=true;load();}));content.addView(header,0);}
                 JSONArray folders=result.optJSONArray("Folders");if(folders!=null&&folders.length()>0){GridLayout folderGrid=grid(content,140,12,104);content.removeView(folderGrid);content.addView(folderGrid,0);for(JSONObject folder:items(folders))MusicViews.card(this,folderGrid,folder,()->openGroup(folder),false);}
             }
-            if(start==0){if(tab.equals("albums")&&albumHasVideos&&!rows.isEmpty())content.addView(button("播放专辑歌曲",()->playAlbum(key,title)),0);List<JSONObject> videos=items(result.optJSONArray("Videos"));if(!videos.isEmpty()){LinearLayout section=column();section.addView(text("音乐视频",20,TEXT));GridLayout videoGrid=grid(section,300,12,104);for(JSONObject video:videos)MusicViews.card(this,videoGrid,video,()->playVideo(video),false);content.addView(section);}}
-            for(JSONObject item:rows){boolean track=item.optString("Kind").isEmpty()&&"Audio".equals(item.optString("Type"));if(track)tracks.add(item);View card=MusicViews.card(this,listing,item,()->{if(item.optBoolean("MusicVideo"))playVideo(item);else if(track)play(item,tracks,path());else openGroup(item);},track);if(track)bindTrack(card,item);}
+            if(start==0){if(tab.equals("albums")&&albumHasVideos&&!rows.isEmpty())content.addView(button("播放专辑歌曲",()->playAlbum(key,title)),0);List<JSONObject> videos=items(result.optJSONArray("Videos"));if(!videos.isEmpty()){LinearLayout section=column();section.addView(text("音乐视频",20,TEXT));GridLayout videoGrid=grid(section,300,12,104);for(JSONObject video:videos)MusicViews.card(this,videoGrid,video,()->playVideo(video,videos),false);content.addView(section);}}
+            for(JSONObject item:rows){boolean track=item.optString("Kind").isEmpty()&&"Audio".equals(item.optString("Type"));if(track)tracks.add(item);if(item.optBoolean("MusicVideo"))displayedVideos.add(item);View card=MusicViews.card(this,listing,item,()->{if(item.optBoolean("MusicVideo"))openVideo(item);else if(track)play(item,tracks,path());else openGroup(item);},track);if(track)bindTrack(card,item);}
             if(rows.isEmpty())total=offset;updateSorting();
             int videoCount=result.optJSONArray("Videos")==null?0:result.optJSONArray("Videos").length();status.setText((result.optString("Title").isEmpty()?title:result.optString("Title"))+"  ·  "+(rows.isEmpty()&&start==0?(videoCount>0?videoCount+" 个 MV":"暂无音乐"):"已加载 "+offset+" / "+total));
         });}catch(Exception error){runOnUiThread(()->{
@@ -133,8 +135,21 @@ public final class MusicActivity extends TvActivity {
         });
     }
     private void openGroup(JSONObject item){String kind=item.optString("Kind",tab);if(kind.equals("albums")){if(item.optInt("VideoCount")>0){startActivity(new Intent(this,MusicActivity.class).putExtra("parent",parent).putExtra("tab",kind).putExtra("key",item.optString("Key")).putExtra("title",item.optString("Name")).putExtra("videos",true));}else playAlbum(item.optString("Key"),item.optString("Name"));return;}open(this,parent,kind,item.optString("Key"),item.optString("Name"));}
-    private void playVideo(JSONObject item){MusicPlayback.stop();startActivity(new Intent(this,PlayerActivity.class).putExtra("id",item.optString("Id")).putExtra("title",item.optString("Name")));}
-    private void playList(boolean shuffle){
+    private void openVideo(JSONObject item) {
+        if (tab.equals("videos") && sortable() && offset < total) playList(false, item);
+        else playVideo(item, displayedVideos);
+    }
+    private void playVideo(JSONObject item, List<JSONObject> videos) {
+        String id = item.optString("Id");
+        Map<String, String> queue = PlaybackSelection.musicVideoQueue(item, videos);
+        String[] ids = queue.keySet().toArray(new String[0]);
+        MusicPlayback.stop();
+        startActivity(new Intent(this, PlayerActivity.class).putExtra("id", id).putExtra("title", item.optString("Name"))
+                .putExtra("queue", ids).putExtra("musicVideoQueueTitles", queue.values().toArray(new String[0]))
+                .putExtra("queueIndex", Arrays.asList(ids).indexOf(id)).putExtra("resolved", true));
+    }
+    private void playList(boolean shuffle) { playList(shuffle, null); }
+    private void playList(boolean shuffle, JSONObject selected){
         if(!sortable()||listPlaying||total==0)return;
         boolean videoList=tab.equals("videos");int ticket=revision;
         String endpoint=path(shuffle)+"&Tracks=1";
@@ -154,10 +169,7 @@ public final class MusicActivity extends TvActivity {
                 listPlaying=false;playRequest=null;updateSorting();
                 JSONObject first=items.get(0);
                 if(videoList){
-                    String[] ids=seen.toArray(new String[0]);
-                    MusicPlayback.stop();
-                    startActivity(new Intent(this,PlayerActivity.class).putExtra("id",first.optString("Id"))
-                        .putExtra("title",first.optString("Name")).putExtra("queue",ids).putExtra("resolved",true));
+                    playVideo(selected == null ? first : selected, selected == null || seen.contains(selected.optString("Id")) ? items : displayedVideos);
                 }else{
                     MusicPlayback playback=MusicPlayback.get(this);playback.mode(0);
                     playback.play(items,first,"",items.size());open(MusicPlayerActivity.class);
@@ -167,6 +179,7 @@ public final class MusicActivity extends TvActivity {
             if(ticket!=revision||cancellation.isCanceled()||isFinishing()||isDestroyed()||!TvAppearance.sameSession(api,api.userId))return;
             listPlaying=false;playRequest=null;updateSorting();status.setText(error.getMessage()==null?"播放清单读取失败，请重试":error.getMessage());
             if(error instanceof EtknApi.AuthException){api.session.clear();open(SetupActivity.class);finish();}
+            else if (selected != null) playVideo(selected, displayedVideos);
         });}});
     }
     private void bindTrack(View card,JSONObject item){card.setTag(item);card.setOnLongClickListener(view->{MusicActions.trackMenu(this,item,parent,this::refreshAfterAction);return true;});card.setOnKeyListener((view,code,event)->{if(code!=KeyEvent.KEYCODE_MENU)return false;if(event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0)MusicActions.trackMenu(this,item,parent,this::refreshAfterAction);return true;});}

@@ -7,6 +7,15 @@ import java.util.*;
 /** Playback uses server indices; season preferences store an audio-list ordinal. */
 final class PlaybackSelection {
     static final int AUTO=-2;
+    static Map<String, String> musicVideoQueue(JSONObject item, List<JSONObject> videos) {
+        Map<String, String> queue = new LinkedHashMap<>();
+        for (JSONObject video : videos) {
+            String videoId = video.optString("Id");
+            if (!videoId.isEmpty()) queue.putIfAbsent(videoId, video.optString("Name"));
+        }
+        queue.putIfAbsent(item.optString("Id"), item.optString("Name"));
+        return queue;
+    }
     static long seekStepMillis(long duration,boolean repeated){
         if(!repeated||duration<=2700000)return 10000;
         return Math.min(60000,Math.round(duration/2700000d*10)*1000);

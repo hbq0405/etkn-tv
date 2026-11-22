@@ -74,7 +74,7 @@ final class EtknApi {
             if (status == 404 && path.startsWith("/api/tv/")) throw new Exception("请先更新 ETKN 服务端以支持独立 TV 接口");
             if (status >= 400) {
                 if (status == 401) throw new AuthException();
-                throw new Exception(json.optString("detail", "请求失败（HTTP " + status + "）"));
+                throw new HttpStatusException(status, json.optString("detail", "请求失败（HTTP " + status + "）"));
             }
             return json;
         } finally { if(cancellation!=null)cancellation.setOnCancelListener(null);conn.disconnect(); }
@@ -204,4 +204,8 @@ final class EtknApi {
     }
     static String title(JSONObject item) { return item.optString("Name", item.optString("title", item.optString("name", "未命名"))); }
     static class AuthException extends Exception { AuthException() { super("登录已过期，请重新登录"); } }
+    static final class HttpStatusException extends Exception {
+        final int status;
+        HttpStatusException(int status, String message) { super(message); this.status = status; }
+    }
 }
